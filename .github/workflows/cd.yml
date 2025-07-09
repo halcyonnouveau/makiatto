@@ -1,0 +1,19 @@
+name: CD
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  upload-assets:
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.release.tag_name, 'makiatto-v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: makiatto
+          target: x86_64-unknown-linux-gnu
+          archive: $bin-$target
+          token: ${{ secrets.GITHUB_TOKEN }}

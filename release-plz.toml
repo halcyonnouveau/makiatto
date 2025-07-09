@@ -1,0 +1,21 @@
+[changelog]
+commit_parsers = [
+    { message = "^feat", group = "added" },
+    { message = "^changed", group = "changed" },
+    { message = "^deprecated", group = "deprecated" },
+    { message = "^fix", group = "fixed" },
+    { message = "^perf", group = "performance" },
+    { message = "^refactor", group = "refactor" },
+    { message = "^security", group = "security" },
+    { message = "^chore|^build|^ci|^style|^test", skip = true },
+    { message = "^.*", group = "other" },
+]
+
+[[package]]
+name = "makiatto"
+changelog_path = "crates/makiatto/CHANGELOG.md"
+publish = false
+
+[[package]]
+name = "makiatto-cli"
+changelog_path = "crates/makiatto-cli/CHANGELOG.md"

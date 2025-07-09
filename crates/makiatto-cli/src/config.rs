@@ -68,7 +68,8 @@ impl GlobalConfig {
         self.machines.len() != original_len
     }
 
-    #[must_use] pub fn find_machine(&self, name: &str) -> Option<&MachineConfig> {
+    #[must_use]
+    pub fn find_machine(&self, name: &str) -> Option<&MachineConfig> {
         self.machines.iter().find(|m| m.name == name)
     }
 

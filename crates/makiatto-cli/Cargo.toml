@@ -1,7 +1,15 @@
 [package]
 name = "makiatto-cli"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
+description = "CLI tool for managing Makiatto CDN deployments"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/halcyonnouveau/makiatto"
+homepage = "https://github.com/halcyonnouveau/makiatto"
+documentation = "https://halcyonnouveau.github.io/makiatto/"
+readme = "../../README.md"
+keywords = ["cdn", "cli", "deployment", "mesh", "infrastructure"]
+categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
 argh = { workspace = true }

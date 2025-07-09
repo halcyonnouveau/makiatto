@@ -3,11 +3,14 @@
 # Makiatto
 
 [![status](https://github.com/halcyonnouveau/makiatto/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/halcyonnouveau/makiatto/actions/workflows/ci.yml)
-[![crate](https://img.shields.io/crates/v/makiatto.svg)](https://crates.io/crates/makiatto)
+[![crate](https://img.shields.io/crates/v/makiatto-cli.svg)](https://crates.io/crates/makiatto-cli)
 [![docs](https://img.shields.io/badge/book-latest-blue?logo=mdbook)](https://halcyonnouveau.github.io/makiatto/)
 ![license](https://img.shields.io/badge/License-APACHE--2.0%2FMIT-blue)
 
 Makiatto is a lightweight CDN that lets you deploy and distribute content across multiple servers with minimal infrastructure overhead. It creates a secure WireGuard mesh network between your machines and provides automatic content synchronisation, GeoDNS routing, and coordinate-based geographic distribution through simple CLI commands.
+
+> [!NOTE]
+> Makiatto is currently under active development and not all features have been implemented. Do not use this yet.
 
 ## Features
 
