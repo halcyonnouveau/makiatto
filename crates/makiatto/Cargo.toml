@@ -14,7 +14,7 @@ publish = false
 
 [dependencies]
 # used for hickory handler
-# TODO: remove when as soon as possible
+# TODO: remove as soon as possible
 async-trait = "0.1"
 
 argh = { workspace = true }

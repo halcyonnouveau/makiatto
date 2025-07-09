@@ -27,7 +27,7 @@ struct Cli {
 #[argh(subcommand)]
 enum Command {
     Machine(MachineCommand),
-    Sync(SyncCommand),
+    Deploy(DeployCommand),
     Status(StatusCommand),
 }
 
@@ -51,10 +51,10 @@ enum MachineAction {
 #[argh(subcommand, name = "list")]
 struct ListMachines {}
 
-/// sync files to cdn
+/// deploy the project to the cdn
 #[derive(FromArgs)]
 #[argh(subcommand, name = "sync")]
-struct SyncCommand {}
+struct DeployCommand {}
 
 /// show cluster status
 #[derive(FromArgs)]
@@ -99,8 +99,7 @@ async fn main() -> Result<()> {
             } // TODO: MachineAction::Add
               // ssh into machine - get it's name, is_nameserver, etc and add to config (keep the url you ssh'd with)
         },
-        Command::Sync(_) => {
-            ui::status("Syncing files...");
+        Command::Deploy(_) => {
             let _ = LocalConfig::load(cli.config_path);
             /* TODO: DNS Record Sync Implementation Plan
              *

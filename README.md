@@ -9,8 +9,8 @@
 
 Makiatto is a lightweight CDN that lets you deploy and distribute content across multiple servers with minimal infrastructure overhead. It creates a secure WireGuard mesh network between your machines and provides automatic content synchronisation, GeoDNS routing, and coordinate-based geographic distribution through simple CLI commands.
 
-> [!NOTE]
-> Makiatto is currently under active development and not all features have been implemented. Do not use this yet.
+> [!WARNING]
+> Makiatto is currently under active development and not all features have been implemented. Do **NOT** use this yet.
 
 ## Features
 
@@ -27,6 +27,44 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 - **Small teams** serving static sites that need global performance without vendor lock-in
 - **Hobbyists** who enjoy building their own infrastructure
 - **Anyone** with multiple VPS instances who wants to put them to good use
+
+## Quick Start
+
+1. **Install the CLI**
+
+   ```bash
+   cargo install makiatto-cli
+   ```
+
+2. **Create your CDN nodes**
+
+   Set up nodes in different geographic regions. Each node will automatically join the mesh network and sync content.
+
+   ```bash
+   #       init machine args <name> <ssh: user@address:port>
+   makiatto-cli machine init tololo user@server1.example.com
+   makiatto-cli machine init vector user@server2.example.com
+   makiatto-cli machine init klukai user@server3.example.com
+   ```
+
+3. **Configure your project**
+
+   Create a `makiatto.toml` file in your project to define your domain and content paths:
+
+   ```toml
+   domain = "quaso.com"
+   paths = ["./dist"]
+   ```
+
+4. **Deploy your content**
+
+   Deploy your static files to all nodes in the mesh:
+
+   ```bash
+   makiatto-cli deploy
+   ```
+
+Your content is now distributed globally with automatic geolocation DNS routing!
 
 ## License
 
