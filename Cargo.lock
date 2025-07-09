@@ -2355,7 +2355,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "makiatto-cli",
  "miette",

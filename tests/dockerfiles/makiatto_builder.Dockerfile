@@ -9,8 +9,8 @@ RUN mkdir tests
 COPY <<EOF tests/Cargo.toml
 [package]
 name = "integration-tests"
-version = "0.1.0"
-edition = "2021"
+version = "0.0.0"
+edition = "2024"
 
 [[bin]]
 name = "docker-test-mock"
