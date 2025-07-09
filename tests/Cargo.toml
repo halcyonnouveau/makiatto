@@ -1,0 +1,25 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+makiatto-cli = { path = "../crates/makiatto-cli", features = [
+    "integration-tests",
+] }
+
+miette = { workspace = true }
+testcontainers = { workspace = true }
+tokio = { workspace = true }
+tokio-test = { workspace = true }
+rand = { workspace = true }
+
+[build-dependencies]
+miette = { workspace = true }
+
+[features]
+docker-build = []
+
+[lints]
+workspace = true

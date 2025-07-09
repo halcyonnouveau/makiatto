@@ -1,0 +1,26 @@
+[package]
+name = "makiatto-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+argh = { workspace = true }
+console = { workspace = true }
+dialoguer = { workspace = true }
+dirs = { workspace = true }
+indicatif = { workspace = true }
+miette = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["fs", "process"] }
+toml = { workspace = true }
+ssh2 = { workspace = true }
+camino = { workspace = true }
+base64 = { workspace = true }
+x25519-dalek = { workspace = true }
+indoc = { workspace = true }
+
+[features]
+integration-tests = []
+
+[lints]
+workspace = true

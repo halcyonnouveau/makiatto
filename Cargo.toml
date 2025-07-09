@@ -1,0 +1,83 @@
+[workspace]
+members = ["crates/*", "tests"]
+resolver = "2"
+
+[workspace.dependencies]
+# CLI
+argh = "0.1"
+console = "0.16"
+dialoguer = "0.11"
+dirs = "6"
+indicatif = "0.18"
+
+# Async runtime
+futures = "0.3"
+tokio = { version = "1.46", features = ["full"] }
+tokio-cron-scheduler = { version = "0.14", features = ["signal"] }
+
+# Error handling
+miette = { version = "7.6", features = ["fancy"] }
+thiserror = "2.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Serialisation
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Cryptography
+base64 = "0.22"
+x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
+
+# DNS
+hickory-proto = "0.25"
+hickory-server = { version = "0.25", features = [
+    "tls-ring",
+    "https-ring",
+    "quic-ring",
+] }
+maxminddb = "0.26"
+
+# Networking/Web
+axum = "0.8"
+defguard_wireguard_rs = "0.7"
+instant-acme = "0.7"
+ssh2 = "0.9"
+
+# Utilities
+camino = "1.1"
+geo = "0.30"
+indoc = "2.0"
+notify = "8.1"
+rand = "0.9"
+url = "2.5"
+
+# Testing
+testcontainers = "0.24"
+tokio-test = "0.4"
+
+corro-agent = { git = "https://github.com/beanpuppy/corrosion" }
+corro-types = { git = "https://github.com/beanpuppy/corrosion" }
+tripwire = { git = "https://github.com/beanpuppy/corrosion" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 2
+strip = "symbols"
+panic = "abort"
+
+
+[workspace.lints.rust]
+missing_copy_implementations = "warn"
+non_snake_case = "warn"
+non_upper_case_globals = "warn"
+
+[workspace.lints.clippy]
+pedantic = "warn"
+
+dbg_macro = "warn"
+unimplemented = "warn"
+use_self = "warn"

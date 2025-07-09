@@ -1,0 +1,37 @@
+[package]
+name = "makiatto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# used for hickory handler
+# TODO: remove when as soon as possible
+async-trait = "0.1"
+
+argh = { workspace = true }
+axum = { workspace = true }
+defguard_wireguard_rs = { workspace = true }
+camino = { workspace = true }
+corro-agent = { workspace = true }
+corro-types = { workspace = true }
+dirs = { workspace = true }
+futures = { workspace = true }
+geo = { workspace = true }
+hickory-proto = { workspace = true }
+hickory-server = { workspace = true }
+instant-acme = { workspace = true }
+maxminddb = { workspace = true }
+miette = { workspace = true }
+notify = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-cron-scheduler = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tripwire = { workspace = true }
+url = { workspace = true }
+
+[lints]
+workspace = true
