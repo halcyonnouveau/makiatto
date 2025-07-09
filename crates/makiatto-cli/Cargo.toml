@@ -11,6 +11,9 @@ readme = "../../README.md"
 keywords = ["cdn", "cli", "deployment", "mesh", "infrastructure"]
 categories = ["command-line-utilities", "network-programming"]
 
+[lib]
+publish = false
+
 [dependencies]
 argh = { workspace = true }
 console = { workspace = true }
