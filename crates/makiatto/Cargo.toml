@@ -10,6 +10,7 @@ documentation = "https://halcyonnouveau.github.io/makiatto/"
 readme = "../../README.md"
 keywords = ["cdn", "wireguard", "distributed", "mesh", "geolocation"]
 categories = ["network-programming", "web-programming"]
+publish = false
 
 [dependencies]
 # used for hickory handler

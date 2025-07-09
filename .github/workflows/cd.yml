@@ -3,17 +3,65 @@ name: CD
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - "makiatto-v*"
 
 jobs:
-  upload-assets:
+  release-makiatto:
     runs-on: ubuntu-latest
-    if: startsWith(github.event.release.tag_name, 'makiatto-v')
+    if: startsWith(github.ref, 'refs/tags/makiatto-v')
+    outputs:
+      release_body: ${{ steps.git-cliff.outputs.content }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@main
+        id: git-cliff
+        with:
+          args: -vv --latest --no-exec --github-repo ${{ github.repository }} --include-path "crates/makiatto/**"
+        env:
+          OUTPUT: crates/makiatto/CHANGELOG.md
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: makiatto
           target: x86_64-unknown-linux-gnu
+          archive: $bin-$target
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update release with changelog
+        uses: softprops/action-gh-release@v1
+        with:
+          body: ${{ steps.git-cliff.outputs.content }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add crates/makiatto/CHANGELOG.md
+          git commit -m "chore: update changelog for ${{ github.ref_name }}" || exit 0
+          git push origin HEAD:main
+
+  upload-makiatto-cli:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    if: startsWith(github.event.release.tag_name, 'makiatto-cli-v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: makiatto-cli
+          target: ${{ matrix.target }}
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}
