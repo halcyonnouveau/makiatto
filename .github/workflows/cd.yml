@@ -24,17 +24,17 @@ jobs:
           args: -vv --latest --no-exec --github-repo ${{ github.repository }} --include-path "crates/makiatto/**"
         env:
           OUTPUT: crates/makiatto/CHANGELOG.md
+      - name: Create release with changelog
+        uses: softprops/action-gh-release@v1
+        with:
+          body: ${{ steps.git-cliff.outputs.content }}
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: makiatto
           target: x86_64-unknown-linux-gnu
           archive: $bin-$target
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Update release with changelog
-        uses: softprops/action-gh-release@v1
-        with:
-          body: ${{ steps.git-cliff.outputs.content }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Commit changelog
         run: |
