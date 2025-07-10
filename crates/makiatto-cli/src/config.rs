@@ -16,7 +16,10 @@ pub struct MachineConfig {
     pub is_nameserver: bool,
     pub wg_public_key: String,
     pub wg_address: String,
-    pub wg_endpoint: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub ipv4: String,
+    pub ipv6: Option<String>,
 }
 
 /// Local project configuration stored in ./makiatto.toml
@@ -38,6 +41,10 @@ pub struct DnsRecord {
 }
 
 impl GlobalConfig {
+    /// Load global configuration from file
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed
     pub fn load(custom_path: Option<impl Into<PathBuf>>) -> Result<Self> {
         let config_path = match custom_path {
             Some(path) => path.into(),
@@ -73,6 +80,10 @@ impl GlobalConfig {
         self.machines.iter().find(|m| m.name == name)
     }
 
+    /// Save global configuration to file
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be written
     pub fn save(&self, custom_path: Option<impl Into<PathBuf>>) -> Result<()> {
         let config_path = match custom_path {
             Some(path) => path.into(),
@@ -97,6 +108,10 @@ impl GlobalConfig {
 }
 
 impl LocalConfig {
+    /// Load local project configuration from file
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed
     pub fn load(custom_path: Option<impl Into<PathBuf>>) -> Result<Self> {
         let config_path = match custom_path {
             Some(path) => path.into(),
@@ -131,7 +146,10 @@ mod tests {
             is_nameserver: false,
             wg_public_key: "key1".to_string(),
             wg_address: "10.0.0.1".to_string(),
-            wg_endpoint: "host1:51820".to_string(),
+            latitude: Some(40.7128),
+            longitude: Some(-74.0060),
+            ipv4: "1.2.3.4".to_string(),
+            ipv6: Some("2001:db8::1".to_string()),
         };
 
         let machine2 = MachineConfig {
@@ -140,7 +158,10 @@ mod tests {
             is_nameserver: true,
             wg_public_key: "key2".to_string(),
             wg_address: "10.0.0.2".to_string(),
-            wg_endpoint: "host2:51820".to_string(),
+            latitude: Some(51.5074),
+            longitude: Some(-0.1278),
+            ipv4: "5.6.7.8".to_string(),
+            ipv6: None,
         };
 
         config.add_machine(machine1.clone());

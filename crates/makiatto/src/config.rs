@@ -37,9 +37,6 @@ pub struct NetworkConfig {
     /// `WireGuard` interface name
     pub interface: String,
 
-    /// `WireGuard` listen port
-    pub port: u16,
-
     /// This node's `WireGuard` IP address (auto-assigned)
     pub address: String,
 
@@ -80,7 +77,7 @@ impl Config {
     }
 }
 
-pub async fn load() -> Result<Config> {
+pub fn load() -> Result<Config> {
     let config_paths = [
         Utf8PathBuf::from("/etc/makiatto.toml"),
         Utf8PathBuf::from("./makiatto-daemon.toml"),

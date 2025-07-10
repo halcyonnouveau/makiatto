@@ -9,6 +9,7 @@ RUN apt-get update && \
     ca-certificates \
     libcap2-bin \
     curl \
+    sqlite3 \
     resolvconf \
     && rm -rf /var/lib/apt/lists/*
 

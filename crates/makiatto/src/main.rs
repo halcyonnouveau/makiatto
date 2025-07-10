@@ -6,6 +6,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod config;
 mod corrosion;
 mod dns;
+mod utils;
 mod wireguard;
 
 #[tokio::main]
@@ -19,7 +20,7 @@ async fn main() -> Result<()> {
 
     info!("Starting makiatto...");
 
-    let config = config::load().await?;
+    let config = config::load()?;
     info!("Loaded config for node '{}'", config.node.name);
 
     wireguard::setup_interface(&config)?;

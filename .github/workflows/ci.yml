@@ -29,6 +29,18 @@ jobs:
           cargo build
           cargo test --workspace --exclude integration-tests
 
+  clippy:
+    name: Check for common code mistakes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Run clippy
+        run: cargo clippy --workspace --tests -- -D warnings
+
   fmt:
     name: Check code format
     runs-on: ubuntu-latest

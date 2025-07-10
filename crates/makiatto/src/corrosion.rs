@@ -78,14 +78,11 @@ CREATE TABLE peers (
     ipv6 TEXT DEFAULT NULL,
     wg_public_key TEXT NOT NULL DEFAULT "",
     wg_address TEXT NOT NULL DEFAULT "",
-    wg_endpoint TEXT NOT NULL DEFAULT "",
-    wg_port INTEGER NOT NULL DEFAULT 51820,
-    is_active INTEGER NOT NULL DEFAULT 1,
+    wg_port INTEGER NOT NULL DEFAULT 51880,
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE INDEX idx_peers_active ON peers (is_active);
 CREATE INDEX idx_peers_location ON peers (latitude, longitude);
 CREATE INDEX idx_peers_wg_key ON peers (wg_public_key);
 

@@ -16,7 +16,11 @@ pub struct SshSession {
 }
 
 impl SshSession {
-    pub fn new(ssh_target: &str, key_path: &Option<PathBuf>) -> Result<Self> {
+    /// Create a new SSH session
+    ///
+    /// # Errors
+    /// Returns an error if connection fails or authentication fails
+    pub fn new(ssh_target: &str, key_path: Option<&PathBuf>) -> Result<Self> {
         let (user, host, port) = parse_ssh_target(ssh_target)?;
         let mut password = None;
 
@@ -46,34 +50,32 @@ impl SshSession {
                     key_path.display()
                 ));
             }
+        } else if session.userauth_agent(&user).is_ok() {
+            ui::info("Authenticated via SSH agent");
         } else {
-            if session.userauth_agent(&user).is_ok() {
-                ui::info("Authenticated via SSH agent");
-            } else {
-                let mut authenticated = false;
-                for key_path in find_ssh_keys() {
-                    if session
-                        .userauth_pubkey_file(&user, None, &key_path, None)
-                        .is_ok()
-                    {
-                        ui::info(&format!(
-                            "Authenticated with SSH key: {}",
-                            key_path.display()
-                        ));
-                        authenticated = true;
-                        break;
-                    }
+            let mut authenticated = false;
+            for key_path in find_ssh_keys() {
+                if session
+                    .userauth_pubkey_file(&user, None, &key_path, None)
+                    .is_ok()
+                {
+                    ui::info(&format!(
+                        "Authenticated with SSH key: {}",
+                        key_path.display()
+                    ));
+                    authenticated = true;
+                    break;
                 }
+            }
 
-                if !authenticated {
-                    let user_password = ui::password(&format!("[ssh] password for {user}"))?;
+            if !authenticated {
+                let user_password = ui::password(&format!("[ssh] password for {user}"))?;
 
-                    session
-                        .userauth_password(&user, &user_password)
-                        .map_err(|e| miette!("SSH password authentication failed: {}", e))?;
+                session
+                    .userauth_password(&user, &user_password)
+                    .map_err(|e| miette!("SSH password authentication failed: {}", e))?;
 
-                    password = Some(user_password);
-                }
+                password = Some(user_password);
             }
         }
 
@@ -90,6 +92,13 @@ impl SshSession {
         Ok(ssh)
     }
 
+    /// Execute a command over SSH
+    ///
+    /// # Errors
+    /// Returns an error if command execution fails
+    ///
+    /// # Panics
+    /// Panics if password is expected but not available
     pub fn exec(&self, command: &str) -> Result<String> {
         if command.starts_with("sudo ") && self.password.is_some() {
             let password = self.password.as_ref().unwrap();
@@ -100,6 +109,13 @@ impl SshSession {
     }
 
     #[allow(dead_code)]
+    /// Execute a command over SSH with timeout
+    ///
+    /// # Errors
+    /// Returns an error if command execution fails or times out
+    ///
+    /// # Panics
+    /// Panics if password is expected but not available
     pub fn exec_timeout(&self, command: &str, timeout: Duration) -> Result<String> {
         if command.starts_with("sudo ") && self.password.is_some() {
             let password = self.password.as_ref().unwrap();
@@ -109,8 +125,15 @@ impl SshSession {
         self.execute_command_raw(command, Some(timeout))
     }
 
+    /// Upload a file via SCP
+    ///
+    /// # Errors
+    /// Returns an error if file upload fails
+    ///
+    /// # Panics
+    /// Panics if file has no filename
     pub fn upload_file(&self, local_path: &std::path::Path, remote_path: &str) -> Result<()> {
-        use std::io::Read;
+        const CHUNK_SIZE: usize = 8192;
 
         let file_size = std::fs::metadata(local_path)
             .map_err(|e| miette!("Failed to get file metadata: {}", e))?
@@ -141,7 +164,6 @@ impl SshSession {
             )
             .map_err(|e| miette!("Failed to create SCP channel: {e}"))?;
 
-        const CHUNK_SIZE: usize = 8192;
         for chunk in file_data.chunks(CHUNK_SIZE) {
             channel
                 .write_all(chunk)
@@ -173,11 +195,9 @@ impl SshSession {
         Ok(())
     }
 
-    pub(crate) fn is_remote_container(&self) -> Result<bool> {
-        match self.execute_command_raw("test -f /run/.containerenv", None) {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
-        }
+    pub(crate) fn is_container(&self) -> bool {
+        self.execute_command_raw("test -f /run/.containerenv", None)
+            .is_ok()
     }
 
     fn test_sudo(&self) -> Result<Option<String>> {
@@ -198,7 +218,9 @@ impl SshSession {
         let session = &self.session;
 
         if let Some(timeout) = timeout {
-            session.set_timeout(timeout.as_millis() as u32);
+            session.set_timeout(
+                u32::try_from(timeout.as_millis()).map_err(|e| miette!("Invalid timeout: {e}"))?,
+            );
         }
 
         let mut channel = session

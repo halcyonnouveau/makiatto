@@ -2636,6 +2636,7 @@ dependencies = [
  "indoc",
  "miette",
  "serde",
+ "serde_json",
  "ssh2",
  "tokio",
  "toml 0.8.23",
