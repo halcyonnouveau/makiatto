@@ -69,13 +69,8 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Machine(machine) => match machine.action {
             MachineAction::Init(init) => {
-                let install_only = init.install_only;
-
-                machine::init_machine(init, &mut global_config).await?;
-
-                if !install_only {
-                    global_config.save(cli.global_config_path)?;
-                }
+                machine::init_machine(&init, &mut global_config)?;
+                global_config.save(cli.global_config_path)?;
 
                 Ok(())
             }
@@ -92,7 +87,6 @@ async fn main() -> Result<()> {
                         ui::field("SSH Target", &machine.ssh_target);
                         ui::field("Nameserver", &machine.is_nameserver.to_string());
                         ui::field("WireGuard Address", &machine.wg_address);
-                        ui::field("WireGuard Endpoint", &machine.wg_endpoint);
                     }
                 }
                 Ok(())

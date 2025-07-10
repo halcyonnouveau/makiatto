@@ -13,8 +13,8 @@ pub fn install_makiatto(
     global_config: &GlobalConfig,
     machine_config: &MachineConfig,
     wg_private_key: &str,
-    binary_path: &Option<PathBuf>,
-    key_path: &Option<PathBuf>,
+    binary_path: Option<&PathBuf>,
+    key_path: Option<&PathBuf>,
 ) -> Result<SshSession> {
     ui::status("Connecting to remote machine via SSH...");
     let ssh = SshSession::new(&machine_config.ssh_target, key_path)?;
@@ -22,17 +22,15 @@ pub fn install_makiatto(
     create_makiatto_user(&ssh)?;
     install_makiatto_binary(&ssh, binary_path)?;
     setup_system_permissions(&ssh)?;
-
+    ensure_sqlite3_installed(&ssh)?;
     create_daemon_config(&ssh, global_config, machine_config, wg_private_key)?;
     setup_systemd_service(&ssh)?;
 
-    if ssh.is_remote_container()? {
+    if ssh.is_container() {
         ui::info("Container environment detected - skipping systemd start");
     } else {
         start_makiatto_service(&ssh)?;
     }
-
-    // TODO: insert self into peers table, return self
 
     Ok(ssh)
 }
@@ -64,7 +62,7 @@ fn create_makiatto_user(ssh: &SshSession) -> Result<()> {
     Ok(())
 }
 
-fn install_makiatto_binary(ssh: &SshSession, binary_path: &Option<PathBuf>) -> Result<()> {
+fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) -> Result<()> {
     ui::status("Installing makiatto binary...");
 
     if let Some(path) = binary_path {
@@ -74,7 +72,7 @@ fn install_makiatto_binary(ssh: &SshSession, binary_path: &Option<PathBuf>) -> R
             "sudo mkdir -p /usr/local/bin",
             "sudo mv /tmp/makiatto /usr/local/bin/makiatto",
             "sudo chmod +x /usr/local/bin/makiatto",
-            "sudo chown root:root /usr/local/bin/makiatto",
+            "sudo chown makiatto:makiatto /usr/local/bin/makiatto",
         ];
 
         for cmd in commands {
@@ -92,8 +90,13 @@ fn install_makiatto_binary(ssh: &SshSession, binary_path: &Option<PathBuf>) -> R
 fn setup_system_permissions(ssh: &SshSession) -> Result<()> {
     ui::status("Setting up system permissions...");
 
-    ui::action("Setting network admin capabilities");
-    ssh.exec("sudo setcap cap_net_admin=+epi /usr/local/bin/makiatto")?;
+    // Only set capabilities if not in a container (overlay fs doesn't support xattrs properly)
+    if ssh.is_container() {
+        ui::info("Container detected - skipping capability setup (overlay fs limitation)");
+    } else {
+        ui::action("Setting network admin capabilities");
+        ssh.exec("sudo setcap cap_net_admin=+epi /usr/local/bin/makiatto")?;
+    }
 
     ui::action("Configuring unprivileged port binding");
     ssh.exec(
@@ -104,6 +107,43 @@ fn setup_system_permissions(ssh: &SshSession) -> Result<()> {
     ssh.exec("sudo sysctl --system")?;
 
     Ok(())
+}
+
+fn ensure_sqlite3_installed(ssh: &SshSession) -> Result<()> {
+    // Check if sqlite3 is already available
+    if ssh.exec("which sqlite3").is_ok() {
+        return Ok(());
+    }
+
+    ui::status("Installing SQLite3...");
+
+    // Try different package managers in order of preference
+    let install_commands = [
+        // Debian/Ubuntu (apt)
+        "sudo apt update && sudo apt install -y sqlite3",
+        // RHEL/CentOS/Fedora (yum/dnf)
+        "sudo dnf install -y sqlite || sudo yum install -y sqlite",
+        // Alpine Linux (apk)
+        "sudo apk add sqlite",
+        // Arch Linux (pacman)
+        "sudo pacman -S --noconfirm sqlite",
+        // openSUSE (zypper)
+        "sudo zypper install -y sqlite3",
+        // Gentoo (emerge)
+        "sudo emerge dev-db/sqlite",
+        // FreeBSD (pkg)
+        "sudo pkg install -y sqlite3",
+    ];
+
+    for cmd in &install_commands {
+        if ssh.exec(cmd).is_ok() && ssh.exec("which sqlite3").is_ok() {
+            return Ok(());
+        }
+    }
+
+    Err(miette::miette!(
+        "Failed to install SQLite3. Please install it manually on the target system."
+    ))
 }
 
 fn create_daemon_config(
@@ -132,7 +172,6 @@ fn create_daemon_config(
 
         [network]
         interface = "wawa0"
-        port = 51880
         address = "{wg_address}"
         private_key = "{wg_private_key}"
         public_key = "{wg_public_key}"

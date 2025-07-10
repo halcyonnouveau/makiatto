@@ -6,6 +6,7 @@ use miette::{IntoDiagnostic, Result, bail};
 #[cfg(feature = "docker-build")]
 fn main() -> Result<()> {
     println!("cargo:rerun-if-changed=dockerfiles");
+    println!("cargo:rerun-if-changed=../crates/makiatto");
 
     let cwd = env::var("CARGO_MANIFEST_DIR").into_diagnostic()?;
     let workspace_root = std::path::Path::new(&cwd).parent().unwrap();

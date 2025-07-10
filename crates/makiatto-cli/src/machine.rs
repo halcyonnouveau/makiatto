@@ -5,6 +5,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use miette::{Result, miette};
 use x25519_dalek::{PublicKey, StaticSecret};
 
+mod corrosion;
+mod geolocation;
 mod provision;
 
 use crate::{
@@ -44,16 +46,13 @@ pub struct InitMachine {
     /// path to SSH private key (optional)
     #[argh(option, long = "ssh-priv-key")]
     pub key_path: Option<PathBuf>,
-
-    /// just install, don't save config (optional)
-    #[argh(switch, long = "install-only")]
-    pub install_only: bool,
 }
 
-pub async fn init_machine(
-    request: InitMachine,
-    global_config: &mut GlobalConfig,
-) -> Result<SshSession> {
+/// Initialize a new makiatto node by installing and configuring the daemon
+///
+/// # Errors
+/// Returns an error if SSH connection fails, installation fails, or configuration is invalid
+pub fn init_machine(request: &InitMachine, global_config: &mut GlobalConfig) -> Result<SshSession> {
     if global_config.find_machine(&request.name).is_some() {
         if request.override_existing {
             ui::info(&format!(
@@ -84,8 +83,10 @@ pub async fn init_machine(
 
     let (_user, host, _port) = ssh::parse_ssh_target(&request.ssh_target)?;
     let wg_address = assign_wireguard_address(global_config)?;
-    let (wg_private_key, wg_public_key) = generate_wireguard_keypair()?;
-    let wg_endpoint = format!("{host}:51820");
+    let (wg_private_key, wg_public_key) = generate_wireguard_keypair();
+
+    ui::status("Detecting public IP addresses and location...");
+    let (ipv4, ipv6, latitude, longitude) = geolocation::detect_node_info(&host)?;
 
     ui::header("Initialising machine:");
     ui::field("Name", &request.name);
@@ -93,7 +94,20 @@ pub async fn init_machine(
     ui::field("Is nameserver", &is_nameserver.to_string());
     ui::field("WireGuard public key", &wg_public_key);
     ui::field("WireGuard address", &wg_address);
-    ui::field("WireGuard endpoint", &wg_endpoint);
+
+    ui::field("IPv4", &ipv4);
+
+    if let Some(ref v6) = ipv6 {
+        ui::field("IPv6", v6);
+    } else {
+        ui::field("IPv6", "Not available");
+    }
+
+    if let (Some(lat), Some(lon)) = (latitude, longitude) {
+        ui::field("Location", &format!("{lat:.4}, {lon:.4}"));
+    } else {
+        ui::field("Location", "Unknown");
+    }
 
     let machine_config = MachineConfig {
         name: request.name.clone(),
@@ -101,38 +115,51 @@ pub async fn init_machine(
         is_nameserver,
         wg_public_key: wg_public_key.clone(),
         wg_address: wg_address.clone(),
-        wg_endpoint,
+        latitude,
+        longitude,
+        ipv4,
+        ipv6,
     };
 
     let session = provision::install_makiatto(
         global_config,
         &machine_config,
         &wg_private_key,
-        &request.binary_path,
-        &request.key_path,
+        request.binary_path.as_ref(),
+        request.key_path.as_ref(),
     )?;
 
     global_config.add_machine(machine_config.clone());
 
-    // TODO: if not first node, add machine to cluster
-    // - ssh to existing node in cluster
-    // - add new node wireguard config to corrosion db
-    // - get peers table from existing corrosion db
-    // - add peers table to new node
+    if global_config.machines.len() > 1 {
+        ui::status("Adding machine to cluster...");
+
+        if let Some(existing_machine) = global_config.machines.iter().nth_back(1) {
+            ui::action(&format!(
+                "Connecting to `{}` to add `{}` as a peer",
+                existing_machine.name, machine_config.name
+            ));
+
+            let existing_ssh =
+                SshSession::new(&existing_machine.ssh_target, request.key_path.as_ref())?;
+
+            corrosion::insert_peer(&existing_ssh, &machine_config)?;
+        }
+    }
 
     ui::status("Machine installation completed successfully");
 
     Ok(session)
 }
 
-pub fn generate_wireguard_keypair() -> Result<(String, String)> {
+fn generate_wireguard_keypair() -> (String, String) {
     let secret = StaticSecret::random();
     let public = PublicKey::from(&secret);
 
-    Ok((
+    (
         STANDARD.encode(secret.to_bytes()),
         STANDARD.encode(public.to_bytes()),
-    ))
+    )
 }
 
 fn assign_wireguard_address(global_config: &GlobalConfig) -> Result<String> {
@@ -176,7 +203,10 @@ mod tests {
                     is_nameserver: false,
                     wg_public_key: "key1".to_string(),
                     wg_address: "10.44.44.1".to_string(),
-                    wg_endpoint: "0.0.0.0:9090".to_string(),
+                    latitude: None,
+                    longitude: None,
+                    ipv4: "1.1.1.1".to_string(),
+                    ipv6: None,
                 },
                 MachineConfig {
                     name: "node2".to_string(),
@@ -184,7 +214,10 @@ mod tests {
                     is_nameserver: false,
                     wg_public_key: "key2".to_string(),
                     wg_address: "10.44.44.3".to_string(),
-                    wg_endpoint: "0.0.0.0:9090".to_string(),
+                    latitude: None,
+                    longitude: None,
+                    ipv4: "2.2.2.2".to_string(),
+                    ipv6: None,
                 },
             ],
         };
@@ -198,12 +231,21 @@ mod tests {
         let mut machines = vec![];
         for i in 1..=254 {
             machines.push(MachineConfig {
-                name: format!("node{}", i),
-                ssh_target: format!("user@host{}", i),
+                name: format!("node{i}"),
+                ssh_target: format!("user@host{i}"),
                 is_nameserver: false,
-                wg_public_key: format!("key{}", i),
-                wg_address: format!("10.44.44.{}", i),
-                wg_endpoint: format!("0.0.0.0:{}", i),
+                wg_public_key: format!("key{i}"),
+                wg_address: format!("10.44.44.{i}"),
+                latitude: None,
+                longitude: None,
+                ipv4: format!(
+                    "{}.{}.{}.{}",
+                    i % 255,
+                    (i + 1) % 255,
+                    (i + 2) % 255,
+                    (i + 3) % 255
+                ),
+                ipv6: None,
             });
         }
 

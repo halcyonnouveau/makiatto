@@ -30,7 +30,10 @@ pub fn action(msg: &str) {
     println!("  {} {}", style("->").blue(), msg);
 }
 
-/// Prompt for a hidden input
+/// Prompt user for password input
+///
+/// # Errors
+/// Returns an error if input cannot be read
 pub fn password(prompt: &str) -> Result<String> {
     Password::new()
         .with_prompt(prompt)
@@ -46,8 +49,12 @@ pub fn separator() {
     println!("{}", style(line).dim());
 }
 
-/// Create a spinner with a message
+/// Create a spinner progress indicator
+///
+/// # Panics
+/// Panics if the progress bar template is invalid
 #[cfg(not(feature = "integration-tests"))]
+#[must_use]
 pub fn spinner(msg: &str) -> ProgressBar {
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -60,8 +67,12 @@ pub fn spinner(msg: &str) -> ProgressBar {
     spinner
 }
 
-/// Create a progress bar for file transfers
+/// Create a progress bar
+///
+/// # Panics
+/// Panics if the progress bar template is invalid
 #[cfg(not(feature = "integration-tests"))]
+#[must_use]
 pub fn progress_bar(total_bytes: u64, msg: &str) -> ProgressBar {
     let pb = ProgressBar::new(total_bytes);
     pb.set_style(
@@ -74,7 +85,10 @@ pub fn progress_bar(total_bytes: u64, msg: &str) -> ProgressBar {
     pb
 }
 
-/// Create a spinner with a message
+/// Create a spinner progress indicator
+///
+/// # Panics
+/// Panics if the progress bar template is invalid
 #[cfg(feature = "integration-tests")]
 #[must_use]
 pub fn spinner(msg: &str) -> MockProgressBar {
@@ -82,7 +96,10 @@ pub fn spinner(msg: &str) -> MockProgressBar {
     MockProgressBar
 }
 
-/// Create a progress bar for file transfers
+/// Create a progress bar
+///
+/// # Panics
+/// Panics if the progress bar template is invalid
 #[cfg(feature = "integration-tests")]
 #[must_use]
 pub fn progress_bar(_total_bytes: u64, msg: &str) -> MockProgressBar {
@@ -96,6 +113,7 @@ pub struct MockProgressBar;
 
 #[cfg(feature = "integration-tests")]
 impl MockProgressBar {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn finish_with_message(&self, msg: String) {
         println!("{msg}");
     }

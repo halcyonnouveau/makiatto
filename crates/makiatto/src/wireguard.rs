@@ -10,11 +10,19 @@ use defguard_wireguard_rs::{
 use miette::{Result, miette};
 use tracing::info;
 
-use crate::config::Config;
+use crate::{config::Config, utils};
 
 /// Set up the `WireGuard` interface
 pub fn setup_interface(config: &Config) -> Result<()> {
     let ifname = &config.network.interface;
+
+    if utils::is_container() {
+        info!(
+            "Container environment detected - skipping WireGuard interface '{}' setup",
+            ifname
+        );
+        return Ok(());
+    }
 
     info!("Setting up WireGuard interface '{}'", ifname);
 
@@ -44,7 +52,7 @@ pub fn setup_interface(config: &Config) -> Result<()> {
         name: ifname.clone(),
         prvkey: config.network.private_key.clone(),
         addresses: vec![address_mask],
-        port: u32::from(config.network.port),
+        port: 51880,
         peers: vec![],
         mtu: None,
     };
@@ -77,6 +85,14 @@ pub fn setup_interface(config: &Config) -> Result<()> {
 pub fn cleanup_interface(config: &Config) -> Result<()> {
     let ifname = &config.network.interface;
 
+    if utils::is_container() {
+        info!(
+            "Container environment detected - skipping WireGuard interface '{}' cleanup",
+            ifname
+        );
+        return Ok(());
+    }
+
     info!("Cleaning up WireGuard interface '{}'", ifname);
 
     #[cfg(not(target_os = "macos"))]
@@ -98,7 +114,7 @@ pub fn cleanup_interface(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Check if the WireGuard interface already exists
+/// Check if the `WireGuard` interface already exists
 #[cfg(not(target_os = "macos"))]
 fn check_interface_exists(wgapi: &WGApi<Kernel>) -> bool {
     wgapi.read_interface_data().is_ok()

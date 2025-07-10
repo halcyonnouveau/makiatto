@@ -68,13 +68,13 @@ impl Handler {
         Self { reader, db_pool }
     }
 
-    fn create_failure_response(&self) -> ResponseInfo {
+    fn create_failure_response() -> ResponseInfo {
         let mut header = Header::new();
         header.set_response_code(ResponseCode::ServFail);
         header.into()
     }
 
-    fn caa_from_string(&self, input: &str) -> Option<rdata::CAA> {
+    fn caa_from_string(input: &str) -> Option<rdata::CAA> {
         let mut parts = input.split_whitespace();
         let issuer_critical = parts.next()? == "1";
         let tag = Property::from(parts.next()?.to_string());
@@ -95,11 +95,11 @@ impl Handler {
                 issuer_critical,
                 Url::parse(value).unwrap(),
             )),
-            _ => None,
+            Property::Unknown(_) => None,
         }
     }
 
-    fn soa_from_string(&self, input: &str) -> Option<rdata::SOA> {
+    fn soa_from_string(input: &str) -> Option<rdata::SOA> {
         let mut parts = input.split_whitespace();
         let mname = Name::from_str_relaxed(parts.next()?).unwrap();
         let rname = Name::from_str_relaxed(parts.next()?).unwrap();
@@ -114,7 +114,7 @@ impl Handler {
         ))
     }
 
-    fn srv_from_string(&self, input: &str) -> Option<rdata::SRV> {
+    fn srv_from_string(input: &str) -> Option<rdata::SRV> {
         let mut parts = input.split_whitespace();
         let priority = parts.next()?.parse().ok()?;
         let weight = parts.next()?.parse().ok()?;
@@ -125,7 +125,6 @@ impl Handler {
     }
 
     fn generate_record(
-        &self,
         name: &LowerName,
         record_type: &str,
         value: &str,
@@ -135,7 +134,7 @@ impl Handler {
         let rdata: Option<RData> = match record_type {
             "A" => Some(RData::A(rdata::A(Ipv4Addr::from_str(value).unwrap()))),
             "AAAA" => Some(RData::AAAA(rdata::AAAA(Ipv6Addr::from_str(value).unwrap()))),
-            "CAA" => Some(RData::CAA(self.caa_from_string(value).unwrap())),
+            "CAA" => Some(RData::CAA(Self::caa_from_string(value).unwrap())),
             "CNAME" => Some(RData::CNAME(rdata::CNAME(
                 Name::from_str_relaxed(value).unwrap(),
             ))),
@@ -148,12 +147,10 @@ impl Handler {
             ))),
             "NS" => Some(RData::NS(rdata::NS(Name::from_str_relaxed(value).unwrap()))),
             "SOA" => Some(RData::SOA(
-                self.soa_from_string(value)
-                    .expect("Should be a valid SOA record"),
+                Self::soa_from_string(value).expect("Should be a valid SOA record"),
             )),
             "SRV" => Some(RData::SRV(
-                self.srv_from_string(value)
-                    .expect("Should be a valid SRV record"),
+                Self::srv_from_string(value).expect("Should be a valid SRV record"),
             )),
             "TXT" => Some(RData::TXT(TXT::new(vec![value.to_string()]))),
             _ => None,
@@ -296,7 +293,7 @@ impl Handler {
             .iter()
             .map(|record| {
                 if !record.geo_enabled {
-                    return self.generate_record(
+                    return Self::generate_record(
                         &request.name,
                         &record.record_type,
                         &record.default_value,
@@ -314,7 +311,7 @@ impl Handler {
                     _ => &record.default_value,
                 };
 
-                self.generate_record(
+                Self::generate_record(
                     &request.name,
                     &record.record_type,
                     value,
@@ -353,7 +350,7 @@ impl RequestHandler for Handler {
             Ok(res) => res,
             Err(e) => {
                 error!("Failed to build DNS records: {}", e);
-                return self.create_failure_response();
+                return Self::create_failure_response();
             }
         };
 
@@ -366,7 +363,7 @@ impl RequestHandler for Handler {
             Ok(info) => info,
             Err(e) => {
                 error!("Failed to send DNS response: {}", e);
-                self.create_failure_response()
+                Self::create_failure_response()
             }
         }
     }

@@ -20,7 +20,7 @@ makiatto ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/sbin/setcap, /usr/bin/mkdi
 EOF
 
 COPY --from=builder /makiatto /usr/local/bin/makiatto
-RUN chmod +x /usr/local/bin/makiatto && chown root:root /usr/local/bin/makiatto
+RUN chmod +x /usr/local/bin/makiatto && chown makiatto:makiatto /usr/local/bin/makiatto
 
 RUN echo 'net.ipv4.ip_unprivileged_port_start=0' > /etc/sysctl.d/50-unprivileged-ports.conf
 
@@ -28,11 +28,10 @@ COPY <<EOF /etc/makiatto.toml
 [node]
 name = "${NODE_NAME}"
 data_dir = "/var/makiatto"
-is_nameserver = false
+is_nameserver = true
 
 [network]
 interface = "wawa0"
-port = 51880
 address = "${NETWORK_ADDRESS}"
 private_key = "${PRIVATE_KEY}"
 public_key = "${PUBLIC_KEY}"
