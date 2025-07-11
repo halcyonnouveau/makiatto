@@ -17,8 +17,8 @@ on:
   pull_request:
 
 jobs:
-  test:
-    name: Test
+  unit-tests:
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +28,16 @@ jobs:
         run: |
           cargo build
           cargo test --workspace --exclude integration-tests
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Run integration tests
+        run: cargo test --package integration-tests --features docker-build
 
   clippy:
     name: Check for common code mistakes
@@ -77,7 +87,7 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     if: github.ref == 'refs/heads/main'
-    needs: [test]
+    needs: [unit-tests, integration-tests]
     runs-on: ubuntu-latest
     concurrency:
       group: release-plz-${{ github.ref }}

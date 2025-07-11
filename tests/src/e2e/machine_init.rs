@@ -1,5 +1,5 @@
 #![cfg(test)]
-use std::{env, path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use makiatto_cli::{config::GlobalConfig, machine::InitMachine};
 use miette::Result;
@@ -8,21 +8,17 @@ use crate::container::{ContainerContext, PortMap, TestContainer};
 
 #[tokio::test]
 async fn test_machine_init_first() -> Result<()> {
-    let mut context = ContainerContext::new();
+    let mut context = ContainerContext::new()?;
 
     let TestContainer {
         container: _base_container,
         ports: PortMap { ssh, .. },
+        ..
     } = context.make_base().await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let mut config = GlobalConfig { machines: vec![] };
-
-    let workspace_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
-        .parent()
-        .unwrap()
-        .to_path_buf();
 
     let request = InitMachine {
         name: "test-machine-init-first".into(),
@@ -30,8 +26,8 @@ async fn test_machine_init_first() -> Result<()> {
         skip_nameserver: false,
         force_nameserver: false,
         override_existing: false,
-        binary_path: Some(workspace_root.join("target/tests/makiatto")),
-        key_path: Some(workspace_root.join("tests/.ssh/id_ed25519")),
+        binary_path: Some(context.root.join("target/tests/makiatto")),
+        key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };
 
     let ssh = makiatto_cli::machine::init_machine(&request, &mut config)?;
@@ -54,7 +50,7 @@ async fn test_machine_init_first() -> Result<()> {
 
 #[tokio::test]
 async fn test_machine_init_second() -> Result<()> {
-    let mut context = ContainerContext::new();
+    let mut context = ContainerContext::new()?;
 
     let TestContainer {
         container: _base_container,
@@ -62,24 +58,13 @@ async fn test_machine_init_second() -> Result<()> {
         ..
     } = context.make_base().await?;
 
-    let (
-        TestContainer {
-            container: _daemon_container,
-            ..
-        },
-        daemon_config,
-    ) = context.make_daemon().await?;
+    let daemon = context.make_daemon().await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let mut config = GlobalConfig {
-        machines: vec![daemon_config],
+        machines: vec![daemon.get_config()],
     };
-
-    let workspace_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
-        .parent()
-        .unwrap()
-        .to_path_buf();
 
     let request = InitMachine {
         name: "test-machine-init-second".into(),
@@ -87,8 +72,8 @@ async fn test_machine_init_second() -> Result<()> {
         skip_nameserver: false,
         force_nameserver: false,
         override_existing: false,
-        binary_path: Some(workspace_root.join("target/tests/makiatto")),
-        key_path: Some(workspace_root.join("tests/.ssh/id_ed25519")),
+        binary_path: Some(context.root.join("target/tests/makiatto")),
+        key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };
 
     let ssh = makiatto_cli::machine::init_machine(&request, &mut config)?;

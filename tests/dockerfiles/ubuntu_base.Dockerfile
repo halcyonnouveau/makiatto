@@ -18,7 +18,7 @@ RUN echo "root:wa2000" | chpasswd
 RUN echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
 
 RUN mkdir -p /var/run/sshd /run/sshd /root/.ssh
-COPY tests/.ssh/id_ed25519.pub /root/.ssh/authorized_keys
+COPY tests/fixtures/.ssh/id_ed25519.pub /root/.ssh/authorized_keys
 RUN chmod 600 /root/.ssh/authorized_keys && chmod 700 /root/.ssh
 
 CMD ["/usr/sbin/sshd", "-D"]
