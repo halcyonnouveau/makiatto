@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use camino::Utf8PathBuf;
 use miette::Result;
 use serde::{Deserialize, Serialize};
@@ -23,7 +25,7 @@ pub struct Config {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NodeConfig {
     /// Unique node name/identifier
-    pub name: String,
+    pub name: Arc<str>,
 
     /// Data directory for this node
     pub data_dir: Utf8PathBuf,
@@ -35,22 +37,22 @@ pub struct NodeConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NetworkConfig {
     /// `WireGuard` interface name
-    pub interface: String,
+    pub interface: Arc<str>,
 
     /// This node's `WireGuard` IP address (auto-assigned)
-    pub address: String,
+    pub address: Arc<str>,
 
     /// `WireGuard` public key (auto-generated)
-    pub public_key: String,
+    pub public_key: Arc<str>,
 
     /// `WireGuard` private key (auto-generated)
-    pub private_key: String,
+    pub private_key: Arc<str>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DnsConfig {
     /// DNS server bind address
-    pub addr: String,
+    pub addr: Arc<str>,
 
     /// Path to `GeoLite2` database
     pub geolite_path: Utf8PathBuf,
@@ -59,10 +61,10 @@ pub struct DnsConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WebConfig {
     /// HTTP server bind address
-    pub http_addr: String,
+    pub http_addr: Arc<str>,
 
     /// HTTPS server bind address
-    pub https_addr: String,
+    pub https_addr: Arc<str>,
 
     /// Directory to serve static files from
     pub static_dir: Utf8PathBuf,

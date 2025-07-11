@@ -6,6 +6,21 @@ use crate::ui;
 /// Type alias for node information: (ipv4, ipv6, latitude, longitude)
 type NodeInfo = (String, Option<String>, Option<f64>, Option<f64>);
 
+/// Common HTTP headers for API requests
+fn http_headers() -> Vec<String> {
+    vec![
+        "-s".to_string(),
+        "-H".to_string(),
+        format!(
+            "User-Agent: makiatto-cli/{} (https://github.com/halcyonnouveau/makiatto)",
+            env!("CARGO_PKG_VERSION")
+        ),
+        "-H".to_string(),
+        "Accept: application/json".to_string(),
+        "-H".to_string(),
+    ]
+}
+
 #[derive(Debug, Deserialize)]
 pub struct IpApiResponse {
     pub ip: String,
@@ -15,9 +30,17 @@ pub struct IpApiResponse {
 
 pub fn detect_node_info(host: &str) -> Result<NodeInfo> {
     ui::action("Fetching IPv4 and geolocation data");
-    let ipapi_url = format!("https://ipapi.co/{host}/json/");
+    let ipapi_url = if host == "localhost" || host == "127.0.0.1" {
+        "https://ipapi.co/json/".to_string()
+    } else {
+        format!("https://ipapi.co/{host}/json/")
+    };
+
+    let mut curl_args = http_headers();
+    curl_args.extend(["Accept-Language: en-US,en;q=0.9".to_string(), ipapi_url]);
+
     let json_output = std::process::Command::new("curl")
-        .args(["-s", &ipapi_url])
+        .args(curl_args)
         .output()
         .map_err(|e| miette!("Failed to execute curl: {}", e))?;
 
@@ -34,8 +57,11 @@ pub fn detect_node_info(host: &str) -> Result<NodeInfo> {
     let longitude = geo_data.longitude;
 
     ui::action("Fetching IPv6 address");
+    let mut ipv6_args = http_headers();
+    ipv6_args.push("https://api6.ipify.org".to_string());
+
     let ipv6 = std::process::Command::new("curl")
-        .args(["-s", "https://api6.ipify.org"])
+        .args(ipv6_args)
         .output()
         .ok()
         .and_then(|output| {

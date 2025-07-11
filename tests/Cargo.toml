@@ -5,10 +5,9 @@ edition = "2024"
 publish = false
 
 [dependencies]
-makiatto-cli = { path = "../crates/makiatto-cli", features = [
-    "integration-tests",
-] }
+makiatto-cli = { path = "../crates/makiatto-cli" }
 
+ctor = { workspace = true }
 miette = { workspace = true }
 testcontainers = { workspace = true }
 tokio = { workspace = true }

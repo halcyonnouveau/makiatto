@@ -1,9 +1,14 @@
-#![allow(dead_code)]
+use std::env;
+
 use console::{Term, style};
 use dialoguer::Password;
-#[cfg(not(feature = "integration-tests"))]
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::{Result, miette};
+
+/// Check if we should use simple output (for CI/tests or terminals without progress support)
+fn ci_mode() -> bool {
+    env::var("MAKIATTO_CI_MODE").is_ok() || env::var("CI").is_ok()
+}
 
 /// Print a status update
 pub fn status(msg: &str) {
@@ -49,77 +54,100 @@ pub fn separator() {
     println!("{}", style(line).dim());
 }
 
-/// Create a spinner progress indicator
-///
-/// # Panics
-/// Panics if the progress bar template is invalid
-#[cfg(not(feature = "integration-tests"))]
-#[must_use]
-pub fn spinner(msg: &str) -> ProgressBar {
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .unwrap(),
-    );
-    spinner.set_message(msg.to_string());
-    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
-    spinner
+/// Progress bar wrapper that can be either real or mock
+pub enum Progress {
+    Real(ProgressBar),
+    Mock,
 }
 
-/// Create a progress bar
-///
-/// # Panics
-/// Panics if the progress bar template is invalid
-#[cfg(not(feature = "integration-tests"))]
-#[must_use]
-pub fn progress_bar(total_bytes: u64, msg: &str) -> ProgressBar {
-    let pb = ProgressBar::new(total_bytes);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes}")
-            .unwrap()
-            .progress_chars("#>-"),
-    );
-    pb.set_message(msg.to_string());
-    pb
-}
-
-/// Create a spinner progress indicator
-///
-/// # Panics
-/// Panics if the progress bar template is invalid
-#[cfg(feature = "integration-tests")]
-#[must_use]
-pub fn spinner(msg: &str) -> MockProgressBar {
-    println!("{msg}");
-    MockProgressBar
-}
-
-/// Create a progress bar
-///
-/// # Panics
-/// Panics if the progress bar template is invalid
-#[cfg(feature = "integration-tests")]
-#[must_use]
-pub fn progress_bar(_total_bytes: u64, msg: &str) -> MockProgressBar {
-    println!("{msg}");
-    MockProgressBar
-}
-
-#[cfg(feature = "integration-tests")]
-#[derive(Clone, Copy)]
-pub struct MockProgressBar;
-
-#[cfg(feature = "integration-tests")]
-impl MockProgressBar {
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn finish_with_message(&self, msg: String) {
-        println!("{msg}");
+impl Progress {
+    pub fn finish_with_message(&self, msg: impl Into<String>) {
+        match self {
+            Self::Real(pb) => pb.finish_with_message(msg.into()),
+            Self::Mock => println!("{}", msg.into()),
+        }
     }
-    pub fn finish(&self) {}
-    pub fn set_message(&self, _msg: String) {}
-    pub fn inc(&self, _delta: u64) {}
-    pub fn set_position(&self, _pos: u64) {}
-    pub fn enable_steady_tick(&self, _duration: std::time::Duration) {}
+
+    pub fn finish(&self) {
+        match self {
+            Self::Real(pb) => pb.finish(),
+            Self::Mock => {}
+        }
+    }
+
+    pub fn set_message(&self, msg: impl Into<String>) {
+        match self {
+            Self::Real(pb) => pb.set_message(msg.into()),
+            Self::Mock => {}
+        }
+    }
+
+    pub fn inc(&self, delta: u64) {
+        match self {
+            Self::Real(pb) => pb.inc(delta),
+            Self::Mock => {}
+        }
+    }
+
+    pub fn set_position(&self, pos: u64) {
+        match self {
+            Self::Real(pb) => pb.set_position(pos),
+            Self::Mock => {}
+        }
+    }
+
+    pub fn enable_steady_tick(&self, duration: std::time::Duration) {
+        match self {
+            Self::Real(pb) => pb.enable_steady_tick(duration),
+            Self::Mock => {}
+        }
+    }
+}
+
+/// Create a spinner progress indicator
+///
+/// Returns a mock spinner if `MAKIATTO_CI_MODE` or `CI` env var is set
+///
+/// # Panics
+/// Panics if the progress spinner template is malformed
+#[must_use]
+pub fn spinner(msg: &str) -> Progress {
+    if ci_mode() {
+        println!("{msg}");
+        Progress::Mock
+    } else {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} {msg}")
+                .expect("Spinner template is invalid"),
+        );
+        spinner.set_message(msg.to_string());
+        spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+        Progress::Real(spinner)
+    }
+}
+
+/// Create a progress bar
+///
+/// Returns a mock progress bar if `MAKIATTO_CI_MODE` or `CI` env var is set
+///
+/// # Panics
+/// Panics if the progress bar template is malformed
+#[must_use]
+pub fn progress_bar(total_bytes: u64, msg: &str) -> Progress {
+    if ci_mode() {
+        println!("{msg}");
+        Progress::Mock
+    } else {
+        let pb = ProgressBar::new(total_bytes);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes}")
+                .expect("Progress bar template is invalid")
+                .progress_chars("#>-"),
+        );
+        pb.set_message(msg.to_string());
+        Progress::Real(pb)
+    }
 }

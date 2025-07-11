@@ -1,5 +1,8 @@
 #![cfg(test)]
-use std::{net::TcpListener, sync::LazyLock};
+use std::{
+    net::TcpListener,
+    sync::{Arc, LazyLock},
+};
 
 use makiatto_cli::config::MachineConfig;
 use miette::{IntoDiagnostic, Result};
@@ -13,21 +16,21 @@ use testcontainers::{
 // make sure to edit build.rs as well
 static DAEMON_MACHINE_CONFIGS: LazyLock<Vec<MachineConfig>> = LazyLock::new(|| {
     vec![MachineConfig {
-        name: "daemon0".to_string(),
-        ssh_target: "root@127.0.0.1".to_string(),
+        name: Arc::from("daemon0"),
+        ssh_target: Arc::from("root@127.0.0.1"),
         is_nameserver: true,
-        wg_public_key: "todayiwantedtoeataquaso".to_string(),
-        wg_address: "0.0.0.0".to_string(),
+        wg_public_key: Arc::from("todayiwantedtoeataquaso"),
+        wg_address: Arc::from("0.0.0.0"),
         latitude: Some(45.5186),
         longitude: Some(69.1337),
-        ipv4: "127.0.0.1".to_string(),
+        ipv4: Arc::from("127.0.0.1"),
         ipv6: None,
     }]
 });
 
 fn get_daemon_with_port(index: usize, ssh_port: u16) -> MachineConfig {
     let mut config = DAEMON_MACHINE_CONFIGS.get(index).unwrap().to_owned();
-    config.ssh_target = format!("root@127.0.0.1:{ssh_port}");
+    config.ssh_target = Arc::from(format!("root@127.0.0.1:{ssh_port}"));
     config
 }
 

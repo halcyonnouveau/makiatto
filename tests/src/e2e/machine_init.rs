@@ -39,7 +39,7 @@ async fn test_machine_init_first() -> Result<()> {
     // if it runs for N seconds, everything *probably* should have started
     let response = ssh.exec_timeout(
         "sudo -u makiatto /usr/local/bin/makiatto",
-        Duration::from_secs(3),
+        Duration::from_secs(2),
     );
 
     if let Ok(output) = &response {
@@ -90,7 +90,10 @@ async fn test_machine_init_second() -> Result<()> {
 
     let ssh = makiatto_cli::machine::init_machine(&request, &mut config)?;
 
-    let response = ssh.exec_timeout("/usr/local/bin/makiatto", Duration::from_secs(3));
+    let response = ssh.exec_timeout(
+        "sudo -u makiatto /usr/local/bin/makiatto",
+        Duration::from_secs(2),
+    );
 
     if let Ok(output) = &response {
         println!("Unexpected success: {output}");

@@ -12,33 +12,26 @@ fn main() -> Result<()> {
     let workspace_root = std::path::Path::new(&cwd).parent().unwrap();
 
     let dockerfiles = vec![
-        (
-            "makiatto_builder",
-            "makiatto-builder",
-            Some(format!("type=local,dest={cwd}/../target/tests")),
-        ),
-        ("ubuntu_base", "makiatto-test-ubuntu_base", None),
-        ("ubuntu_daemon", "makiatto-test-ubuntu_daemon", None),
+        ("makiatto_builder", "makiatto-builder"),
+        ("ubuntu_base", "makiatto-test-ubuntu_base"),
+        ("ubuntu_daemon", "makiatto-test-ubuntu_daemon"),
     ];
 
-    for (dockerfile, tag, export) in dockerfiles {
+    for (dockerfile, tag) in dockerfiles {
         eprintln!("Building {tag}...");
 
         let mut docker = Command::new("docker");
 
-        docker
+        let output = docker
             .arg("build")
             .arg("--file")
             .arg(format!("{cwd}/dockerfiles/{dockerfile}.Dockerfile"))
             .arg("--force-rm")
             .arg("--tag")
-            .arg(format!("{tag}:latest"));
-
-        if let Some(export) = export {
-            docker.arg("--output").arg(export);
-        }
-
-        let output = docker.arg(workspace_root).output().into_diagnostic()?;
+            .arg(format!("{tag}:latest"))
+            .arg(workspace_root)
+            .output()
+            .into_diagnostic()?;
 
         if !output.status.success() {
             eprintln!(
@@ -50,6 +43,21 @@ fn main() -> Result<()> {
 
         eprintln!("Successfully built {tag}:latest");
     }
+
+    // export makiatto binary from builder
+    Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "-v",
+            &format!("{}/../target/tests:/output", cwd),
+            "makiatto-builder:latest",
+            "sh",
+            "-c",
+            "cp /makiatto /output/",
+        ])
+        .output()
+        .into_diagnostic()?;
 
     Ok(())
 }

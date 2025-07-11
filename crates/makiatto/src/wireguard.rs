@@ -27,10 +27,10 @@ pub fn setup_interface(config: &Config) -> Result<()> {
     info!("Setting up WireGuard interface '{}'", ifname);
 
     #[cfg(not(target_os = "macos"))]
-    let wgapi = WGApi::<Kernel>::new(ifname.clone())
+    let wgapi = WGApi::<Kernel>::new(ifname.to_string())
         .map_err(|e| miette!("Failed to create WireGuard API: {}", e))?;
     #[cfg(target_os = "macos")]
-    let wgapi = WGApi::<Userspace>::new(ifname.clone())
+    let wgapi = WGApi::<Userspace>::new(ifname.to_string())
         .map_err(|e| miette!("Failed to create WireGuard API: {}", e))?;
 
     if check_interface_exists(&wgapi) {
@@ -49,8 +49,8 @@ pub fn setup_interface(config: &Config) -> Result<()> {
         .map_err(|e| miette!("Invalid WireGuard address format: {}", e))?;
 
     let interface_config = InterfaceConfiguration {
-        name: ifname.clone(),
-        prvkey: config.network.private_key.clone(),
+        name: ifname.to_string(),
+        prvkey: config.network.private_key.to_string(),
         addresses: vec![address_mask],
         port: 51880,
         peers: vec![],
@@ -96,10 +96,10 @@ pub fn cleanup_interface(config: &Config) -> Result<()> {
     info!("Cleaning up WireGuard interface '{}'", ifname);
 
     #[cfg(not(target_os = "macos"))]
-    let wgapi = WGApi::<Kernel>::new(ifname.clone())
+    let wgapi = WGApi::<Kernel>::new(ifname.to_string())
         .map_err(|e| miette!("Failed to create WireGuard API: {}", e))?;
     #[cfg(target_os = "macos")]
-    let wgapi = WGApi::<Userspace>::new(ifname.clone())
+    let wgapi = WGApi::<Userspace>::new(ifname.to_string())
         .map_err(|e| miette!("Failed to create WireGuard API: {}", e))?;
 
     if check_interface_exists(&wgapi) {
