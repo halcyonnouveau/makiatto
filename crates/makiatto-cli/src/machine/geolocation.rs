@@ -3,7 +3,6 @@ use serde::Deserialize;
 
 use crate::ui;
 
-/// Type alias for node information: (ipv4, ipv6, latitude, longitude)
 type NodeInfo = (String, Option<String>, Option<f64>, Option<f64>);
 
 /// Common HTTP headers for API requests
