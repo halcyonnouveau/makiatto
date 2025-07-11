@@ -71,6 +71,10 @@ pub struct WebConfig {
 }
 
 impl Config {
+    /// Load configuration from file
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed
     pub fn load_from_file(path: &Utf8PathBuf) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| miette::miette!("Failed to read config file: {}", e))?;
@@ -79,8 +83,13 @@ impl Config {
     }
 }
 
+/// Load configuration from default locations
+///
+/// # Errors
+/// Returns an error if no config file is found or if parsing fails
 pub fn load() -> Result<Config> {
     let config_paths = [
+        Utf8PathBuf::from("/etc/makiatto/makiatto.toml"),
         Utf8PathBuf::from("/etc/makiatto.toml"),
         Utf8PathBuf::from("./makiatto-daemon.toml"),
     ];

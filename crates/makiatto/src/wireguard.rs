@@ -13,6 +13,9 @@ use tracing::info;
 use crate::{config::Config, utils};
 
 /// Set up the `WireGuard` interface
+///
+/// # Errors
+/// Returns an error if the interface cannot be created or configured
 pub fn setup_interface(config: &Config) -> Result<()> {
     let ifname = &config.network.interface;
 
@@ -82,6 +85,9 @@ pub fn setup_interface(config: &Config) -> Result<()> {
 }
 
 /// Clean up the `WireGuard` interface on shutdown
+///
+/// # Errors
+/// Returns an error if the interface cannot be removed
 pub fn cleanup_interface(config: &Config) -> Result<()> {
     let ifname = &config.network.interface;
 

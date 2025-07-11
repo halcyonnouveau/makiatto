@@ -6,6 +6,9 @@ use tracing::{error, info};
 use crate::config::Config;
 
 /// Run the embedded Corrosion agent
+///
+/// # Errors
+/// Returns an error if the agent fails to start or encounters runtime errors
 pub async fn run(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
     info!("Starting Corrosion agent for node '{}'", config.node.name);
 

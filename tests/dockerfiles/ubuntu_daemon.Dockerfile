@@ -1,6 +1,3 @@
-ARG NODE_NAME="test-node"
-ARG CORRO_BOOTSTRAP="[]"
-
 FROM makiatto-builder:latest AS builder
 FROM makiatto-test-ubuntu_base
 
@@ -16,48 +13,12 @@ EOF
 
 COPY --from=builder /makiatto /usr/local/bin/makiatto
 RUN chmod +x /usr/local/bin/makiatto && chown makiatto:makiatto /usr/local/bin/makiatto
-
 RUN echo 'net.ipv4.ip_unprivileged_port_start=0' > /etc/sysctl.d/50-unprivileged-ports.conf
 
-COPY <<EOF /etc/makiatto.toml
-[node]
-name = "${NODE_NAME}"
-data_dir = "/var/makiatto"
-is_nameserver = true
-
-[network]
-interface = "wawa0"
-address = "127.0.0.1"
-private_key = "wawa"
-public_key = "wawa"
-
-[dns]
-addr = "0.0.0.0:53"
-geolite_path = "/var/makiatto/GeoLite2-City.mmdb"
-
-[web]
-http_addr = "0.0.0.0:80"
-https_addr = "0.0.0.0:443"
-static_dir = "/var/makiatto/sites"
-
-[corrosion.admin]
-path = "/var/makiatto/admin.sock"
-
-[corrosion.db]
-path = "/var/makiatto/cluster.db"
-
-[corrosion.gossip]
-addr = "0.0.0.0:8787"
-external_addr = "127.0.0.1:8787"
-bootstrap = ${CORRO_BOOTSTRAP}
-plaintext = true
-
-[corrosion.api]
-addr = "127.0.0.1:8181"
-EOF
-
-RUN chown makiatto:makiatto /etc/makiatto.toml
+COPY tests/fixtures/makiatto.toml /etc/makiatto/makiatto.toml
+RUN chown makiatto:makiatto /etc/makiatto/makiatto.toml
 
 EXPOSE 22 53 80 443 8181 8787 51880
+VOLUME ["/etc/makiatto"]
 
 CMD ["/bin/bash", "-c", "/usr/sbin/sshd && exec su -s /bin/bash makiatto -c 'exec /usr/local/bin/makiatto'"]

@@ -4,16 +4,18 @@ use std::{env, path::PathBuf, time::Duration};
 use makiatto_cli::{config::GlobalConfig, machine::InitMachine};
 use miette::Result;
 
-use crate::container::{self, PortMap, TestContainer};
+use crate::container::{ContainerContext, PortMap, TestContainer};
 
 #[tokio::test]
 async fn test_machine_init_first() -> Result<()> {
+    let mut context = ContainerContext::new();
+
     let TestContainer {
         container: _base_container,
         ports: PortMap { ssh, .. },
-    } = container::ubuntu::base().await?;
+    } = context.make_base().await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let mut config = GlobalConfig { machines: vec![] };
 
@@ -33,8 +35,7 @@ async fn test_machine_init_first() -> Result<()> {
     };
 
     let ssh = makiatto_cli::machine::init_machine(&request, &mut config)?;
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // if it runs for N seconds, everything *probably* should have started
     let response = ssh.exec_timeout(
@@ -53,11 +54,13 @@ async fn test_machine_init_first() -> Result<()> {
 
 #[tokio::test]
 async fn test_machine_init_second() -> Result<()> {
+    let mut context = ContainerContext::new();
+
     let TestContainer {
         container: _base_container,
         ports: PortMap { ssh, .. },
         ..
-    } = container::ubuntu::base().await?;
+    } = context.make_base().await?;
 
     let (
         TestContainer {
@@ -65,9 +68,9 @@ async fn test_machine_init_second() -> Result<()> {
             ..
         },
         daemon_config,
-    ) = container::ubuntu::daemon0().await?;
+    ) = context.make_daemon().await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let mut config = GlobalConfig {
         machines: vec![daemon_config],
@@ -89,6 +92,7 @@ async fn test_machine_init_second() -> Result<()> {
     };
 
     let ssh = makiatto_cli::machine::init_machine(&request, &mut config)?;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let response = ssh.exec_timeout(
         "sudo -u makiatto /usr/local/bin/makiatto",

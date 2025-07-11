@@ -64,6 +64,7 @@ pub struct Handler {
 }
 
 impl Handler {
+    #[must_use]
     pub fn new(reader: Reader<Vec<u8>>, db_pool: Pool) -> Self {
         Self { reader, db_pool }
     }
@@ -369,6 +370,10 @@ impl RequestHandler for Handler {
     }
 }
 
+/// Download `GeoLite2` database for geolocation
+///
+/// # Errors
+/// Returns an error if the download fails or if the file cannot be written
 pub fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     info!("Downloading GeoLite2 database...");
 
@@ -388,6 +393,10 @@ pub fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Run the DNS server
+///
+/// # Errors
+/// Returns an error if the server fails to start or bind to the configured address
 pub async fn run_dns(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
     info!("Starting DNS server on {}", config.dns.addr);
 
