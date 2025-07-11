@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use argh::FromArgs;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -91,7 +91,10 @@ pub fn init_machine(request: &InitMachine, global_config: &mut GlobalConfig) -> 
     ui::header("Initialising machine:");
     ui::field("Name", &request.name);
     ui::field("SSH target", &request.ssh_target);
-    ui::field("Is nameserver", &is_nameserver.to_string());
+    ui::field(
+        "Is nameserver",
+        if is_nameserver { "true" } else { "false" },
+    );
     ui::field("WireGuard public key", &wg_public_key);
     ui::field("WireGuard address", &wg_address);
 
@@ -110,15 +113,15 @@ pub fn init_machine(request: &InitMachine, global_config: &mut GlobalConfig) -> 
     }
 
     let machine_config = MachineConfig {
-        name: request.name.clone(),
-        ssh_target: request.ssh_target.clone(),
+        name: Arc::from(request.name.as_str()),
+        ssh_target: Arc::from(request.ssh_target.as_str()),
         is_nameserver,
-        wg_public_key: wg_public_key.clone(),
-        wg_address: wg_address.clone(),
+        wg_public_key: Arc::from(wg_public_key),
+        wg_address: Arc::from(wg_address),
         latitude,
         longitude,
-        ipv4,
-        ipv6,
+        ipv4: Arc::from(ipv4),
+        ipv6: ipv6.map(Arc::from),
     };
 
     let session = provision::install_makiatto(
@@ -163,15 +166,15 @@ fn generate_wireguard_keypair() -> (String, String) {
 }
 
 fn assign_wireguard_address(global_config: &GlobalConfig) -> Result<String> {
-    let used_ips: std::collections::HashSet<String> = global_config
+    let used_ips: std::collections::HashSet<&str> = global_config
         .machines
         .iter()
-        .map(|m| m.wg_address.clone())
+        .map(|m| m.wg_address.as_ref())
         .collect();
 
     for i in 1..=254 {
         let candidate = format!("10.44.44.{i}");
-        if !used_ips.contains(&candidate) {
+        if !used_ips.contains(candidate.as_str()) {
             return Ok(candidate);
         }
     }
@@ -198,25 +201,25 @@ mod tests {
         let config = GlobalConfig {
             machines: vec![
                 MachineConfig {
-                    name: "node1".to_string(),
-                    ssh_target: "user@host1".to_string(),
+                    name: Arc::from("node1"),
+                    ssh_target: Arc::from("user@host1"),
                     is_nameserver: false,
-                    wg_public_key: "key1".to_string(),
-                    wg_address: "10.44.44.1".to_string(),
+                    wg_public_key: Arc::from("key1"),
+                    wg_address: Arc::from("10.44.44.1"),
                     latitude: None,
                     longitude: None,
-                    ipv4: "1.1.1.1".to_string(),
+                    ipv4: Arc::from("1.1.1.1"),
                     ipv6: None,
                 },
                 MachineConfig {
-                    name: "node2".to_string(),
-                    ssh_target: "user@host2".to_string(),
+                    name: Arc::from("node2"),
+                    ssh_target: Arc::from("user@host2"),
                     is_nameserver: false,
-                    wg_public_key: "key2".to_string(),
-                    wg_address: "10.44.44.3".to_string(),
+                    wg_public_key: Arc::from("key2"),
+                    wg_address: Arc::from("10.44.44.3"),
                     latitude: None,
                     longitude: None,
-                    ipv4: "2.2.2.2".to_string(),
+                    ipv4: Arc::from("2.2.2.2"),
                     ipv6: None,
                 },
             ],
@@ -231,20 +234,20 @@ mod tests {
         let mut machines = vec![];
         for i in 1..=254 {
             machines.push(MachineConfig {
-                name: format!("node{i}"),
-                ssh_target: format!("user@host{i}"),
+                name: Arc::from(format!("node{i}")),
+                ssh_target: Arc::from(format!("user@host{i}")),
                 is_nameserver: false,
-                wg_public_key: format!("key{i}"),
-                wg_address: format!("10.44.44.{i}"),
+                wg_public_key: Arc::from(format!("key{i}")),
+                wg_address: Arc::from(format!("10.44.44.{i}")),
                 latitude: None,
                 longitude: None,
-                ipv4: format!(
+                ipv4: Arc::from(format!(
                     "{}.{}.{}.{}",
                     i % 255,
                     (i + 1) % 255,
                     (i + 2) % 255,
                     (i + 3) % 255
-                ),
+                )),
                 ipv6: None,
             });
         }

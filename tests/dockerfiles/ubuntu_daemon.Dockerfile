@@ -1,15 +1,10 @@
 ARG NODE_NAME="test-node"
-ARG NETWORK_ADDRESS="10.44.44.1"
-ARG PRIVATE_KEY="MMCuhphKHNySo6txZv30CEAGrWiM4RwiLQOo1FwEY0U="
-ARG PUBLIC_KEY="h07faApSCGsmb37MUylyTq2bYcV1uRbQbAKnwz7xq2A="
 ARG CORRO_BOOTSTRAP="[]"
 
 FROM makiatto-builder:latest AS builder
 FROM makiatto-test-ubuntu_base
 
-ARG NETWORK_ADDRESS
-ARG PRIVATE_KEY
-ARG PUBLIC_KEY
+ARG NODE_NAME
 ARG CORRO_BOOTSTRAP
 
 RUN useradd --system --home-dir /var/makiatto --create-home --shell /bin/false makiatto && \
@@ -32,9 +27,9 @@ is_nameserver = true
 
 [network]
 interface = "wawa0"
-address = "${NETWORK_ADDRESS}"
-private_key = "${PRIVATE_KEY}"
-public_key = "${PUBLIC_KEY}"
+address = "127.0.0.1"
+private_key = "wawa"
+public_key = "wawa"
 
 [dns]
 addr = "0.0.0.0:53"
@@ -53,7 +48,7 @@ path = "/var/makiatto/cluster.db"
 
 [corrosion.gossip]
 addr = "0.0.0.0:8787"
-external_addr = "${NETWORK_ADDRESS}:8787"
+external_addr = "127.0.0.1:8787"
 bootstrap = ${CORRO_BOOTSTRAP}
 plaintext = true
 

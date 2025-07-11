@@ -395,7 +395,7 @@ pub async fn run_dns(config: Config, tripwire: tripwire::Tripwire) -> Result<()>
         download_geolite(&config.dns.geolite_path)?;
     }
 
-    let reader = Reader::open_readfile(&config.dns.geolite_path).into_diagnostic()?;
+    let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
 
     let pool = deadpool_sqlite::Config::new(&config.corrosion.db.path)
         .create_pool(deadpool_sqlite::Runtime::Tokio1)
@@ -405,12 +405,12 @@ pub async fn run_dns(config: Config, tripwire: tripwire::Tripwire) -> Result<()>
     let mut server = ServerFuture::new(handler);
 
     server.register_socket(
-        UdpSocket::bind(&config.dns.addr)
+        UdpSocket::bind(&*config.dns.addr)
             .await
             .map_err(|e| miette::miette!("Failed to bind UDP socket: {}", e))?,
     );
     server.register_listener(
-        TcpListener::bind(&config.dns.addr)
+        TcpListener::bind(&*config.dns.addr)
             .await
             .map_err(|e| miette::miette!("Failed to bind TCP socket: {}", e))?,
         Duration::from_secs(5),

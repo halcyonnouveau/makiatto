@@ -21,5 +21,5 @@ RUN mkdir tests/src && echo 'fn main() {}' > tests/src/main.rs
 
 RUN cargo build --release -p makiatto
 
-FROM scratch AS export
+FROM busybox:stable AS export
 COPY --from=builder /app/target/release/makiatto /makiatto

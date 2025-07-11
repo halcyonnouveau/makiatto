@@ -1,43 +1,43 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use miette::{Result, miette};
 use serde::{Deserialize, Serialize};
 
 /// Global configuration stored in ~/.config/makiatto/default.toml
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct GlobalConfig {
     pub machines: Vec<MachineConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MachineConfig {
-    pub name: String,
-    pub ssh_target: String,
+    pub name: Arc<str>,
+    pub ssh_target: Arc<str>,
     pub is_nameserver: bool,
-    pub wg_public_key: String,
-    pub wg_address: String,
+    pub wg_public_key: Arc<str>,
+    pub wg_address: Arc<str>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
-    pub ipv4: String,
-    pub ipv6: Option<String>,
+    pub ipv4: Arc<str>,
+    pub ipv6: Option<Arc<str>>,
 }
 
 /// Local project configuration stored in ./makiatto.toml
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LocalConfig {
-    pub domain: String,
+    pub domain: Arc<str>,
     /// CNAME records to the canonical domain
-    pub aliases: Vec<String>,
-    pub paths: Vec<PathBuf>,
-    pub records: Vec<DnsRecord>,
+    pub aliases: Arc<[Arc<str>]>,
+    pub paths: Arc<[PathBuf]>,
+    pub records: Arc<[DnsRecord]>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DnsRecord {
     #[serde(rename = "type")]
-    pub record_type: String,
-    pub name: String,
-    pub value: String,
+    pub record_type: Arc<str>,
+    pub name: Arc<str>,
+    pub value: Arc<str>,
 }
 
 impl GlobalConfig {
@@ -71,13 +71,13 @@ impl GlobalConfig {
 
     pub fn remove_machine(&mut self, name: &str) -> bool {
         let original_len = self.machines.len();
-        self.machines.retain(|m| m.name != name);
+        self.machines.retain(|m| m.name != name.into());
         self.machines.len() != original_len
     }
 
     #[must_use]
     pub fn find_machine(&self, name: &str) -> Option<&MachineConfig> {
-        self.machines.iter().find(|m| m.name == name)
+        self.machines.iter().find(|m| m.name == name.into())
     }
 
     /// Save global configuration to file
@@ -141,26 +141,26 @@ mod tests {
         let mut config = GlobalConfig::default();
 
         let machine1 = MachineConfig {
-            name: "test1".to_string(),
-            ssh_target: "user@host1".to_string(),
+            name: Arc::from("test1"),
+            ssh_target: Arc::from("user@host1"),
             is_nameserver: false,
-            wg_public_key: "key1".to_string(),
-            wg_address: "10.0.0.1".to_string(),
+            wg_public_key: Arc::from("key1"),
+            wg_address: Arc::from("10.0.0.1"),
             latitude: Some(40.7128),
             longitude: Some(-74.0060),
-            ipv4: "1.2.3.4".to_string(),
-            ipv6: Some("2001:db8::1".to_string()),
+            ipv4: Arc::from("1.2.3.4"),
+            ipv6: Some(Arc::from("2001:db8::1")),
         };
 
         let machine2 = MachineConfig {
-            name: "test2".to_string(),
-            ssh_target: "user@host2".to_string(),
+            name: Arc::from("test2"),
+            ssh_target: Arc::from("user@host2"),
             is_nameserver: true,
-            wg_public_key: "key2".to_string(),
-            wg_address: "10.0.0.2".to_string(),
+            wg_public_key: Arc::from("key2"),
+            wg_address: Arc::from("10.0.0.2"),
             latitude: Some(51.5074),
             longitude: Some(-0.1278),
-            ipv4: "5.6.7.8".to_string(),
+            ipv4: Arc::from("5.6.7.8"),
             ipv6: None,
         };
 
@@ -176,8 +176,8 @@ mod tests {
         assert!(!config.remove_machine("nonexistent"));
 
         let updated_machine = MachineConfig {
-            name: "test2".to_string(),
-            ssh_target: "newuser@newhost".to_string(),
+            name: Arc::from("test2"),
+            ssh_target: Arc::from("newuser@newhost"),
             ..machine2
         };
 
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(config.machines.len(), 1);
         assert_eq!(
             config.find_machine("test2").unwrap().ssh_target,
-            "newuser@newhost"
+            Arc::from("newuser@newhost")
         );
     }
 }
