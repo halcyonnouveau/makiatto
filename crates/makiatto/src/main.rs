@@ -1,13 +1,8 @@
+use makiatto::{config, corrosion, dns, wireguard};
 use miette::Result;
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-mod config;
-mod corrosion;
-mod dns;
-mod utils;
-mod wireguard;
 
 #[tokio::main]
 async fn main() -> Result<()> {

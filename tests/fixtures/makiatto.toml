@@ -1,0 +1,34 @@
+[node]
+name = "wawa-daemon"
+data_dir = "/var/makiatto"
+is_nameserver = true
+
+[network]
+interface = "wawa0"
+address = "127.0.0.1"
+private_key = "wawa"
+public_key = "wawa"
+
+[dns]
+addr = "0.0.0.0:53"
+geolite_path = "/var/makiatto/GeoLite2-City.mmdb"
+
+[web]
+http_addr = "0.0.0.0:80"
+https_addr = "0.0.0.0:443"
+static_dir = "/var/makiatto/sites"
+
+[corrosion.admin]
+path = "/var/makiatto/admin.sock"
+
+[corrosion.db]
+path = "/var/makiatto/cluster.db"
+
+[corrosion.gossip]
+addr = "0.0.0.0:8787"
+external_addr = "127.0.0.1:8787"
+bootstrap = []
+plaintext = true
+
+[corrosion.api]
+addr = "127.0.0.1:8181"

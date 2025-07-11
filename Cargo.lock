@@ -2389,6 +2389,7 @@ name = "integration-tests"
 version = "0.0.0"
 dependencies = [
  "ctor",
+ "makiatto",
  "makiatto-cli",
  "miette",
  "rand 0.9.1",

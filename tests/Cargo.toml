@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+makiatto = { path = "../crates/makiatto" }
 makiatto-cli = { path = "../crates/makiatto-cli" }
 
 ctor = { workspace = true }
