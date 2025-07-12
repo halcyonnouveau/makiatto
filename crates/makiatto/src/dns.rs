@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     str::FromStr,
     sync::Arc,
@@ -6,10 +7,6 @@ use std::{
 };
 
 use camino::Utf8PathBuf;
-use corro_agent::{
-    deadpool_sqlite::{self, Pool},
-    rusqlite,
-};
 use geo::{Distance, Haversine, Point, point};
 use hickory_proto::rr::{
     LowerName, Name, RData, Record,
@@ -25,12 +22,15 @@ use maxminddb::Reader;
 use miette::{IntoDiagnostic, Result};
 use tokio::{
     net::{TcpListener, UdpSocket},
-    sync::Mutex,
+    sync::{mpsc, oneshot},
 };
 use tracing::{error, info};
 use url::Url;
 
-use crate::config::Config;
+use crate::{
+    config::Config,
+    corrosion::{self, DnsRecord},
+};
 
 #[derive(thiserror::Error, Debug, miette::Diagnostic)]
 pub enum Error {
@@ -43,7 +43,7 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone)]
-pub struct Peer {
+pub struct DnsPeer {
     point: Point,
     ipv4: String,
     ipv6: Option<String>,
@@ -59,14 +59,23 @@ pub struct DnsRequest {
 
 #[derive(Debug)]
 pub struct Handler {
+    peers: Arc<[DnsPeer]>,
+    records: HashMap<String, Vec<DnsRecord>>,
     reader: Reader<Vec<u8>>,
-    db_pool: Pool,
 }
 
 impl Handler {
     #[must_use]
-    pub fn new(reader: Reader<Vec<u8>>, db_pool: Pool) -> Self {
-        Self { reader, db_pool }
+    pub fn new(
+        peers: Arc<[DnsPeer]>,
+        records: HashMap<String, Vec<DnsRecord>>,
+        reader: Reader<Vec<u8>>,
+    ) -> Self {
+        Self {
+            peers,
+            records,
+            reader,
+        }
     }
 
     fn create_failure_response() -> ResponseInfo {
@@ -160,92 +169,7 @@ impl Handler {
         Record::from_rdata(name.into(), ttl, rdata.expect("Invalid record type"))
     }
 
-    async fn get_peers(&self) -> Result<Vec<Peer>> {
-        let conn = self
-            .db_pool
-            .get()
-            .await
-            .map_err(|e| miette::miette!("Failed to get database connection: {}", e))?;
-
-        let peers = conn
-            .interact(|conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT latitude, longitude, ipv4, ipv6 FROM peers WHERE is_active = 1",
-                )?;
-                let peer_iter = stmt.query_map([], |row| {
-                    let latitude: f64 = row.get(0)?;
-                    let longitude: f64 = row.get(1)?;
-                    let ipv4: String = row.get(2)?;
-                    let ipv6: Option<String> = row.get(3)?;
-
-                    Ok(Peer {
-                        point: point!(x: latitude, y: longitude),
-                        ipv4,
-                        ipv6,
-                    })
-                })?;
-
-                let mut peers = Vec::new();
-                for peer in peer_iter {
-                    peers.push(peer?);
-                }
-                Ok::<Vec<Peer>, rusqlite::Error>(peers)
-            })
-            .await
-            .map_err(|e| miette::miette!("Database interaction failed: {}", e))?
-            .map_err(|e| miette::miette!("Failed to query peers: {}", e))?;
-
-        Ok(peers)
-    }
-
-    async fn get_records(&self, name: &str) -> Result<Vec<DnsRecord>> {
-        let name = name.to_string();
-
-        let conn = self
-            .db_pool
-            .get()
-            .await
-            .map_err(|e| miette::miette!("Failed to get database connection: {}", e))?;
-
-        let records = conn
-            .interact(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT dr.record_type, dr.default_value, dr.ttl, dr.priority, dr.geo_enabled
-                     FROM dns_records dr
-                     JOIN domains d ON dr.domain_id = d.id
-                     WHERE dr.name = ?1 OR (dr.name = '' AND d.name = ?2)",
-                )?;
-
-                let record_iter = stmt.query_map([&name, &name], |row| {
-                    let record_type: String = row.get(0)?;
-                    let default_value: String = row.get(1)?;
-                    let ttl: u32 = row.get(2)?;
-                    let priority: Option<i32> = row.get(3)?;
-                    let geo_enabled: bool = row.get::<_, i32>(4)? == 1;
-
-                    Ok(DnsRecord {
-                        record_type,
-                        default_value,
-                        ttl,
-                        priority,
-                        geo_enabled,
-                    })
-                })?;
-
-                let mut records = Vec::new();
-                for record in record_iter {
-                    records.push(record?);
-                }
-                Ok::<Vec<DnsRecord>, rusqlite::Error>(records)
-            })
-            .await
-            .map_err(|e| miette::miette!("Database interaction failed: {}", e))?
-            .map_err(|e| miette::miette!("Failed to query DNS records: {}", e))?;
-
-        Ok(records)
-    }
-
-    async fn build_records(&self, request: DnsRequest) -> Result<Vec<Record>> {
+    fn build_records(&self, request: &DnsRequest) -> Result<Vec<Record>> {
         // make sure the request is a query
         if request.op_code != OpCode::Query {
             return Err(Error::InvalidOpCode(request.op_code).into());
@@ -256,10 +180,8 @@ impl Handler {
             return Err(Error::InvalidMessageType(request.message_type).into());
         }
 
-        let request_ip = request.ip;
-        let lookup = self.reader.lookup::<maxminddb::geoip2::City>(request_ip);
-
         // get coordinates of request
+        let lookup = self.reader.lookup::<maxminddb::geoip2::City>(request.ip);
         let coords = match lookup {
             Ok(response) => match response.unwrap().location {
                 Some(location) => point!(
@@ -271,14 +193,18 @@ impl Handler {
             Err(_) => point!(x: 0.0, y: 0.0),
         };
 
-        let peers = self.get_peers().await?;
-        let records = self.get_records(&request.name.to_string()).await?;
+        let records = self
+            .records
+            .get(&request.name.to_string())
+            .cloned()
+            .unwrap_or_default();
 
-        if peers.is_empty() || records.is_empty() {
+        if self.peers.is_empty() || records.is_empty() {
             return Ok(vec![]);
         }
 
-        let closest_peer = peers
+        let closest_peer = self
+            .peers
             .iter()
             .min_by(|&a, &b| {
                 let dist_a = Haversine.distance(coords, a.point);
@@ -291,45 +217,90 @@ impl Handler {
 
         Ok(records
             .iter()
-            .map(|record| {
+            .filter_map(|record| {
                 if !record.geo_enabled {
-                    return Self::generate_record(
+                    return Some(Self::generate_record(
                         &request.name,
                         &record.record_type,
-                        &record.default_value,
+                        &record.base_value,
                         record.ttl,
                         record.priority,
-                    );
+                    ));
+                }
+
+                if record.record_type == "AAAA" && closest_peer.ipv6.is_none() {
+                    return None;
                 }
 
                 let value = match record.record_type.as_str() {
                     "A" => &closest_peer.ipv4,
-                    "AAAA" => &closest_peer
-                        .clone()
-                        .ipv6
-                        .unwrap_or(record.default_value.clone()),
-                    _ => &record.default_value,
+                    "AAAA" => closest_peer.ipv6.as_ref().unwrap(),
+                    _ => &record.base_value,
                 };
 
-                Self::generate_record(
+                Some(Self::generate_record(
                     &request.name,
                     &record.record_type,
                     value,
                     record.ttl,
                     record.priority,
-                )
+                ))
             })
             .collect())
     }
 }
 
 #[derive(Debug)]
-struct DnsRecord {
-    record_type: String,
-    default_value: String,
-    ttl: u32,
-    priority: Option<i32>,
-    geo_enabled: bool,
+pub enum DnsCommand {
+    Restart {
+        response: oneshot::Sender<Result<()>>,
+    },
+    Shutdown {
+        response: oneshot::Sender<Result<()>>,
+    },
+}
+
+#[derive(Clone)]
+pub struct DnsManager {
+    tx: mpsc::UnboundedSender<DnsCommand>,
+}
+
+impl DnsManager {
+    /// Restart the DNS server (useful after configuration changes)
+    ///
+    /// # Errors
+    /// Returns an error if the manager task has stopped or the restart fails
+    pub async fn restart(&self) -> Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.tx
+            .send(DnsCommand::Restart {
+                response: response_tx,
+            })
+            .map_err(|_| miette::miette!("DNS manager task has stopped"))?;
+
+        response_rx
+            .await
+            .map_err(|_| miette::miette!("Failed to receive response from DNS manager"))?
+    }
+
+    /// Shutdown the DNS server gracefully
+    ///
+    /// # Errors
+    /// Returns an error if the manager task has stopped or the shutdown fails
+    pub async fn shutdown(&self) -> Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.tx
+            .send(DnsCommand::Shutdown {
+                response: response_tx,
+            })
+            .map_err(|_| miette::miette!("DNS manager task has stopped"))?;
+
+        response_rx
+            .await
+            .map_err(|_| miette::miette!("Failed to receive response from DNS manager"))?
+    }
 }
 
 #[async_trait::async_trait]
@@ -346,10 +317,10 @@ impl RequestHandler for Handler {
             name: request.queries().first().unwrap().name().clone(),
         };
 
-        let records = match self.build_records(dns_request).await {
+        let records = match self.build_records(&dns_request) {
             Ok(res) => res,
             Err(e) => {
-                error!("Failed to build DNS records: {}", e);
+                error!("Failed to build DNS records: {e}");
                 return Self::create_failure_response();
             }
         };
@@ -362,7 +333,7 @@ impl RequestHandler for Handler {
         match handler.send_response(response).await {
             Ok(info) => info,
             Err(e) => {
-                error!("Failed to send DNS response: {}", e);
+                error!("Failed to send DNS response: {e}");
                 Self::create_failure_response()
             }
         }
@@ -393,76 +364,146 @@ pub fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Run the DNS server
+/// Set up the DNS server with management capabilities
 ///
 /// # Errors
 /// Returns an error if the server fails to start or bind to the configured address
-pub async fn run_dns(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
-    info!("Starting DNS server");
+pub fn setup_dns(
+    config: Config,
+    tripwire: tripwire::Tripwire,
+) -> Result<(DnsManager, tokio::task::JoinHandle<Result<()>>)> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let manager = DnsManager { tx };
 
-    if !config.dns.geolite_path.exists() {
-        download_geolite(&config.dns.geolite_path)?;
-    }
+    let handle = tokio::spawn(async move {
+        let mut current_server = Some(start_dns_server(&config, tripwire.clone()));
 
-    let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
+        loop {
+            tokio::select! {
+                command = rx.recv() => {
+                    let Some(command) = command else {
+                        break;
+                    };
 
-    let pool = deadpool_sqlite::Config::new(&config.corrosion.db.path)
-        .create_pool(deadpool_sqlite::Runtime::Tokio1)
-        .map_err(|e| miette::miette!("Failed to create database pool: {}", e))?;
+                    match command {
+                        DnsCommand::Restart { response } => {
+                            info!("Restarting DNS server");
 
-    let handler = Handler::new(reader, pool);
-    let mut server = ServerFuture::new(handler);
+                            if let Some(server) = current_server.take() {
+                                server.abort();
+                            }
 
-    server.register_socket(
-        UdpSocket::bind("[::]:53".to_string())
-            .await
-            .map_err(|e| miette::miette!("Failed to bind UDP socket: {}", e))?,
-    );
+                            let new_server = start_dns_server(&config, tripwire.clone());
+                            current_server = Some(new_server);
+                            let _ = response.send(Ok(()));
+                        }
+                        DnsCommand::Shutdown { response } => {
+                            info!("Shutting down DNS server");
 
-    server.register_listener(
-        TcpListener::bind("[::]:53".to_string())
-            .await
-            .map_err(|e| miette::miette!("Failed to bind TCP socket: {}", e))?,
-        Duration::from_secs(5),
-    );
+                            if let Some(server) = current_server.take() {
+                                server.abort();
+                            }
 
-    // TODO: Add TLS/QUIC support when we have certificates
-    // This will require integrating with the certificate management system
-    //
-    // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
-    //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
-    //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
+                            let _ = response.send(Ok(()));
+                            break;
+                        }
+                    }
+                }
+                () = tripwire.clone() => {
+                    info!("DNS manager received shutdown signal");
+                    if let Some(server) = current_server.take() {
+                        server.abort();
+                    }
+                    break;
+                }
+            }
+        }
 
-    //     server.register_quic_listener(
-    //         UdpSocket::bind("[::]:853").await?,
-    //         Duration::from_secs(1),
-    //         (cert.clone(), key.clone()),
-    //         None,
-    //     )?;
+        if let Some(server) = current_server {
+            server.abort();
+        }
 
-    //     server.register_tls_listener_with_tls_config(
-    //         TcpListener::bind("[::]:853").await?,
-    //         Duration::from_secs(5),
-    //         Arc::new(tls_server::new_acceptor(cert, key)?),
-    //     )?;
-    // }
-
-    let server = Arc::new(Mutex::new(server));
-    let server_clone = Arc::clone(&server);
-
-    tokio::spawn(async move {
-        tripwire.await;
-        info!("Shutting down DNS server");
-        let mut server = server_clone.lock().await;
-        let _ = server.shutdown_gracefully().await;
-        info!("DNS server stopped");
+        Ok(())
     });
 
-    let mut server = server.lock().await;
-    server
-        .block_until_done()
-        .await
-        .map_err(|e| miette::miette!("DNS server error: {}", e))?;
+    Ok((manager, handle))
+}
 
-    Ok(())
+/// Start a DNS server instance and return a handle to control it
+fn start_dns_server(
+    config: &Config,
+    tripwire: tripwire::Tripwire,
+) -> tokio::task::JoinHandle<Result<()>> {
+    let config = config.clone();
+
+    tokio::spawn(async move {
+        if !config.dns.geolite_path.exists() {
+            download_geolite(&config.dns.geolite_path)?;
+        }
+
+        let peers: Vec<DnsPeer> = corrosion::get_peers(&config)
+            .unwrap_or_else(|_| Arc::from([]))
+            .iter()
+            .map(|p| DnsPeer {
+                point: point!(x: p.latitude, y: p.longitude),
+                ipv4: p.ipv4.to_string(),
+                ipv6: p.ipv6.as_ref().map(ToString::to_string),
+            })
+            .collect();
+
+        let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
+
+        // Load all DNS records at startup
+        let records = corrosion::get_dns_records(&config).unwrap_or_default();
+
+        let handler = Handler::new(Arc::from(peers), records, reader);
+        let mut server = ServerFuture::new(handler);
+
+        server.register_socket(
+            UdpSocket::bind("[::]:53")
+                .await
+                .map_err(|e| miette::miette!("Failed to bind UDP socket: {}", e))?,
+        );
+
+        server.register_listener(
+            TcpListener::bind("[::]:53")
+                .await
+                .map_err(|e| miette::miette!("Failed to bind TCP socket: {}", e))?,
+            Duration::from_secs(5),
+        );
+
+        // TODO: Add TLS/QUIC support when we have certificates
+        // This will require integrating with the certificate management system
+        //
+        // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
+        //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
+        //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
+
+        //     server.register_quic_listener(
+        //         UdpSocket::bind("[::]:853").await?,
+        //         Duration::from_secs(1),
+        //         (cert.clone(), key.clone()),
+        //         None,
+        //     )?;
+
+        //     server.register_tls_listener_with_tls_config(
+        //         TcpListener::bind("[::]:853").await?,
+        //         Duration::from_secs(5),
+        //         Arc::new(tls_server::new_acceptor(cert, key)?),
+        //     )?;
+        // }
+
+        info!("DNS server started and listening on port 53");
+
+        tokio::select! {
+            result = server.block_until_done() => {
+                result.map_err(|e| miette::miette!("DNS server error: {e}"))?;
+            }
+            () = tripwire => {
+                info!("DNS server received shutdown signal");
+            }
+        }
+
+        Ok(())
+    })
 }

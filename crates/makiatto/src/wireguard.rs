@@ -8,6 +8,10 @@ use defguard_wireguard_rs::{
     InterfaceConfiguration, WGApi, WireguardInterfaceApi, host::Peer, key::Key, net::IpAddrMask,
 };
 use miette::{Result, miette};
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::spawn_blocking,
+};
 use tracing::info;
 
 use crate::{
@@ -16,12 +20,73 @@ use crate::{
     corrosion, utils,
 };
 
-#[cfg(not(target_os = "macos"))]
-pub type Wireguard = WireguardGeneric<Kernel>;
-#[cfg(target_os = "macos")]
-pub type Wireguard = WireguardGeneric<Userspace>;
+#[derive(Debug)]
+pub enum WireguardCommand {
+    AddPeer {
+        endpoint: String,
+        address: String,
+        public_key: String,
+        response: oneshot::Sender<Result<()>>,
+    },
+    RemovePeer {
+        public_key: String,
+        response: oneshot::Sender<Result<()>>,
+    },
+}
 
-pub struct WireguardGeneric<T> {
+#[derive(Clone)]
+pub struct WireguardManager {
+    tx: mpsc::UnboundedSender<WireguardCommand>,
+}
+
+impl WireguardManager {
+    /// Add a peer to the `WireGuard` interface
+    ///
+    /// # Errors
+    /// Returns an error if the manager task has stopped or the peer cannot be added
+    pub async fn add_peer(&self, endpoint: &str, address: &str, public_key: &str) -> Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.tx
+            .send(WireguardCommand::AddPeer {
+                endpoint: endpoint.to_string(),
+                address: address.to_string(),
+                public_key: public_key.to_string(),
+                response: response_tx,
+            })
+            .map_err(|_| miette!("WireGuard manager task has stopped"))?;
+
+        response_rx
+            .await
+            .map_err(|_| miette!("Failed to receive response from WireGuard manager"))?
+    }
+
+    /// Remove a peer from the `WireGuard` interface
+    ///
+    /// # Errors
+    /// Returns an error if the manager task has stopped or the peer cannot be removed
+    pub async fn remove_peer(&self, public_key: &str) -> Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.tx
+            .send(WireguardCommand::RemovePeer {
+                public_key: public_key.to_string(),
+                response: response_tx,
+            })
+            .map_err(|_| miette!("WireGuard manager task has stopped"))?;
+
+        response_rx
+            .await
+            .map_err(|_| miette!("Failed to receive response from WireGuard manager"))?
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+type Wireguard = WireguardGeneric<Kernel>;
+#[cfg(target_os = "macos")]
+type Wireguard = WireguardGeneric<Userspace>;
+
+struct WireguardGeneric<T> {
     api: WGApi<T>,
 }
 
@@ -104,7 +169,7 @@ where
                 corrosion_peers.len()
             );
             for peer in corrosion_peers.iter() {
-                let endpoint = format!("{}:{}", peer.ipv4, peer.wg_port);
+                let endpoint = format!("{}:{WIREGUARD_PORT}", peer.ipv4);
                 match wireguard.add_peer(&endpoint, &peer.wg_address, &peer.wg_public_key) {
                     Ok(()) => info!("Added peer from database: {}", peer.name),
                     Err(e) => {
@@ -153,11 +218,32 @@ where
         Ok(())
     }
 
+    /// Remove a peer from the `WireGuard` interface
+    ///
+    /// # Errors
+    /// Returns an error if the peer cannot be removed
+    pub fn remove_peer(&self, public_key: &str) -> Result<()> {
+        if utils::is_container() {
+            info!("Container environment detected - skipping peer removal");
+            return Ok(());
+        }
+
+        let peer_key =
+            Key::from_str(public_key).map_err(|e| miette!("Invalid peer public key: {e}"))?;
+
+        self.api
+            .remove_peer(&peer_key)
+            .map_err(|e| miette!("Failed to remove peer: {e}"))?;
+
+        info!("Removed peer: {}", public_key);
+        Ok(())
+    }
+
     /// Clean up the `WireGuard` interface on shutdown
     ///
     /// # Errors
     /// Returns an error if the interface cannot be removed
-    pub fn cleanup_interface(self) -> Result<()> {
+    pub fn cleanup_interface(&self) -> Result<()> {
         if utils::is_container() {
             info!("Container environment detected - skipping WireGuard interface cleanup",);
             return Ok(());
@@ -213,14 +299,53 @@ where
 pub fn setup_wireguard(
     config: &Config,
     peers: Option<Arc<[corrosion::Peer]>>,
-) -> Result<Wireguard> {
-    Wireguard::new(&config.wireguard, peers)
+) -> Result<(WireguardManager, tokio::task::JoinHandle<Result<()>>)> {
+    let wg_interface = Wireguard::new(&config.wireguard, peers)?;
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    let manager = WireguardManager { tx };
+
+    let handle = spawn_blocking(move || {
+        let rt = tokio::runtime::Handle::current();
+
+        loop {
+            let Some(command) = rt.block_on(rx.recv()) else {
+                break;
+            };
+
+            match command {
+                WireguardCommand::AddPeer {
+                    endpoint,
+                    address,
+                    public_key,
+                    response,
+                } => {
+                    let result = wg_interface.add_peer(&endpoint, &address, &public_key);
+                    let _ = response.send(result);
+                }
+                WireguardCommand::RemovePeer {
+                    public_key,
+                    response,
+                } => {
+                    let result = wg_interface.remove_peer(&public_key);
+                    let _ = response.send(result);
+                }
+            }
+        }
+
+        wg_interface.cleanup_interface()
+    });
+
+    Ok((manager, handle))
 }
 
 /// Clean up the `WireGuard` interface
 ///
 /// # Errors
 /// Returns an error if the interface cannot be removed
-pub fn cleanup_wireguard(wireguard: Wireguard) -> Result<()> {
-    wireguard.cleanup_interface()
+pub async fn cleanup_wireguard(handle: tokio::task::JoinHandle<Result<()>>) -> Result<()> {
+    // The handle will automatically cleanup when the channel is dropped
+    handle
+        .await
+        .map_err(|e| miette!("WireGuard task panicked: {e}"))?
 }
