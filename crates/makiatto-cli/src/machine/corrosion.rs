@@ -55,7 +55,8 @@ pub fn insert_peer(ssh: &SshSession, machine: &MachineConfig) -> Result<()> {
 
 /// Query all peers from the database via SSH
 pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
-    let sql = "SELECT id, name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers ORDER BY created_at;";
+    let sql =
+        "SELECT id, name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers;";
     let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
 
     let output = ssh

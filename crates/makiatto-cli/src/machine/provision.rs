@@ -5,6 +5,7 @@ use miette::Result;
 
 use crate::{
     config::{GlobalConfig, MachineConfig},
+    machine::corrosion,
     ssh::SshSession,
     ui,
 };
@@ -27,10 +28,13 @@ pub fn install_makiatto(
     setup_systemd_service(&ssh)?;
 
     if ssh.is_container() {
-        ui::info("Container environment detected - skipping systemd start");
+        ui::info("Container environment detected - starting makiatto as background process");
+        start_makiatto_background(&ssh)?;
     } else {
         start_makiatto_service(&ssh)?;
     }
+
+    add_self_as_peer(&ssh, machine_config)?;
 
     Ok(ssh)
 }
@@ -110,7 +114,6 @@ fn setup_system_permissions(ssh: &SshSession) -> Result<()> {
 }
 
 fn ensure_sqlite3_installed(ssh: &SshSession) -> Result<()> {
-    // Check if sqlite3 is already available
     if ssh.exec("which sqlite3").is_ok() {
         return Ok(());
     }
@@ -155,13 +158,30 @@ fn create_daemon_config(
     ui::status("Creating makiatto configuration...");
 
     // bootstrap with wireguard ip address + corrosion gossip port
-    let bootstrap_machines: Vec<String> = global_config
+    let corrosion_bootstrap: Vec<String> = global_config
         .machines
         .iter()
         .take(10)
         .filter(|m| m.name != machine_config.name)
         .map(|m| format!("{}:8787", m.wg_address))
         .collect();
+
+    // collect wireguard bootstrap peers
+    let wireguard_peers: Vec<String> = global_config
+        .machines
+        .iter()
+        .map(|m| {
+            formatdoc! {r#"
+            [[wireguard.bootstrap]]
+            public_key = "{}"
+            endpoint = "{}:51880""#,
+                m.wg_public_key,
+                m.ipv4
+            }
+        })
+        .collect();
+
+    let wireguard_bootstrap = wireguard_peers.join("\n\n");
 
     let config_content = formatdoc! {
         r#"
@@ -170,11 +190,13 @@ fn create_daemon_config(
         data_dir = "/var/makiatto"
         is_nameserver = {is_nameserver}
 
-        [network]
+        [wireguard]
         interface = "wawa0"
         address = "{wg_address}"
         private_key = "{wg_private_key}"
         public_key = "{wg_public_key}"
+
+        {wireguard_bootstrap}
 
         [dns]
         addr = "0.0.0.0:53"
@@ -194,7 +216,7 @@ fn create_daemon_config(
         [corrosion.gossip]
         addr = "0.0.0.0:8787"
         external_addr = "{wg_address}:8787"
-        bootstrap = {bootstrap_machines:?}
+        bootstrap = {corrosion_bootstrap:?}
         plaintext = true
 
         [corrosion.api]
@@ -205,8 +227,14 @@ fn create_daemon_config(
         wg_address = machine_config.wg_address,
         wg_private_key = wg_private_key,
         wg_public_key = machine_config.wg_public_key,
-        bootstrap_machines = bootstrap_machines,
+        wireguard_bootstrap = wireguard_bootstrap,
+        corrosion_bootstrap = corrosion_bootstrap,
     };
+
+    if ssh.exec("test -d /var/makiatto").is_ok() {
+        ui::action("Cleaning up old data directory");
+        ssh.exec("sudo rm -rf /var/makiatto")?;
+    }
 
     ui::action("Creating data directories");
     ssh.exec("sudo mkdir -p /var/makiatto")?;
@@ -292,6 +320,61 @@ fn start_makiatto_service(ssh: &SshSession) -> Result<()> {
         Err(_) => {
             return Err(miette::miette!(
                 "Service failed to start - check logs with 'sudo journalctl -u makiatto'"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn add_self_as_peer(ssh: &SshSession, machine_config: &MachineConfig) -> Result<()> {
+    ui::status("Inserting self into database...");
+    let spinner = ui::spinner("Checking for waiting for database to be ready...");
+    let start_time = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(10);
+
+    loop {
+        if start_time.elapsed() > timeout {
+            spinner.finish_with_message("Timeout waiting for peers table");
+            return Err(miette::miette!(
+                "Timeout waiting for peers table to be created"
+            ));
+        }
+
+        let result = ssh.exec("sudo -u makiatto sqlite3 /var/makiatto/cluster.db \".tables\"");
+
+        if let Ok(output) = result
+            && output.contains("peers")
+        {
+            spinner.finish_with_message("✓ Database ready");
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            break;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    ui::action("Writing to Corrosion API");
+    corrosion::insert_peer(ssh, machine_config)?;
+
+    Ok(())
+}
+
+fn start_makiatto_background(ssh: &SshSession) -> Result<()> {
+    ui::status("Starting makiatto in background...");
+
+    ui::action("Launching background process");
+    ssh.exec("sudo -u makiatto nohup /usr/local/bin/makiatto > /var/makiatto/makiatto.log 2>&1 &")?;
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    let result = ssh.exec("pgrep -f '/usr/local/bin/makiatto'");
+    match result {
+        Ok(pid) => {
+            ui::info(&format!("Makiatto started with PID: {}", pid.trim()));
+        }
+        Err(_) => {
+            return Err(miette::miette!(
+                "Failed to start makiatto - check logs with 'tail /var/makiatto/makiatto.log'"
             ));
         }
     }

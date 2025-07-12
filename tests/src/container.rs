@@ -138,13 +138,13 @@ impl ContainerContext {
             .status()
             .map_err(|e| miette::miette!("Failed to copy makiatto.toml: {e}"))?;
 
-        Self::sed(
+        Self::replace(
             "name = \"wawa-daemon\"",
             &format!("name = \"{}-wawa-daemon\"", container.id),
             &target.join("makiatto.toml"),
         )?;
 
-        Self::sed(
+        Self::replace(
             "external_addr = \"127.0.0.1:8787\"",
             &format!(
                 "external_addr = \"{}:{}\"",
@@ -173,7 +173,7 @@ impl ContainerContext {
                 .join(", ");
 
             let bootstrap = format!("[{bootstrap}]");
-            Self::sed(
+            Self::replace(
                 "bootstrap = []",
                 &format!("bootstrap = {bootstrap}"),
                 &target.join("makiatto.toml"),
@@ -199,16 +199,13 @@ impl ContainerContext {
         Ok(container)
     }
 
-    /// Run sed command using a temp file approach to avoid escaping issues
-    fn sed(pattern: &str, replacement: &str, path: &path::Path) -> Result<()> {
-        // Read the file
+    /// replace a string in a file
+    fn replace(pattern: &str, replacement: &str, path: &path::Path) -> Result<()> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| miette::miette!("Failed to read file: {e}"))?;
 
-        // Replace the pattern
         let new_content = content.replace(pattern, replacement);
 
-        // Write back to file
         std::fs::write(path, new_content)
             .map_err(|e| miette::miette!("Failed to write file: {e}"))?;
 

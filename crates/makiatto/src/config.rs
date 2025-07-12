@@ -12,8 +12,8 @@ pub struct Config {
     /// Corrosion configuration
     pub corrosion: corro_types::config::Config,
 
-    /// Network configuration
-    pub network: NetworkConfig,
+    /// Wireguard configuration
+    pub wireguard: WireguardConfig,
 
     /// DNS server configuration
     pub dns: DnsConfig,
@@ -35,7 +35,7 @@ pub struct NodeConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct NetworkConfig {
+pub struct WireguardConfig {
     /// `WireGuard` interface name
     pub interface: Arc<str>,
 
@@ -47,6 +47,19 @@ pub struct NetworkConfig {
 
     /// `WireGuard` private key (auto-generated)
     pub private_key: Arc<str>,
+
+    /// Bootstrap `WireGuard` peers
+    #[serde(default)]
+    pub bootstrap: Arc<[Bootstrap]>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Bootstrap {
+    /// Public key to peer
+    pub public_key: Arc<str>,
+
+    /// `WireGuard` endpoint of peer
+    pub endpoint: Arc<str>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

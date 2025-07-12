@@ -3,7 +3,7 @@ name = "wawa-daemon"
 data_dir = "/var/makiatto"
 is_nameserver = true
 
-[network]
+[wireguard]
 interface = "wawa0"
 address = "127.0.0.1"
 private_key = "wawa"
