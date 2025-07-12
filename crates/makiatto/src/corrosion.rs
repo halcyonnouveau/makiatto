@@ -24,7 +24,7 @@ pub async fn run(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
     info!("Starting Corrosion agent for node '{}'", config.node.name);
 
     if let Err(e) = tokio::fs::create_dir_all(&*config.node.data_dir).await {
-        error!("Failed to create data directory: {}", e);
+        error!("Failed to create data directory: {e}");
         return Err(miette::miette!("Failed to create data directory: {}", e));
     }
 

@@ -13,6 +13,7 @@ pub struct SshSession {
     pub session: Session,
     user: String,
     password: Option<String>,
+    is_container: bool,
 }
 
 impl SshSession {
@@ -79,10 +80,13 @@ impl SshSession {
             }
         }
 
+        let is_container = Self::check_container(&session);
+
         let mut ssh = Self {
             session,
             user,
             password: password.clone(),
+            is_container,
         };
 
         if password.is_none() {
@@ -195,9 +199,21 @@ impl SshSession {
         Ok(())
     }
 
+    fn check_container(session: &Session) -> bool {
+        let Ok(mut channel) = session.channel_session() else {
+            return false;
+        };
+
+        if channel.exec("test -f /run/.containerenv").is_err() {
+            return false;
+        }
+
+        let _ = channel.wait_close();
+        channel.exit_status().unwrap_or(1) == 0
+    }
+
     pub(crate) fn is_container(&self) -> bool {
-        self.execute_command_raw("test -f /run/.containerenv", None)
-            .is_ok()
+        self.is_container
     }
 
     fn test_sudo(&self) -> Result<Option<String>> {

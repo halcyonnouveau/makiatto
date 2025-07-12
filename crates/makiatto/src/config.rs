@@ -55,30 +55,24 @@ pub struct WireguardConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Bootstrap {
-    /// Public key to peer
-    pub public_key: Arc<str>,
-
     /// `WireGuard` endpoint of peer
     pub endpoint: Arc<str>,
+
+    /// `WireGuard` address of peer
+    pub address: Arc<str>,
+
+    /// Public key to peer
+    pub public_key: Arc<str>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DnsConfig {
-    /// DNS server bind address
-    pub addr: Arc<str>,
-
     /// Path to `GeoLite2` database
     pub geolite_path: Utf8PathBuf,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WebConfig {
-    /// HTTP server bind address
-    pub http_addr: Arc<str>,
-
-    /// HTTPS server bind address
-    pub https_addr: Arc<str>,
-
     /// Directory to serve static files from
     pub static_dir: Utf8PathBuf,
 }
