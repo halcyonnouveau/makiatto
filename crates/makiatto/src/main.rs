@@ -18,7 +18,8 @@ async fn main() -> Result<()> {
     let config = config::load()?;
     info!("Loaded config for node '{}'", config.node.name);
 
-    wireguard::setup_interface(&config)?;
+    let peers = corrosion::get_peers(&config).ok();
+    let wg_interface = wireguard::setup_wireguard(&config, peers)?;
 
     let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
     let mut handles = vec![];
@@ -86,7 +87,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    wireguard::cleanup_interface(&config)?;
+    wireguard::cleanup_wireguard(wg_interface)?;
 
     Ok(())
 }

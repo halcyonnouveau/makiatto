@@ -1,9 +1,20 @@
-use std::fs;
+use std::{fs, sync::Arc};
 
+use corro_agent::rusqlite::Connection;
 use miette::Result;
 use tracing::{error, info};
 
 use crate::config::Config;
+
+#[derive(Debug, Clone)]
+pub struct Peer {
+    pub name: String,
+    pub wg_public_key: String,
+    pub wg_address: String,
+    pub ipv4: String,
+    pub ipv6: Option<String>,
+    pub wg_port: i64,
+}
 
 /// Run the embedded Corrosion agent
 ///
@@ -44,81 +55,36 @@ pub async fn run(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
 }
 
 const MAKIATTO_SCHEMA: &str = r#"
--- Domains table
-CREATE TABLE domains (
-    id INTEGER NOT NULL PRIMARY KEY,
-    name TEXT NOT NULL DEFAULT "",
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
-CREATE INDEX domains_name_unique ON domains (name);
-
--- DNS records table
-CREATE TABLE dns_records (
-    id INTEGER NOT NULL PRIMARY KEY,
-    domain_id INTEGER NOT NULL DEFAULT 0,
-    name TEXT NOT NULL DEFAULT "",
-    record_type TEXT NOT NULL DEFAULT "",
-    default_value TEXT NOT NULL DEFAULT "",
-    ttl INTEGER NOT NULL DEFAULT 300,
-    priority INTEGER DEFAULT NULL,
-    geo_enabled INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
-CREATE INDEX idx_dns_records_lookup ON dns_records (domain_id, name, record_type);
-CREATE INDEX idx_dns_records_geo ON dns_records (geo_enabled);
-
--- Peers table (for GeoDNS and WireGuard mesh)
-CREATE TABLE peers (
-    id INTEGER NOT NULL PRIMARY KEY,
-    name TEXT NOT NULL DEFAULT "",
+CREATE TABLE IF NOT EXISTS peers (
+    name TEXT NOT NULL PRIMARY KEY,
     latitude REAL NOT NULL DEFAULT 0.0,
     longitude REAL NOT NULL DEFAULT 0.0,
-    ipv4 TEXT NOT NULL DEFAULT "",
+    ipv4 TEXT NOT NULL DEFAULT '',
     ipv6 TEXT DEFAULT NULL,
-    wg_public_key TEXT NOT NULL DEFAULT "",
-    wg_address TEXT NOT NULL DEFAULT "",
+    wg_public_key TEXT NOT NULL DEFAULT '',
+    wg_address TEXT NOT NULL DEFAULT '',
     wg_port INTEGER NOT NULL DEFAULT 51880,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    created_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond')),
+    updated_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond'))
 );
 
-CREATE INDEX idx_peers_location ON peers (latitude, longitude);
-CREATE INDEX idx_peers_wg_key ON peers (wg_public_key);
-
--- Certificates table
-CREATE TABLE certificates (
-    id INTEGER NOT NULL PRIMARY KEY,
-    domain_id INTEGER NOT NULL DEFAULT 0,
-    certificate_pem TEXT NOT NULL DEFAULT "",
-    private_key_pem TEXT NOT NULL DEFAULT "",
-    expires_at INTEGER NOT NULL DEFAULT 0,
-    issuer TEXT NOT NULL DEFAULT "lets_encrypt",
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+CREATE TABLE IF NOT EXISTS dns_records (
+    domain TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    record_type TEXT NOT NULL DEFAULT '',
+    d_value TEXT NOT NULL DEFAULT '',
+    ttl INTEGER NOT NULL DEFAULT 300,
+    priority INTEGER DEFAULT NULL,
+    geo_enabled INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_certificates_expiration ON certificates (expires_at);
-
--- File synchronisation table
-CREATE TABLE file_synchronisation (
-    id INTEGER NOT NULL PRIMARY KEY,
-    domain_id INTEGER NOT NULL DEFAULT 0,
-    file_path TEXT NOT NULL DEFAULT "",
-    file_hash TEXT NOT NULL DEFAULT "",
-    file_size INTEGER NOT NULL DEFAULT 0,
-    last_modified INTEGER NOT NULL DEFAULT 0,
-    synchronisation_status TEXT NOT NULL DEFAULT "pending",
-    error_message TEXT DEFAULT NULL,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+CREATE TABLE IF NOT EXISTS certificates (
+    domain TEXT NOT NULL PRIMARY KEY,
+    certificate_pem TEXT NOT NULL DEFAULT '',
+    private_key_pem TEXT NOT NULL DEFAULT '',
+    expires_at INTEGER NOT NULL DEFAULT '',
+    issuer TEXT NOT NULL DEFAULT "lets_encrypt"
 );
-
-CREATE INDEX idx_file_synchronisation_status ON file_synchronisation (synchronisation_status, updated_at);
-CREATE INDEX idx_file_synchronisation_domain ON file_synchronisation (domain_id, synchronisation_status);
 "#;
 
 /// Set up schema file and return the file path for Corrosion config
@@ -131,4 +97,47 @@ fn setup_schema_file(data_dir: &camino::Utf8PathBuf) -> Result<camino::Utf8PathB
 
     info!("Wrote schema file: {schema_file_path}");
     Ok(schema_file_path)
+}
+
+/// Get all peers from the database, excluding the current machine
+///
+/// # Errors
+/// Returns an error if the database query fails
+pub fn get_peers(config: &Config) -> Result<Arc<[Peer]>> {
+    let db_path = &config.corrosion.db.path;
+
+    if !db_path.exists() {
+        return Err(miette::miette!("Database does not exist"));
+    }
+
+    let conn =
+        Connection::open(db_path).map_err(|e| miette::miette!("Failed to open database: {e}"))?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT name, wg_public_key, wg_address, ipv4, ipv6, wg_port FROM peers WHERE name != ?1",
+        )
+        .map_err(|e| miette::miette!("Failed to prepare query: {e}"))?;
+
+    let peer_iter = stmt
+        .query_map([&config.node.name], |row| {
+            Ok(Peer {
+                name: row.get(0)?,
+                wg_public_key: row.get(1)?,
+                wg_address: row.get(2)?,
+                ipv4: row.get(3)?,
+                ipv6: row.get(4)?,
+                wg_port: row.get(5)?,
+            })
+        })
+        .map_err(|e| miette::miette!("Failed to query peers: {e}"))?;
+
+    let mut peers = Vec::new();
+    for peer_result in peer_iter {
+        let peer = peer_result.map_err(|e| miette::miette!("Failed to read peer data: {e}"))?;
+        peers.push(peer);
+    }
+
+    info!("Retrieved {} peers from database", peers.len());
+    Ok(peers.into())
 }

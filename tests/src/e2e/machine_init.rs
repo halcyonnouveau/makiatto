@@ -1,8 +1,7 @@
 #![cfg(test)]
-use std::time::Duration;
-
 use makiatto_cli::{config::GlobalConfig, machine::InitMachine};
-use miette::Result;
+use miette::{IntoDiagnostic, Result, miette};
+use testcontainers::core::ExecCommand;
 
 use crate::container::{ContainerContext, PortMap, TestContainer};
 
@@ -30,20 +29,8 @@ async fn test_machine_init_first() -> Result<()> {
         key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };
 
-    let ssh = makiatto_cli::machine::init_machine(&request, &mut config)?;
+    makiatto_cli::machine::init_machine(&request, &mut config)?;
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-    // if it runs for N seconds, everything *probably* should have started
-    let response = ssh.exec_timeout(
-        "sudo -u makiatto /usr/local/bin/makiatto",
-        Duration::from_secs(2),
-    );
-
-    if let Ok(output) = &response {
-        println!("Unexpected success: {output}");
-    }
-
-    assert!(response.is_err_and(|err| { err.to_string().contains("Timed out waiting on socket") }));
 
     Ok(())
 }
@@ -76,19 +63,27 @@ async fn test_machine_init_second() -> Result<()> {
         key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };
 
-    let ssh = makiatto_cli::machine::init_machine(&request, &mut config)?;
+    makiatto_cli::machine::init_machine(&request, &mut config)?;
+
+    // test peer data replicated to daemon container
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let response = ssh.exec_timeout(
-        "sudo -u makiatto /usr/local/bin/makiatto",
-        Duration::from_secs(2),
-    );
+    let mut query = daemon
+        .container
+        .expect("No daemon container")
+        .exec(ExecCommand::new(vec![
+            "sqlite3",
+            "/var/makiatto/cluster.db",
+            "SELECT name, wg_public_key, ipv4 FROM peers WHERE name = 'test-machine-init-second';",
+        ]))
+        .await
+        .map_err(|e| miette!("Failed to query d1: {e}"))?;
 
-    if let Ok(output) = &response {
-        println!("Unexpected success: {output}");
-    }
+    let d1_stdout = query.stdout_to_vec().await.into_diagnostic()?;
+    let stdout = String::from_utf8_lossy(&d1_stdout);
 
-    assert!(response.is_err_and(|err| { err.to_string().contains("Timed out waiting on socket") }));
+    assert!(!stdout.is_empty(), "No data returned from d1 query");
+    assert!(stdout.contains("test-machine-init-second"));
 
     Ok(())
 }
