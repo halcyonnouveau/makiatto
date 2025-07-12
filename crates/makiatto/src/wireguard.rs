@@ -12,6 +12,7 @@ use tracing::info;
 
 use crate::{
     config::{Config, WireguardConfig},
+    constants::WIREGUARD_PORT,
     corrosion, utils,
 };
 
@@ -67,7 +68,7 @@ where
             name: config.interface.to_string(),
             prvkey: config.private_key.to_string(),
             addresses: vec![address_mask],
-            port: 51880,
+            port: WIREGUARD_PORT.into(),
             peers: vec![],
             mtu: None,
         };
@@ -95,26 +96,24 @@ where
 
         let wireguard = Self { api: wgapi };
 
-        if let Some(corrosion_peers) = peers {
-            if corrosion_peers.is_empty() {
-                info!("No peers found in Corrosion database, falling back to bootstrap peers");
-                Self::add_bootstrap_peers(&wireguard, config);
-            } else {
-                info!(
-                    "Adding {} peers from Corrosion database",
-                    corrosion_peers.len()
-                );
-                for peer in corrosion_peers.iter() {
-                    let endpoint = format!("{}:{}", peer.ipv4, peer.wg_port);
-                    match wireguard.add_peer(&peer.wg_public_key, &endpoint) {
-                        Ok(()) => info!("Added peer from database: {}", peer.name),
-                        Err(e) => {
-                            tracing::error!("Failed to add peer {}: {e}", peer.name);
-                        }
+        if let Some(corrosion_peers) = peers
+            && !corrosion_peers.is_empty()
+        {
+            info!(
+                "Adding {} peers from Corrosion database",
+                corrosion_peers.len()
+            );
+            for peer in corrosion_peers.iter() {
+                let endpoint = format!("{}:{}", peer.ipv4, peer.wg_port);
+                match wireguard.add_peer(&endpoint, &peer.wg_address, &peer.wg_public_key) {
+                    Ok(()) => info!("Added peer from database: {}", peer.name),
+                    Err(e) => {
+                        tracing::error!("Failed to add peer {}: {e}", peer.name);
                     }
                 }
             }
         } else {
+            info!("No peers found in Corrosion database, falling back to bootstrap peers");
             Self::add_bootstrap_peers(&wireguard, config);
         }
 
@@ -125,7 +124,7 @@ where
     ///
     /// # Errors
     /// Returns an error if the peer cannot be added
-    pub fn add_peer(&self, public_key: &str, endpoint: &str) -> Result<()> {
+    pub fn add_peer(&self, endpoint: &str, address: &str, public_key: &str) -> Result<()> {
         if utils::is_container() {
             info!("Container environment detected - skipping peer addition");
             return Ok(());
@@ -142,7 +141,11 @@ where
                 .map_err(|e| miette!("Invalid endpoint format: {e}"))?,
         );
 
-        // Configure the peer
+        let addr = IpAddrMask::from_str(&format!("{address}/32"))
+            .map_err(|e| miette!("Unable to create addr mask: {e}"))?;
+
+        peer.allowed_ips.push(addr);
+
         self.api
             .configure_peer(&peer)
             .map_err(|e| miette!("Failed to configure peer: {e}"))?;
@@ -178,12 +181,16 @@ where
         if !config.bootstrap.is_empty() {
             info!("Bootstrapping {} peers", config.bootstrap.len());
             for bootstrap_peer in config.bootstrap.iter() {
-                match wireguard.add_peer(&bootstrap_peer.public_key, &bootstrap_peer.endpoint) {
-                    Ok(()) => info!("Added bootstrap peer: {}", bootstrap_peer.public_key),
+                match wireguard.add_peer(
+                    &bootstrap_peer.address,
+                    &bootstrap_peer.endpoint,
+                    &bootstrap_peer.public_key,
+                ) {
+                    Ok(()) => info!("Added bootstrap peer: {}", bootstrap_peer.address),
                     Err(e) => {
                         tracing::error!(
                             "Failed to add bootstrap peer {}: {e}",
-                            bootstrap_peer.public_key,
+                            bootstrap_peer.address,
                         );
                     }
                 }

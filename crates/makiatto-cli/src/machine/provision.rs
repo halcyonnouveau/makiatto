@@ -5,6 +5,7 @@ use miette::Result;
 
 use crate::{
     config::{GlobalConfig, MachineConfig},
+    constants::{CORROSION_API_PORT, CORROSION_GOSSIP_PORT, WIREGUARD_PORT},
     machine::corrosion,
     ssh::SshSession,
     ui,
@@ -120,7 +121,6 @@ fn ensure_sqlite3_installed(ssh: &SshSession) -> Result<()> {
 
     ui::status("Installing SQLite3...");
 
-    // Try different package managers in order of preference
     let install_commands = [
         // Debian/Ubuntu (apt)
         "sudo apt update && sudo apt install -y sqlite3",
@@ -163,7 +163,7 @@ fn create_daemon_config(
         .iter()
         .take(10)
         .filter(|m| m.name != machine_config.name)
-        .map(|m| format!("{}:8787", m.wg_address))
+        .map(|m| format!("{}:{CORROSION_GOSSIP_PORT}", m.wg_address))
         .collect();
 
     // collect wireguard bootstrap peers
@@ -173,15 +173,15 @@ fn create_daemon_config(
         .map(|m| {
             formatdoc! {r#"
             [[wireguard.bootstrap]]
-            public_key = "{}"
-            endpoint = "{}:51880""#,
-                m.wg_public_key,
-                m.ipv4
+            endpoint = "{}:{WIREGUARD_PORT}"
+            address = "{}"
+            public_key = "{}""#,
+            m.ipv4,
+            m.wg_address,
+            m.wg_public_key,
             }
         })
         .collect();
-
-    let wireguard_bootstrap = wireguard_peers.join("\n\n");
 
     let config_content = formatdoc! {
         r#"
@@ -199,12 +199,9 @@ fn create_daemon_config(
         {wireguard_bootstrap}
 
         [dns]
-        addr = "0.0.0.0:53"
         geolite_path = "/var/makiatto/GeoLite2-City.mmdb"
 
         [web]
-        http_addr = "0.0.0.0:80"
-        https_addr = "0.0.0.0:443"
         static_dir = "/var/makiatto/sites"
 
         [corrosion.admin]
@@ -214,21 +211,25 @@ fn create_daemon_config(
         path = "/var/makiatto/cluster.db"
 
         [corrosion.gossip]
-        addr = "0.0.0.0:8787"
-        external_addr = "{wg_address}:8787"
+        addr = "{wg_address}:{corrosion_gossip_port}"
+        external_addr = "{wg_address}:{corrosion_gossip_port}"
         bootstrap = {corrosion_bootstrap:?}
         plaintext = true
 
         [corrosion.api]
-        addr = "127.0.0.1:8181"
+        addr = "127.0.0.1:{corrosion_api_port}"
         "#,
         name = machine_config.name,
         is_nameserver = machine_config.is_nameserver,
-        wg_address = machine_config.wg_address,
+        wg_address = if ssh.is_container() {
+            "127.0.0.1".to_string() } else { machine_config.wg_address.to_string()
+        },
         wg_private_key = wg_private_key,
         wg_public_key = machine_config.wg_public_key,
-        wireguard_bootstrap = wireguard_bootstrap,
+        wireguard_bootstrap = wireguard_peers.join("\n\n"),
         corrosion_bootstrap = corrosion_bootstrap,
+        corrosion_gossip_port = CORROSION_GOSSIP_PORT,
+        corrosion_api_port = CORROSION_API_PORT,
     };
 
     if ssh.exec("test -d /var/makiatto").is_ok() {

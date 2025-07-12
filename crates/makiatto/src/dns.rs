@@ -257,7 +257,6 @@ impl Handler {
         }
 
         let request_ip = request.ip;
-
         let lookup = self.reader.lookup::<maxminddb::geoip2::City>(request_ip);
 
         // get coordinates of request
@@ -378,6 +377,7 @@ pub fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     info!("Downloading GeoLite2 database...");
 
     let status = std::process::Command::new("curl")
+        .arg("-s")
         .arg("-L")
         .arg("-o")
         .arg(path.as_str())
@@ -398,7 +398,7 @@ pub fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
 /// # Errors
 /// Returns an error if the server fails to start or bind to the configured address
 pub async fn run_dns(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
-    info!("Starting DNS server on {}", config.dns.addr);
+    info!("Starting DNS server");
 
     if !config.dns.geolite_path.exists() {
         download_geolite(&config.dns.geolite_path)?;
@@ -414,12 +414,13 @@ pub async fn run_dns(config: Config, tripwire: tripwire::Tripwire) -> Result<()>
     let mut server = ServerFuture::new(handler);
 
     server.register_socket(
-        UdpSocket::bind(&*config.dns.addr)
+        UdpSocket::bind("[::]:53".to_string())
             .await
             .map_err(|e| miette::miette!("Failed to bind UDP socket: {}", e))?,
     );
+
     server.register_listener(
-        TcpListener::bind(&*config.dns.addr)
+        TcpListener::bind("[::]:53".to_string())
             .await
             .map_err(|e| miette::miette!("Failed to bind TCP socket: {}", e))?,
         Duration::from_secs(5),
@@ -427,6 +428,24 @@ pub async fn run_dns(config: Config, tripwire: tripwire::Tripwire) -> Result<()>
 
     // TODO: Add TLS/QUIC support when we have certificates
     // This will require integrating with the certificate management system
+    //
+    // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
+    //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
+    //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
+
+    //     server.register_quic_listener(
+    //         UdpSocket::bind("[::]:853").await?,
+    //         Duration::from_secs(1),
+    //         (cert.clone(), key.clone()),
+    //         None,
+    //     )?;
+
+    //     server.register_tls_listener_with_tls_config(
+    //         TcpListener::bind("[::]:853").await?,
+    //         Duration::from_secs(5),
+    //         Arc::new(tls_server::new_acceptor(cert, key)?),
+    //     )?;
+    // }
 
     let server = Arc::new(Mutex::new(server));
     let server_clone = Arc::clone(&server);

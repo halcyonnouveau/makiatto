@@ -1,0 +1,3 @@
+pub const WIREGUARD_PORT: u16 = 51880;
+pub const CORROSION_GOSSIP_PORT: u16 = 8787;
+pub const CORROSION_API_PORT: u16 = 8181;
