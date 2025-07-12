@@ -80,18 +80,20 @@ impl SshSession {
             }
         }
 
-        let is_container = Self::check_container(&session);
-
         let mut ssh = Self {
             session,
             user,
             password: password.clone(),
-            is_container,
+            is_container: false,
         };
 
         if password.is_none() {
             ssh.password = ssh.test_sudo()?;
         }
+
+        ssh.is_container = ssh
+            .execute_command_raw("[ -f /run/.containerenv ] || [ -f /.dockerenv ]", None)
+            .is_ok();
 
         Ok(ssh)
     }
@@ -197,19 +199,6 @@ impl SshSession {
         ));
 
         Ok(())
-    }
-
-    fn check_container(session: &Session) -> bool {
-        let Ok(mut channel) = session.channel_session() else {
-            return false;
-        };
-
-        if channel.exec("test -f /run/.containerenv").is_err() {
-            return false;
-        }
-
-        let _ = channel.wait_close();
-        channel.exit_status().unwrap_or(1) == 0
     }
 
     pub(crate) fn is_container(&self) -> bool {

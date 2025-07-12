@@ -26,12 +26,13 @@ pub fn install_makiatto(
     setup_system_permissions(&ssh)?;
     ensure_sqlite3_installed(&ssh)?;
     create_daemon_config(&ssh, global_config, machine_config, wg_private_key)?;
-    setup_systemd_service(&ssh)?;
 
     if ssh.is_container() {
         ui::info("Container environment detected - starting makiatto as background process");
         start_makiatto_background(&ssh)?;
     } else {
+        setup_systemd_service(&ssh)?;
+        setup_dns_configuration(&ssh, machine_config)?;
         start_makiatto_service(&ssh)?;
     }
 
@@ -147,6 +148,25 @@ fn ensure_sqlite3_installed(ssh: &SshSession) -> Result<()> {
     Err(miette::miette!(
         "Failed to install SQLite3. Please install it manually on the target system."
     ))
+}
+
+fn setup_dns_configuration(ssh: &SshSession, machine_config: &MachineConfig) -> Result<()> {
+    if machine_config.is_nameserver {
+        ui::status("Configuring DNS...");
+        ui::action("Disabling systemd-resolved");
+        ssh.exec("sudo systemctl disable --now systemd-resolved")?;
+
+        ui::action("Setting up external DNS resolution");
+        ssh.exec("sudo rm -f /etc/resolv.conf")?;
+        ssh.exec("echo 'nameserver 9.9.9.9' | sudo tee /etc/resolv.conf")?;
+        ssh.exec("echo 'nameserver 1.1.1.1' | sudo tee -a /etc/resolv.conf")?;
+
+        ui::info("Configured Quad9 (9.9.9.9) and Cloudflare (1.1.1.1) as upstream DNS");
+    } else {
+        ui::info("Machine is not a nameserver - keeping default DNS configuration");
+    }
+
+    Ok(())
 }
 
 fn create_daemon_config(
@@ -305,7 +325,6 @@ fn start_makiatto_service(ssh: &SshSession) -> Result<()> {
     ssh.exec("sudo systemctl enable makiatto")?;
 
     ui::status("Starting makiatto service...");
-
     ssh.exec("sudo systemctl restart makiatto")?;
     std::thread::sleep(std::time::Duration::from_secs(2));
 
