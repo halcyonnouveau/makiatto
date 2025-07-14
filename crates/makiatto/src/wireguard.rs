@@ -17,7 +17,7 @@ use tracing::info;
 use crate::{
     config::{Config, WireguardConfig},
     constants::WIREGUARD_PORT,
-    corrosion, utils,
+    corrosion,
 };
 
 #[derive(Debug)]
@@ -99,7 +99,7 @@ where
     /// # Errors
     /// Returns an error if the interface cannot be created or configured
     pub fn new(config: &WireguardConfig, peers: Option<Arc<[corrosion::Peer]>>) -> Result<Self> {
-        if utils::is_container() {
+        if is_container() {
             info!(
                 "Container environment detected - skipping WireGuard interface '{}' setup",
                 config.interface
@@ -190,7 +190,7 @@ where
     /// # Errors
     /// Returns an error if the peer cannot be added
     pub fn add_peer(&self, endpoint: &str, address: &str, public_key: &str) -> Result<()> {
-        if utils::is_container() {
+        if is_container() {
             info!("Container environment detected - skipping peer addition");
             return Ok(());
         }
@@ -223,7 +223,7 @@ where
     /// # Errors
     /// Returns an error if the peer cannot be removed
     pub fn remove_peer(&self, public_key: &str) -> Result<()> {
-        if utils::is_container() {
+        if is_container() {
             info!("Container environment detected - skipping peer removal");
             return Ok(());
         }
@@ -244,7 +244,7 @@ where
     /// # Errors
     /// Returns an error if the interface cannot be removed
     pub fn cleanup_interface(&self) -> Result<()> {
-        if utils::is_container() {
+        if is_container() {
             info!("Container environment detected - skipping WireGuard interface cleanup",);
             return Ok(());
         }
@@ -348,4 +348,9 @@ pub async fn cleanup_wireguard(handle: tokio::task::JoinHandle<Result<()>>) -> R
     handle
         .await
         .map_err(|e| miette!("WireGuard task panicked: {e}"))?
+}
+
+fn is_container() -> bool {
+    std::path::Path::new("/.dockerenv").exists()
+        || std::path::Path::new("/run/.containerenv").exists()
 }

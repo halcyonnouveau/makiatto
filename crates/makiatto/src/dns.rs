@@ -183,37 +183,30 @@ impl Handler {
         // get coordinates of request
         let lookup = self.reader.lookup::<maxminddb::geoip2::City>(request.ip);
         let coords = match lookup {
-            Ok(response) => match response.unwrap().location {
+            Ok(Some(response)) => match response.location {
                 Some(location) => point!(
                     x: location.latitude.unwrap_or(0.0),
                     y: location.longitude.unwrap_or(0.0),
                 ),
                 None => point!(x: 0.0, y: 0.0),
             },
-            Err(_) => point!(x: 0.0, y: 0.0),
+            Ok(None) | Err(_) => point!(x: 0.0, y: 0.0),
         };
 
-        let records = self
-            .records
-            .get(&request.name.to_string())
-            .cloned()
-            .unwrap_or_default();
+        let lookup_name = request.name.to_string().trim_end_matches('.').to_string();
+        let records = self.records.get(&lookup_name).cloned().unwrap_or_default();
 
-        if self.peers.is_empty() || records.is_empty() {
+        if records.is_empty() {
             return Ok(vec![]);
         }
 
-        let closest_peer = self
-            .peers
-            .iter()
-            .min_by(|&a, &b| {
-                let dist_a = Haversine.distance(coords, a.point);
-                let dist_b = Haversine.distance(coords, b.point);
-                dist_a
-                    .partial_cmp(&dist_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap();
+        let closest_peer = self.peers.iter().min_by(|&a, &b| {
+            let dist_a = Haversine.distance(coords, a.point);
+            let dist_b = Haversine.distance(coords, b.point);
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         Ok(records
             .iter()
@@ -228,13 +221,15 @@ impl Handler {
                     ));
                 }
 
-                if record.record_type == "AAAA" && closest_peer.ipv6.is_none() {
+                let peer = closest_peer?;
+
+                if record.record_type == "AAAA" && peer.ipv6.is_none() {
                     return None;
                 }
 
                 let value = match record.record_type.as_str() {
-                    "A" => &closest_peer.ipv4,
-                    "AAAA" => closest_peer.ipv6.as_ref().unwrap(),
+                    "A" => &peer.ipv4,
+                    "AAAA" => peer.ipv6.as_ref().unwrap(),
                     _ => &record.base_value,
                 };
 
@@ -344,21 +339,31 @@ impl RequestHandler for Handler {
 ///
 /// # Errors
 /// Returns an error if the download fails or if the file cannot be written
-pub fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
+pub async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     info!("Downloading GeoLite2 database...");
+    let client = reqwest::Client::new();
 
-    let status = std::process::Command::new("curl")
-        .arg("-s")
-        .arg("-L")
-        .arg("-o")
-        .arg(path.as_str())
-        .arg("https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb")
-        .status()
-        .map_err(|e| miette::miette!("Failed to execute curl: {e}"))?;
+    let response = client
+        .get("https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb")
+        .send()
+        .await
+        .map_err(|e| miette::miette!("Failed to download GeoLite2 database: {e}"))?;
 
-    if !status.success() {
-        return Err(miette::miette!("Failed to download GeoLite2 database"));
+    if !response.status().is_success() {
+        return Err(miette::miette!(
+            "Failed to download GeoLite2 database: HTTP {}",
+            response.status()
+        ));
     }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| miette::miette!("Failed to read response body: {e}"))?;
+
+    tokio::fs::write(path, bytes)
+        .await
+        .map_err(|e| miette::miette!("Failed to write GeoLite2 database to {path}: {e}"))?;
 
     info!("GeoLite2 database downloaded successfully");
     Ok(())
@@ -438,10 +443,11 @@ fn start_dns_server(
 
     tokio::spawn(async move {
         if !config.dns.geolite_path.exists() {
-            download_geolite(&config.dns.geolite_path)?;
+            download_geolite(&config.dns.geolite_path).await?;
         }
 
-        let peers: Vec<DnsPeer> = corrosion::get_peers(&config)
+        let peer_result = corrosion::get_peers(&config);
+        let peers: Vec<DnsPeer> = peer_result
             .unwrap_or_else(|_| Arc::from([]))
             .iter()
             .map(|p| DnsPeer {

@@ -182,12 +182,20 @@ impl ContainerContext {
 
         let image = GenericImage::new("makiatto-test-ubuntu_daemon", "latest")
             .with_exposed_port(22.tcp())
+            .with_exposed_port(53.tcp())
+            .with_exposed_port(53.udp())
             .with_exposed_port(8787.udp())
             .with_wait_for(WaitFor::Nothing)
             .with_container_name(format!("{}-wawa-daemon", container.id))
             .with_mapped_port(container.ports.ssh, 22.tcp())
+            .with_mapped_port(container.ports.dns, 53.tcp())
+            .with_mapped_port(container.ports.dns, 53.udp())
             .with_mapped_port(container.ports.corrosion, 8787.udp())
             .with_network("wawa")
+            .with_mount(Mount::bind_mount(
+                self.root.join("target/tests/geolite").display().to_string(),
+                "/var/makiatto/geolite",
+            ))
             .with_mount(Mount::bind_mount(
                 target.display().to_string(),
                 "/etc/makiatto",
@@ -284,6 +292,7 @@ impl TestContainer {
 #[derive(Copy, Clone)]
 pub struct PortMap {
     pub ssh: u16,
+    pub dns: u16,
     pub corrosion: u16,
 }
 
@@ -291,6 +300,7 @@ impl PortMap {
     pub fn new() -> Result<Self> {
         Ok(Self {
             ssh: Self::get_unused_port()?,
+            dns: Self::get_unused_port()?,
             corrosion: Self::get_unused_port()?,
         })
     }
