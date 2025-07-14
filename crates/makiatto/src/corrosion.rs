@@ -93,10 +93,12 @@ pub fn get_peers(config: &Config) -> Result<Arc<[Peer]>> {
     let peer_iter = stmt
         .query_map([], |row| {
             let name: String = row.get(0)?;
-            let ipv4: String = row.get(1)?;
-            let ipv6: Option<String> = row.get(2)?;
-            let wg_public_key: String = row.get(3)?;
-            let wg_address: String = row.get(4)?;
+            let wg_public_key: String = row.get(1)?;
+            let wg_address: String = row.get(2)?;
+            let ipv4: String = row.get(3)?;
+            let ipv6: Option<String> = row.get(4)?;
+            let latitude: f64 = row.get(5)?;
+            let longitude: f64 = row.get(6)?;
 
             Ok(Peer {
                 name: Arc::from(name),
@@ -104,8 +106,8 @@ pub fn get_peers(config: &Config) -> Result<Arc<[Peer]>> {
                 ipv6: ipv6.map(Arc::from),
                 wg_public_key: Arc::from(wg_public_key),
                 wg_address: Arc::from(wg_address),
-                latitude: row.get(5)?,
-                longitude: row.get(6)?,
+                latitude,
+                longitude,
             })
         })
         .map_err(|e| miette::miette!("Failed to query peers: {e}"))?;

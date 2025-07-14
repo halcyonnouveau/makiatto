@@ -219,7 +219,7 @@ fn create_daemon_config(
         {wireguard_bootstrap}
 
         [dns]
-        geolite_path = "/var/makiatto/GeoLite2-City.mmdb"
+        geolite_path = "/var/makiatto/geolite/GeoLite2-City.mmdb"
 
         [web]
         static_dir = "/var/makiatto/sites"

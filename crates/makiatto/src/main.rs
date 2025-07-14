@@ -1,9 +1,20 @@
-use makiatto::{config, corrosion, dns, wireguard};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
+use makiatto::{
+    cache::CacheStore, config, corrosion, dns, subscriptions::SubscriptionWatcher, wireguard,
+};
 use miette::Result;
-use tokio::signal::unix::{SignalKind, signal};
+use tokio::{
+    signal::unix::{SignalKind, signal},
+    sync::mpsc,
+};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+#[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
@@ -18,6 +29,12 @@ async fn main() -> Result<()> {
     let config = config::load()?;
     info!("Loaded config for node '{}'", config.node.name);
 
+    let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
+    let (dns_restart_tx, mut dns_restart_rx) = mpsc::channel(100);
+
+    let cache_store = CacheStore::new(&config.node.data_dir)?;
+    let mut handles = vec![];
+
     // peers excluding ourself
     let peers = corrosion::get_peers(&config).ok().as_ref().map(|p| {
         p.iter()
@@ -27,10 +44,7 @@ async fn main() -> Result<()> {
             .into()
     });
 
-    let (_wg_manager, wg_handle) = wireguard::setup_wireguard(&config, peers)?;
-
-    let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
-    let mut handles = vec![];
+    let (wg_manager, wg_handle) = wireguard::setup_wireguard(&config, peers)?;
 
     let wg_task = tokio::spawn(async move {
         match wg_handle.await {
@@ -52,11 +66,26 @@ async fn main() -> Result<()> {
     });
     handles.push(corrosion_handle);
 
-    let (_dns_manager, dns_handle) = if config.node.is_nameserver {
+    info!("Starting subscription watcher...");
+    let subscription_watcher = SubscriptionWatcher::new(
+        Arc::new(config.clone()),
+        cache_store,
+        dns_restart_tx,
+        wg_manager,
+    );
+
+    let sub_tripwire = tripwire.clone();
+    let subscription_handle = tokio::spawn(async move {
+        subscription_watcher.run(sub_tripwire).await;
+        Ok("subscriptions")
+    });
+    handles.push(subscription_handle);
+
+    let (dns_manager, dns_handle) = if config.node.is_nameserver {
         info!("Starting DNS server...");
-        let (dns_manager, dns_task) = dns::setup_dns(config.clone(), tripwire.clone())?;
+        let (dns_mgr, dns_task) = dns::setup_dns(config.clone(), tripwire.clone())?;
         (
-            Some(dns_manager),
+            Some(dns_mgr),
             Some(tokio::spawn(async move {
                 match dns_task.await {
                     Ok(Ok(())) => Ok("dns"),
@@ -71,6 +100,35 @@ async fn main() -> Result<()> {
 
     if let Some(handle) = dns_handle {
         handles.push(handle);
+    }
+
+    // Handle DNS restart signals with debouncing
+    if let Some(dns_mgr) = dns_manager.clone() {
+        let dns_restart_handle = tokio::spawn(async move {
+            let restart_pending = Arc::new(AtomicBool::new(false));
+
+            while let Some(()) = dns_restart_rx.recv().await {
+                // Only start a new restart if one isn't already pending
+                if !restart_pending.swap(true, Ordering::SeqCst) {
+                    let dns_mgr_clone = dns_mgr.clone();
+                    let restart_pending_clone = restart_pending.clone();
+
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                        if let Err(e) = dns_mgr_clone.restart().await {
+                            tracing::error!("Failed to restart DNS server: {e}");
+                        } else {
+                            info!("DNS server restarted due to database changes");
+                        }
+
+                        restart_pending_clone.store(false, Ordering::SeqCst);
+                    });
+                }
+            }
+            Ok("dns_restart_handler")
+        });
+        handles.push(dns_restart_handle);
     }
 
     // TODO: Spawn other services (web, file sync)

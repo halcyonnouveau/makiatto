@@ -12,6 +12,7 @@ indicatif = "0.18"
 
 # Async runtime
 futures = "0.3"
+futures-util = "0.3"
 tokio = { version = "1.46", features = ["full"] }
 tokio-cron-scheduler = { version = "0.14", features = ["signal"] }
 
@@ -53,7 +54,9 @@ geo = "0.30"
 indoc = "2.0"
 notify = "8.1"
 rand = "0.9"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 url = "2.5"
+uuid = "1.17"
 
 # Testing
 ctor = "0.4"

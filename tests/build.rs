@@ -5,13 +5,12 @@ use miette::{IntoDiagnostic, Result, bail};
 
 fn main() -> Result<()> {
     let cwd = env::var("CARGO_MANIFEST_DIR").into_diagnostic()?;
+    let workspace_root = std::path::Path::new(&cwd).parent().unwrap();
 
     #[cfg(feature = "docker-build")]
     {
         println!("cargo:rerun-if-changed=dockerfiles");
         println!("cargo:rerun-if-changed=../crates/makiatto");
-
-        let workspace_root = std::path::Path::new(&cwd).parent().unwrap();
 
         let dockerfiles = vec![
             ("makiatto_builder", "makiatto-builder"),
@@ -61,5 +60,23 @@ fn main() -> Result<()> {
         ])
         .output();
 
+    let geolite_dir = workspace_root.join("target/tests/geolite");
+    let geolite_file = geolite_dir.join("GeoLite2-City.mmdb");
+
+    std::fs::create_dir_all(&geolite_dir).into_diagnostic()?;
+
+    if !geolite_file.exists() {
+        eprintln!("Downloading GeoLite2 database...");
+
+        let _ = Command::new("curl")
+            .args([
+                "-s",
+                "-L",
+                "-o",
+                &geolite_file.to_string_lossy(),
+                "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb",
+            ])
+            .output();
+    }
     Ok(())
 }
