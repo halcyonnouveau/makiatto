@@ -12,6 +12,8 @@ use crate::config::Config;
 use crate::constants::{CORROSION_API_PORT, WIREGUARD_PORT};
 use crate::wireguard::WireguardManager;
 
+const MAX_BACKOFF_SECS: u64 = 86400; // 1 day
+
 pub struct SubscriptionWatcher {
     config: Arc<Config>,
     cache_store: CacheStore,
@@ -59,6 +61,7 @@ impl SubscriptionWatcher {
 
     /// Watch `peers` table for changes
     async fn watch_peers(self: Arc<Self>, mut tripwire: tripwire::Tripwire) {
+        let mut backoff_secs = 1u64;
         let query = "SELECT name, ipv4, wg_public_key, wg_address FROM peers";
         let state_key = "subscription_peers";
 
@@ -73,11 +76,14 @@ impl SubscriptionWatcher {
                     Box::pin(async move { watcher.handle_peers_change(event).await })
                 }) => {
                     if let Err(e) = result {
-                        warn!("Peers subscription failed: {e}, retrying in 1 second");
+                        warn!("Peers subscription failed: {e}, retrying in {backoff_secs} seconds");
                     } else {
-                        warn!("Peers subscription ended, retrying in 1 second");
+                        backoff_secs = 1;
+                        warn!("Peers subscription ended, retrying...");
                     }
-                    sleep(Duration::from_secs(1)).await;
+
+                    sleep(Duration::from_secs(backoff_secs)).await;
+                    backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
                 }
             }
         }
@@ -85,6 +91,7 @@ impl SubscriptionWatcher {
 
     /// Watch `dns_records` table for changes
     async fn watch_dns_records(self: Arc<Self>, mut tripwire: tripwire::Tripwire) {
+        let mut backoff_secs = 1u64;
         let query = "SELECT domain, name, record_type, base_value FROM dns_records";
         let state_key = "subscription_dns_records";
 
@@ -102,11 +109,14 @@ impl SubscriptionWatcher {
                     })
                 }) => {
                     if let Err(e) = result {
-                        warn!("DNS subscription failed: {e}, retrying in 1 second");
+                        warn!("DNS subscription failed: {e}, retrying in {backoff_secs} seconds");
                     } else {
-                        warn!("DNS subscription ended, retrying in 1 second");
+                        backoff_secs = 1;
+                        warn!("DNS subscription ended, retrying...");
                     }
-                    sleep(Duration::from_secs(1)).await;
+
+                    sleep(Duration::from_secs(backoff_secs)).await;
+                    backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
                 }
             }
         }

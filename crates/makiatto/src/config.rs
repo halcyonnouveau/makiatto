@@ -97,6 +97,7 @@ impl Config {
 pub fn load() -> Result<Config> {
     let config_paths = [
         Utf8PathBuf::from("/etc/makiatto/makiatto.toml"),
+        Utf8PathBuf::from("/etc/makiatto/config.toml"),
         Utf8PathBuf::from("/etc/makiatto.toml"),
         Utf8PathBuf::from("./makiatto-daemon.toml"),
     ];
