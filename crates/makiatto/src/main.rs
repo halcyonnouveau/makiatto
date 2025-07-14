@@ -4,7 +4,10 @@ use std::sync::{
 };
 
 use makiatto::{
-    cache::CacheStore, config, corrosion, dns, subscriptions::SubscriptionWatcher, wireguard,
+    cache::CacheStore,
+    config,
+    corrosion::{self, subscriptions::SubscriptionWatcher},
+    dns, wireguard,
 };
 use miette::Result;
 use tokio::{
@@ -102,13 +105,12 @@ async fn main() -> Result<()> {
         handles.push(handle);
     }
 
-    // Handle DNS restart signals with debouncing
+    // handle dns restart signals with debouncing
     if let Some(dns_mgr) = dns_manager.clone() {
         let dns_restart_handle = tokio::spawn(async move {
             let restart_pending = Arc::new(AtomicBool::new(false));
 
             while let Some(()) = dns_restart_rx.recv().await {
-                // Only start a new restart if one isn't already pending
                 if !restart_pending.swap(true, Ordering::SeqCst) {
                     let dns_mgr_clone = dns_mgr.clone();
                     let restart_pending_clone = restart_pending.clone();
@@ -119,7 +121,7 @@ async fn main() -> Result<()> {
                         if let Err(e) = dns_mgr_clone.restart().await {
                             tracing::error!("Failed to restart DNS server: {e}");
                         } else {
-                            info!("DNS server restarted due to database changes");
+                            info!("DNS server restarted");
                         }
 
                         restart_pending_clone.store(false, Ordering::SeqCst);

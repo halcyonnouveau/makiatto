@@ -1,74 +1,15 @@
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 
 use corro_agent::rusqlite::Connection;
 use miette::Result;
 use tracing::{error, info};
 
+pub mod schema;
+pub mod subscriptions;
+
+pub use schema::{DnsRecord, Peer};
+
 use crate::config::Config;
-
-#[derive(Debug, Clone)]
-pub struct Peer {
-    pub name: Arc<str>,
-    pub ipv4: Arc<str>,
-    pub ipv6: Option<Arc<str>>,
-    pub wg_public_key: Arc<str>,
-    pub wg_address: Arc<str>,
-    pub latitude: f64,
-    pub longitude: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct DnsRecord {
-    pub record_type: String,
-    pub base_value: String,
-    pub ttl: u32,
-    pub priority: Option<i32>,
-    pub geo_enabled: bool,
-}
-
-const MAKIATTO_SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS peers (
-    name TEXT NOT NULL PRIMARY KEY,
-    ipv4 TEXT NOT NULL DEFAULT '',
-    ipv6 TEXT DEFAULT NULL,
-    wg_public_key TEXT NOT NULL DEFAULT '',
-    wg_address TEXT NOT NULL DEFAULT '',
-    latitude REAL NOT NULL DEFAULT 0.0,
-    longitude REAL NOT NULL DEFAULT 0.0,
-    created_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond')),
-    updated_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond'))
-);
-
-CREATE TABLE IF NOT EXISTS dns_records (
-    domain TEXT NOT NULL PRIMARY KEY,
-    name TEXT NOT NULL DEFAULT '',
-    record_type TEXT NOT NULL DEFAULT '',
-    base_value TEXT NOT NULL DEFAULT '',
-    ttl INTEGER NOT NULL DEFAULT 300,
-    priority INTEGER DEFAULT NULL,
-    geo_enabled INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS certificates (
-    domain TEXT NOT NULL PRIMARY KEY,
-    certificate_pem TEXT NOT NULL DEFAULT '',
-    private_key_pem TEXT NOT NULL DEFAULT '',
-    expires_at INTEGER NOT NULL DEFAULT '',
-    issuer TEXT NOT NULL DEFAULT "lets_encrypt"
-);
-"#;
-
-/// Set up schema file and return the file path for Corrosion config
-fn setup_schema_file(data_dir: &camino::Utf8PathBuf) -> Result<camino::Utf8PathBuf> {
-    info!("Setting up makiatto database schema file...");
-
-    let schema_file_path = data_dir.join("makiatto.sql");
-    fs::write(&schema_file_path, MAKIATTO_SCHEMA)
-        .map_err(|e| miette::miette!("Failed to write schema file: {e}"))?;
-
-    info!("Wrote schema file: {schema_file_path}");
-    Ok(schema_file_path)
-}
 
 /// Get all peers from the database, excluding the current machine
 ///
@@ -200,8 +141,7 @@ pub async fn run(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
     let mut cfg = config.corrosion.clone();
 
     if config.corrosion.db.schema_paths.is_empty() {
-        let schema_path = setup_schema_file(&config.node.data_dir)?;
-        cfg.db.schema_paths = vec![schema_path];
+        cfg.db.schema_paths = schema::setup_migrations(&config.node.data_dir)?;
     }
 
     let result = corro_agent::agent::start_with_config(cfg, tripwire.clone()).await;

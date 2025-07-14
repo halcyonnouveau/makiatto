@@ -1,9 +1,8 @@
 FROM docker.io/rustlang/rust:nightly-slim AS builder
 
 WORKDIR /app
-RUN apt-get update && apt-get install -y \
-    libssl-dev \
-    pkg-config \
+RUN apt update && apt install -y \
+    libssl-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
@@ -22,7 +21,6 @@ path = "src/main.rs"
 EOF
 
 RUN mkdir tests/src && echo 'fn main() {}' > tests/src/main.rs
-
 RUN cargo build --release -p makiatto
 
 FROM busybox:stable AS export

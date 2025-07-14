@@ -335,11 +335,7 @@ impl RequestHandler for Handler {
     }
 }
 
-/// Download `GeoLite2` database for geolocation
-///
-/// # Errors
-/// Returns an error if the download fails or if the file cannot be written
-pub async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
+pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     info!("Downloading GeoLite2 database...");
     let client = reqwest::Client::new();
 
@@ -442,74 +438,79 @@ fn start_dns_server(
     let config = config.clone();
 
     tokio::spawn(async move {
-        if !config.dns.geolite_path.exists() {
-            download_geolite(&config.dns.geolite_path).await?;
+        let result: Result<()> = async {
+            if !config.dns.geolite_path.exists() {
+                download_geolite(&config.dns.geolite_path).await?;
+            }
+
+            let peers: Vec<DnsPeer> = corrosion::get_peers(&config)
+                .unwrap_or_else(|_| Arc::from([]))
+                .iter()
+                .map(|p| DnsPeer {
+                    point: point!(x: p.latitude, y: p.longitude),
+                    ipv4: p.ipv4.to_string(),
+                    ipv6: p.ipv6.as_ref().map(ToString::to_string),
+                })
+                .collect();
+
+            let records = corrosion::get_dns_records(&config).unwrap_or_default();
+            let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
+            let handler = Handler::new(Arc::from(peers), records, reader);
+            let mut server = ServerFuture::new(handler);
+
+            server.register_socket(
+                UdpSocket::bind("[::]:53")
+                    .await
+                    .map_err(|e| miette::miette!("Failed to bind UDP socket: {e}"))?,
+            );
+
+            server.register_listener(
+                TcpListener::bind("[::]:53")
+                    .await
+                    .map_err(|e| miette::miette!("Failed to bind TCP socket: {e}"))?,
+                Duration::from_secs(5),
+            );
+
+            // TODO: Add TLS/QUIC support when we have certificates
+            // This will require integrating with the certificate management system
+            //
+            // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
+            //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
+            //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
+
+            //     server.register_quic_listener(
+            //         UdpSocket::bind("[::]:853").await?,
+            //         Duration::from_secs(1),
+            //         (cert.clone(), key.clone()),
+            //         None,
+            //     )?;
+
+            //     server.register_tls_listener_with_tls_config(
+            //         TcpListener::bind("[::]:853").await?,
+            //         Duration::from_secs(5),
+            //         Arc::new(tls_server::new_acceptor(cert, key)?),
+            //     )?;
+            // }
+
+            info!("DNS server started");
+
+            tokio::select! {
+                result = server.block_until_done() => {
+                    result.map_err(|e| miette::miette!("DNS server error: {e}"))?;
+                }
+                () = tripwire => {
+                    info!("DNS server received shutdown signal");
+                }
+            }
+
+            Ok(())
+        }
+        .await;
+
+        if let Err(ref e) = result {
+            error!("DNS server failed: {e}");
         }
 
-        let peer_result = corrosion::get_peers(&config);
-        let peers: Vec<DnsPeer> = peer_result
-            .unwrap_or_else(|_| Arc::from([]))
-            .iter()
-            .map(|p| DnsPeer {
-                point: point!(x: p.latitude, y: p.longitude),
-                ipv4: p.ipv4.to_string(),
-                ipv6: p.ipv6.as_ref().map(ToString::to_string),
-            })
-            .collect();
-
-        let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
-
-        // Load all DNS records at startup
-        let records = corrosion::get_dns_records(&config).unwrap_or_default();
-
-        let handler = Handler::new(Arc::from(peers), records, reader);
-        let mut server = ServerFuture::new(handler);
-
-        server.register_socket(
-            UdpSocket::bind("[::]:53")
-                .await
-                .map_err(|e| miette::miette!("Failed to bind UDP socket: {}", e))?,
-        );
-
-        server.register_listener(
-            TcpListener::bind("[::]:53")
-                .await
-                .map_err(|e| miette::miette!("Failed to bind TCP socket: {}", e))?,
-            Duration::from_secs(5),
-        );
-
-        // TODO: Add TLS/QUIC support when we have certificates
-        // This will require integrating with the certificate management system
-        //
-        // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
-        //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
-        //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
-
-        //     server.register_quic_listener(
-        //         UdpSocket::bind("[::]:853").await?,
-        //         Duration::from_secs(1),
-        //         (cert.clone(), key.clone()),
-        //         None,
-        //     )?;
-
-        //     server.register_tls_listener_with_tls_config(
-        //         TcpListener::bind("[::]:853").await?,
-        //         Duration::from_secs(5),
-        //         Arc::new(tls_server::new_acceptor(cert, key)?),
-        //     )?;
-        // }
-
-        info!("DNS server started and listening on port 53");
-
-        tokio::select! {
-            result = server.block_until_done() => {
-                result.map_err(|e| miette::miette!("DNS server error: {e}"))?;
-            }
-            () = tripwire => {
-                info!("DNS server received shutdown signal");
-            }
-        }
-
-        Ok(())
+        result
     })
 }
