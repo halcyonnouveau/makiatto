@@ -73,11 +73,11 @@ impl SubscriptionWatcher {
                     Box::pin(async move { watcher.handle_peers_change(event).await })
                 }) => {
                     if let Err(e) = result {
-                        warn!("Peers subscription failed: {e}, retrying in 5 seconds");
+                        warn!("Peers subscription failed: {e}, retrying in 1 second");
                     } else {
-                        warn!("Peers subscription ended, retrying in 5 seconds");
+                        warn!("Peers subscription ended, retrying in 1 second");
                     }
-                    sleep(Duration::from_secs(5)).await;
+                    sleep(Duration::from_secs(1)).await;
                 }
             }
         }
@@ -102,9 +102,9 @@ impl SubscriptionWatcher {
                     })
                 }) => {
                     if let Err(e) = result {
-                        warn!("DNS subscription failed: {e}, retrying in 1 seconds");
+                        warn!("DNS subscription failed: {e}, retrying in 1 second");
                     } else {
-                        warn!("DNS subscription ended, retrying in 1 seconds");
+                        warn!("DNS subscription ended, retrying in 1 second");
                     }
                     sleep(Duration::from_secs(1)).await;
                 }
