@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 use makiatto_cli::{
-    config::{GlobalConfig, LocalConfig},
-    machine::{self, InitMachine},
+    config::{LocalConfig, MachineConfig},
+    machine::{self, AddMachine, InitMachine},
     ui,
 };
 use miette::Result;
@@ -15,9 +15,9 @@ struct Cli {
     #[argh(option, long = "config")]
     config_path: Option<PathBuf>,
 
-    /// path to global config (default: ~/.config/makiatto.toml)
-    #[argh(option, long = "global-config")]
-    global_config_path: Option<PathBuf>,
+    /// path to machines config (default: ~/.config/makiatto/default.toml)
+    #[argh(option, long = "machines-config")]
+    machines_config_path: Option<PathBuf>,
 
     #[argh(subcommand)]
     command: Command,
@@ -43,6 +43,7 @@ struct MachineCommand {
 #[argh(subcommand)]
 enum MachineAction {
     Init(InitMachine),
+    Add(AddMachine),
     List(ListMachines),
 }
 
@@ -64,22 +65,28 @@ struct StatusCommand {}
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli: Cli = argh::from_env();
-    let mut global_config = GlobalConfig::load(cli.global_config_path.clone())?;
+    let mut machines_config = MachineConfig::load(cli.machines_config_path.clone())?;
 
     match cli.command {
         Command::Machine(machine) => match machine.action {
             MachineAction::Init(init) => {
-                machine::init_machine(&init, &mut global_config)?;
-                global_config.save(cli.global_config_path)?;
+                machine::init_machine(&init, &mut machines_config)?;
+                machines_config.save(cli.machines_config_path)?;
+
+                Ok(())
+            }
+            MachineAction::Add(add) => {
+                machine::add_machine(&add, &mut machines_config)?;
+                machines_config.save(cli.machines_config_path)?;
 
                 Ok(())
             }
             MachineAction::List(_) => {
-                if global_config.machines.is_empty() {
+                if machines_config.machines.is_empty() {
                     ui::info("No machines configured yet. Use `machine init` to add one");
                 } else {
                     ui::header("Configured machines:");
-                    for (i, machine) in global_config.machines.iter().enumerate() {
+                    for (i, machine) in machines_config.machines.iter().enumerate() {
                         if i > 0 {
                             ui::separator();
                         }
@@ -90,23 +97,18 @@ async fn main() -> Result<()> {
                     }
                 }
                 Ok(())
-            } // TODO: MachineAction::Add
-              // ssh into machine - get it's name, is_nameserver, etc and add to config (keep the url you ssh'd with)
+            }
         },
         Command::Deploy(_) => {
             let _ = LocalConfig::load(cli.config_path);
-            /* TODO: DNS Record Sync Implementation Plan
-             *
-             * 1. Add Dependencies to CLI
-             *    - Add rusqlite and deadpool-sqlite from corro-agent to avoid version conflicts
-             *
-             * 2. Update LocalConfig Structure
+            /*
+             * Update LocalConfig Structure
              *    - Add ttl field to DnsRecord struct (optional, defaults to 300)
              *    - Add priority field to DnsRecord struct (optional, for MX records)
              *
-             * 3. Implement Sync Command Logic
+             * Implement Sync Command Logic
              *    - Load ./makiatto.toml using LocalConfig::load()
-             *    - Load global config to get machine list and find nameservers
+             *    - Load machines config to get machine list and find nameservers
              *    - Connect to first available machine's Corrosion API or database
              *    - Insert/update domain in domains table
              *    - Auto-generate required DNS records:
@@ -115,15 +117,11 @@ async fn main() -> Result<()> {
              *      * NS records: One for each nameserver machine
              *      * CAA records: Let's Encrypt authorization
              *    - Insert custom records from config records array
-             *    - Clear old records for the domain before inserting new ones
              *
-             * 4. Database Operations
-             *    - Use INSERT OR REPLACE for domains table
-             *    - Use DELETE + INSERT pattern for DNS records to ensure clean state
-             *    - Handle foreign key relationships (domain_id references)
+             * Database Operations
              *    - Set appropriate geo_enabled flags (1 for A/AAAA records, 0 for others)
              *
-             * 5. Error Handling
+             * Error Handling
              *    - Validate domain format
              *    - Handle database connection errors
              *    - Check if machines exist in peers table

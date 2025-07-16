@@ -1,12 +1,11 @@
 #![allow(dead_code)]
 use miette::{Result, miette};
 
-use crate::{config::MachineConfig, ssh::SshSession};
+use crate::{config::Machine, ssh::SshSession};
 
 /// Represents a peer from the database
 #[derive(Debug, Clone)]
 pub struct Peer {
-    pub id: i64,
     pub name: String,
     pub latitude: f64,
     pub longitude: f64,
@@ -17,7 +16,7 @@ pub struct Peer {
 }
 
 /// Insert a new peer into the database via SSH
-pub fn insert_peer(ssh: &SshSession, machine: &MachineConfig) -> Result<()> {
+pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
     let latitude = machine.latitude.unwrap_or(0.0);
     let longitude = machine.longitude.unwrap_or(0.0);
     let ipv6_value = machine
@@ -53,10 +52,9 @@ pub fn insert_peer(ssh: &SshSession, machine: &MachineConfig) -> Result<()> {
     Ok(())
 }
 
-/// Query all peers from the database via SSH
+/// Query all peers from the database
 pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
-    let sql =
-        "SELECT id, name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers;";
+    let sql = "SELECT name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers;";
     let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
 
     let output = ssh
@@ -70,32 +68,29 @@ pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
         }
 
         let parts: Vec<&str> = line.split('|').collect();
-        if parts.len() != 12 {
+        if parts.len() != 7 {
             return Err(miette!(
-                "Invalid peer data format: expected 12 fields, got {}",
+                "Invalid peer data format: expected 8 fields, got {}",
                 parts.len()
             ));
         }
 
         let peer = Peer {
-            id: parts[0]
-                .parse()
-                .map_err(|e| miette!("Invalid peer ID: {e}"))?,
-            name: parts[1].to_string(),
-            latitude: parts[2]
+            name: parts[0].to_string(),
+            latitude: parts[1]
                 .parse()
                 .map_err(|e| miette!("Invalid latitude: {e}"))?,
-            longitude: parts[3]
+            longitude: parts[2]
                 .parse()
                 .map_err(|e| miette!("Invalid longitude: {e}"))?,
-            ipv4: parts[4].to_string(),
-            ipv6: if parts[5].is_empty() || parts[5] == "NULL" {
+            ipv4: parts[3].to_string(),
+            ipv6: if parts[4].is_empty() || parts[4] == "NULL" {
                 None
             } else {
-                Some(parts[5].to_string())
+                Some(parts[4].to_string())
             },
-            wg_public_key: parts[6].to_string(),
-            wg_address: parts[7].to_string(),
+            wg_public_key: parts[5].to_string(),
+            wg_address: parts[6].to_string(),
         };
 
         peers.push(peer);
@@ -104,29 +99,46 @@ pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
     Ok(peers)
 }
 
-/// Update an existing peer in the database via SSH
-pub fn update_peer(ssh: &SshSession, machine: &MachineConfig) -> Result<()> {
-    let latitude = machine.latitude.unwrap_or(0.0);
-    let longitude = machine.longitude.unwrap_or(0.0);
-    let ipv6_value = machine
-        .ipv6
-        .as_ref()
-        .map_or_else(|| "NULL".to_string(), |s| format!("'{s}'"));
-
+/// Query a peer by name from the database
+pub fn query_peer(ssh: &SshSession, name: &str) -> Result<Option<Peer>> {
     let sql = format!(
-        "UPDATE peers SET latitude = {}, longitude = {}, ipv4 = '{}', ipv6 = {}, wg_public_key = '{}', wg_address = '{}', updated_at = unixepoch() WHERE name = '{}';",
-        latitude,
-        longitude,
-        machine.ipv4,
-        ipv6_value,
-        machine.wg_public_key,
-        machine.wg_address,
-        machine.name
+        "SELECT wg_public_key, wg_address, ipv4, ipv6, latitude, longitude FROM peers WHERE name = '{name}'",
     );
+    let cmd = format!("sqlite3 /var/makiatto/cluster.db \"{sql}\"");
 
-    let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"{sql}\"");
-    ssh.exec(&cmd)
-        .map_err(|e| miette!("Failed to update peer in database: {e}"))?;
+    let output = ssh
+        .exec(&cmd)
+        .map_err(|e| miette!("Failed to query peer from database: {e}"))?;
 
-    Ok(())
+    if output.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let parts: Vec<&str> = output.trim().split('|').collect();
+    if parts.len() != 6 {
+        return Err(miette!(
+            "Invalid peer data format: expected 6 fields, got {}",
+            parts.len()
+        ));
+    }
+
+    let peer = Peer {
+        name: name.to_string(),
+        wg_public_key: parts[0].to_string(),
+        wg_address: parts[1].to_string(),
+        ipv4: parts[2].to_string(),
+        ipv6: if parts[3].is_empty() || parts[3] == "NULL" {
+            None
+        } else {
+            Some(parts[3].to_string())
+        },
+        latitude: parts[4]
+            .parse()
+            .map_err(|e| miette!("Invalid latitude: {e}"))?,
+        longitude: parts[5]
+            .parse()
+            .map_err(|e| miette!("Invalid longitude: {e}"))?,
+    };
+
+    Ok(Some(peer))
 }

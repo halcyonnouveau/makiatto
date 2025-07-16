@@ -3,14 +3,14 @@ use std::{path::PathBuf, sync::Arc};
 use miette::{Result, miette};
 use serde::{Deserialize, Serialize};
 
-/// Global configuration stored in ~/.config/makiatto/default.toml
+/// Machines configuration stored in ~/.config/makiatto/default.toml
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct GlobalConfig {
-    pub machines: Vec<MachineConfig>,
+pub struct MachineConfig {
+    pub machines: Vec<Machine>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MachineConfig {
+pub struct Machine {
     pub name: Arc<str>,
     pub ssh_target: Arc<str>,
     pub is_nameserver: bool,
@@ -40,8 +40,8 @@ pub struct DnsRecord {
     pub value: Arc<str>,
 }
 
-impl GlobalConfig {
-    /// Load global configuration from file
+impl MachineConfig {
+    /// Load machines configuration from file
     ///
     /// # Errors
     /// Returns an error if the file cannot be read or parsed
@@ -61,7 +61,7 @@ impl GlobalConfig {
         toml::from_str(&content).map_err(|e| miette!("Failed to parse config: {}", e))
     }
 
-    pub fn add_machine(&mut self, machine: MachineConfig) {
+    pub fn add_machine(&mut self, machine: Machine) {
         if let Some(existing) = self.machines.iter_mut().find(|m| m.name == machine.name) {
             *existing = machine;
         } else {
@@ -76,11 +76,11 @@ impl GlobalConfig {
     }
 
     #[must_use]
-    pub fn find_machine(&self, name: &str) -> Option<&MachineConfig> {
+    pub fn find_machine(&self, name: &str) -> Option<&Machine> {
         self.machines.iter().find(|m| m.name == name.into())
     }
 
-    /// Save global configuration to file
+    /// Save machines configuration to file
     ///
     /// # Errors
     /// Returns an error if the file cannot be written
@@ -92,18 +92,25 @@ impl GlobalConfig {
 
         if let Some(parent) = config_path.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| miette!("Failed to create config directory: {}", e))?;
+                .map_err(|e| miette!("Failed to create config directory: {e}"))?;
         }
 
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| miette!("Failed to serialize config: {}", e))?;
+        let content =
+            toml::to_string_pretty(self).map_err(|e| miette!("Failed to serialize config: {e}"))?;
 
-        std::fs::write(&config_path, content).map_err(|e| miette!("Failed to write config: {}", e))
+        std::fs::write(&config_path, content).map_err(|e| miette!("Failed to write config: {e}"))
     }
 
     fn default_path() -> Result<PathBuf> {
-        let home = dirs::config_dir().ok_or_else(|| miette!("Could not find config directory"))?;
-        Ok(home.join("makiatto/default.toml"))
+        let base_dir = if cfg!(unix) {
+            dirs::home_dir()
+                .ok_or_else(|| miette!("Could not find home directory"))?
+                .join(".config")
+        } else {
+            dirs::config_dir().ok_or_else(|| miette!("Could not find config directory"))?
+        };
+
+        Ok(base_dir.join("makiatto/default.toml"))
     }
 }
 
@@ -137,10 +144,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_global_config_machine_management() {
-        let mut config = GlobalConfig::default();
+    fn test_machines_config_machine_management() {
+        let mut config = MachineConfig::default();
 
-        let machine1 = MachineConfig {
+        let machine1 = Machine {
             name: Arc::from("test1"),
             ssh_target: Arc::from("user@host1"),
             is_nameserver: false,
@@ -152,7 +159,7 @@ mod tests {
             ipv6: Some(Arc::from("2001:db8::1")),
         };
 
-        let machine2 = MachineConfig {
+        let machine2 = Machine {
             name: Arc::from("test2"),
             ssh_target: Arc::from("user@host2"),
             is_nameserver: true,
@@ -175,7 +182,7 @@ mod tests {
         assert_eq!(config.machines.len(), 1);
         assert!(!config.remove_machine("nonexistent"));
 
-        let updated_machine = MachineConfig {
+        let updated_machine = Machine {
             name: Arc::from("test2"),
             ssh_target: Arc::from("newuser@newhost"),
             ..machine2
