@@ -4,7 +4,7 @@ use indoc::formatdoc;
 use miette::Result;
 
 use crate::{
-    config::{GlobalConfig, MachineConfig},
+    config::{Machine, MachineConfig},
     constants::{CORROSION_API_PORT, CORROSION_GOSSIP_PORT, WIREGUARD_PORT},
     machine::corrosion,
     ssh::SshSession,
@@ -12,31 +12,31 @@ use crate::{
 };
 
 pub fn install_makiatto(
-    global_config: &GlobalConfig,
     machine_config: &MachineConfig,
+    machine: &Machine,
     wg_private_key: &str,
     binary_path: Option<&PathBuf>,
     key_path: Option<&PathBuf>,
 ) -> Result<SshSession> {
     ui::status("Connecting to remote machine via SSH...");
-    let ssh = SshSession::new(&machine_config.ssh_target, key_path)?;
+    let ssh = SshSession::new(&machine.ssh_target, key_path)?;
 
     create_makiatto_user(&ssh)?;
     install_makiatto_binary(&ssh, binary_path)?;
     setup_system_permissions(&ssh)?;
     ensure_sqlite3_installed(&ssh)?;
-    create_daemon_config(&ssh, global_config, machine_config, wg_private_key)?;
+    create_daemon_config(&ssh, machine_config, machine, wg_private_key)?;
 
     if ssh.is_container() {
         ui::info("Container environment detected - starting makiatto as background process");
         start_makiatto_background(&ssh)?;
     } else {
         setup_systemd_service(&ssh)?;
-        setup_dns_configuration(&ssh, machine_config)?;
+        setup_dns_configuration(&ssh, machine)?;
         start_makiatto_service(&ssh)?;
     }
 
-    add_self_as_peer(&ssh, machine_config)?;
+    add_self_as_peer(&ssh, machine)?;
 
     Ok(ssh)
 }
@@ -150,7 +150,7 @@ fn ensure_sqlite3_installed(ssh: &SshSession) -> Result<()> {
     ))
 }
 
-fn setup_dns_configuration(ssh: &SshSession, machine_config: &MachineConfig) -> Result<()> {
+fn setup_dns_configuration(ssh: &SshSession, machine_config: &Machine) -> Result<()> {
     if machine_config.is_nameserver {
         ui::status("Configuring DNS...");
         ui::action("Disabling systemd-resolved");
@@ -171,23 +171,23 @@ fn setup_dns_configuration(ssh: &SshSession, machine_config: &MachineConfig) -> 
 
 fn create_daemon_config(
     ssh: &SshSession,
-    global_config: &GlobalConfig,
     machine_config: &MachineConfig,
+    machine: &Machine,
     wg_private_key: &str,
 ) -> Result<()> {
     ui::status("Creating makiatto configuration...");
 
     // bootstrap with wireguard ip address + corrosion gossip port
-    let corrosion_bootstrap: Vec<String> = global_config
+    let corrosion_bootstrap: Vec<String> = machine_config
         .machines
         .iter()
         .take(10)
-        .filter(|m| m.name != machine_config.name)
+        .filter(|m| m.name != machine.name)
         .map(|m| format!("{}:{CORROSION_GOSSIP_PORT}", m.wg_address))
         .collect();
 
     // collect wireguard bootstrap peers
-    let wireguard_peers: Vec<String> = global_config
+    let wireguard_peers: Vec<String> = machine_config
         .machines
         .iter()
         .map(|m| {
@@ -239,13 +239,13 @@ fn create_daemon_config(
         [corrosion.api]
         addr = "127.0.0.1:{corrosion_api_port}"
         "#,
-        name = machine_config.name,
-        is_nameserver = machine_config.is_nameserver,
+        name = machine.name,
+        is_nameserver = machine.is_nameserver,
         wg_address = if ssh.is_container() {
-            "127.0.0.1".to_string() } else { machine_config.wg_address.to_string()
+            "127.0.0.1".to_string() } else { machine.wg_address.to_string()
         },
         wg_private_key = wg_private_key,
-        wg_public_key = machine_config.wg_public_key,
+        wg_public_key = machine.wg_public_key,
         wireguard_bootstrap = wireguard_peers.join("\n\n"),
         corrosion_bootstrap = corrosion_bootstrap,
         corrosion_gossip_port = CORROSION_GOSSIP_PORT,
@@ -347,7 +347,7 @@ fn start_makiatto_service(ssh: &SshSession) -> Result<()> {
     Ok(())
 }
 
-fn add_self_as_peer(ssh: &SshSession, machine_config: &MachineConfig) -> Result<()> {
+fn add_self_as_peer(ssh: &SshSession, machine_config: &Machine) -> Result<()> {
     ui::status("Inserting self into database...");
     let spinner = ui::spinner("Checking for waiting for database to be ready...");
     let start_time = std::time::Instant::now();

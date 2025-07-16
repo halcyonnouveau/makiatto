@@ -1,5 +1,5 @@
 #![cfg(test)]
-use makiatto_cli::{config::GlobalConfig, machine::InitMachine};
+use makiatto_cli::{config::MachineConfig, machine::InitMachine};
 use miette::{IntoDiagnostic, Result, miette};
 use testcontainers::core::ExecCommand;
 
@@ -17,7 +17,7 @@ async fn test_machine_init_first() -> Result<()> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let mut config = GlobalConfig { machines: vec![] };
+    let mut config = MachineConfig { machines: vec![] };
 
     let request = InitMachine {
         name: "test-machine-init-first".into(),
@@ -49,7 +49,7 @@ async fn test_machine_init_second() -> Result<()> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let mut config = GlobalConfig {
+    let mut config = MachineConfig {
         machines: vec![daemon.get_config()],
     };
 

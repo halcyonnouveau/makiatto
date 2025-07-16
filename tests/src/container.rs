@@ -1,7 +1,7 @@
 #![cfg(test)]
 use std::{env, net::TcpListener, path, process::Command, sync::Arc};
 
-use makiatto_cli::config::MachineConfig;
+use makiatto_cli::config::Machine;
 use miette::{Result, miette};
 use rand::{Rng, distr::Alphanumeric};
 use testcontainers::{
@@ -274,8 +274,8 @@ impl TestContainer {
         Ok(())
     }
 
-    pub fn get_config(&self) -> MachineConfig {
-        MachineConfig {
+    pub fn get_config(&self) -> Machine {
+        Machine {
             name: Arc::from(format!("{}-wawa-daemon", self.id)),
             ssh_target: Arc::from(format!("root@127.0.0.1:{}", self.ports.ssh)),
             is_nameserver: true,
