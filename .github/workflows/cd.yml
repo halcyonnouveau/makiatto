@@ -25,7 +25,7 @@ jobs:
         env:
           OUTPUT: crates/makiatto/CHANGELOG.md
       - name: Create release with changelog
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.git-cliff.outputs.content }}
           token: ${{ secrets.GITHUB_TOKEN }}
