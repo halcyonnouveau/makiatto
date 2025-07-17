@@ -319,7 +319,7 @@ dependencies = [
 [[package]]
 name = "backoff"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "rand 0.8.5",
 ]
@@ -429,12 +429,12 @@ dependencies = [
  "http-body-util",
  "hyper 1.6.0",
  "hyper-named-pipe",
- "hyper-rustls",
+ "hyper-rustls 0.27.7",
  "hyper-util",
  "hyperlocal",
  "log",
  "pin-project-lite",
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "rustls-native-certs 0.8.1",
  "rustls-pemfile 2.2.0",
  "rustls-pki-types",
@@ -491,9 +491,9 @@ dependencies = [
 
 [[package]]
 name = "castaway"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0abae9be0aaf9ea96a3b1b8b1b55c602ca751eba1b1500220cea4ecbafe7c0d5"
+checksum = "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a"
 dependencies = [
  "rustversion",
 ]
@@ -601,6 +601,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "consul-client"
+version = "0.1.0-alpha.0"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
+dependencies = [
+ "camino",
+ "hyper 0.14.32",
+ "hyper-rustls 0.24.2",
+ "rusqlite",
+ "rustls 0.21.12",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "serde_json",
+ "serde_with 2.3.3",
+ "thiserror 1.0.69",
+ "webpki",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -629,7 +647,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "corro-agent"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -644,7 +662,6 @@ dependencies = [
  "corro-speedy",
  "corro-types",
  "corro-utils",
- "deadpool-sqlite",
  "eyre",
  "foca",
  "futures",
@@ -692,11 +709,12 @@ dependencies = [
 [[package]]
 name = "corro-api-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "async-trait",
  "camino",
  "compact_str",
+ "corro-base-types",
  "corro-speedy",
  "deadpool",
  "hex",
@@ -712,7 +730,7 @@ dependencies = [
 [[package]]
 name = "corro-base-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "async-trait",
  "camino",
@@ -733,7 +751,7 @@ dependencies = [
 [[package]]
 name = "corro-pg"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "bytes",
  "chrono",
@@ -779,7 +797,7 @@ dependencies = [
 [[package]]
 name = "corro-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -789,6 +807,7 @@ dependencies = [
  "circular-buffer",
  "compact_str",
  "config",
+ "consul-client",
  "corro-api-types",
  "corro-base-types",
  "corro-speedy",
@@ -831,7 +850,7 @@ dependencies = [
 [[package]]
 name = "corro-utils"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "eyre",
  "tokio",
@@ -924,9 +943,9 @@ checksum = "4f211af61d8efdd104f96e57adf5e426ba1bc3ed7a4ead616e15e5881fd79c4d"
 
 [[package]]
 name = "curve25519-dalek"
-version = "4.1.3"
+version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
+checksum = "373b7c5dbd637569a2cca66e8d66b8c446a1e7bf064ea321d265d7b3dfe7c97e"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -1005,10 +1024,11 @@ checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
 name = "deadpool"
-version = "0.12.2"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ed5957ff93768adf7a65ab167a17835c3d2c3c50d084fe305174c112f468e2f"
+checksum = "fb84100978c1c7b37f09ed3ce3e5f843af02c2a2c431bae5b19230dad2c1b490"
 dependencies = [
+ "async-trait",
  "deadpool-runtime",
  "num_cpus",
  "tokio",
@@ -1021,26 +1041,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
 dependencies = [
  "tokio",
-]
-
-[[package]]
-name = "deadpool-sqlite"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e531d0beb6d12daa84df0482bf89e06c7ed059551ae1d7313dc7531d37778fb"
-dependencies = [
- "deadpool",
- "deadpool-sync",
- "rusqlite",
-]
-
-[[package]]
-name = "deadpool-sync"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "524bc3df0d57e98ecd022e21ba31166c2625e7d3e5bcc4510efaeeab4abcab04"
-dependencies = [
- "deadpool-runtime",
 ]
 
 [[package]]
@@ -1353,9 +1353,9 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "fiat-crypto"
-version = "0.2.9"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
+checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "filetime"
@@ -1661,9 +1661,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81fe527a889e1532da5c525686d96d4c2e74cdd345badf8dfef9f6b39dd5f5e8"
+checksum = "0beca50380b1fc32983fc1cb4587bfa4bb9e78fc259aad4a0032d2080309222d"
 dependencies = [
  "bytes",
  "fnv",
@@ -1717,6 +1717,9 @@ name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
+dependencies = [
+ "ahash",
+]
 
 [[package]]
 name = "hashbrown"
@@ -1731,11 +1734,11 @@ dependencies = [
 
 [[package]]
 name = "hashlink"
-version = "0.10.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
+checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
- "hashbrown 0.15.4",
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -1843,7 +1846,7 @@ dependencies = [
  "quinn 0.11.8",
  "rand 0.9.1",
  "ring 0.17.14",
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "serde",
  "thiserror 2.0.12",
  "tinyvec",
@@ -1890,7 +1893,7 @@ dependencies = [
  "quinn 0.11.8",
  "rand 0.9.1",
  "resolv-conf",
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "serde",
  "smallvec",
  "thiserror 2.0.12",
@@ -1917,7 +1920,7 @@ dependencies = [
  "http 1.3.1",
  "ipnet",
  "prefix-trie",
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "serde",
  "thiserror 2.0.12",
  "time",
@@ -2035,7 +2038,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.3.26",
+ "h2 0.3.27",
  "http 0.2.12",
  "http-body 0.4.6",
  "httparse",
@@ -2087,6 +2090,22 @@ dependencies = [
 
 [[package]]
 name = "hyper-rustls"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
+dependencies = [
+ "futures-util",
+ "http 0.2.12",
+ "hyper 0.14.32",
+ "log",
+ "rustls 0.21.12",
+ "rustls-native-certs 0.6.3",
+ "tokio",
+ "tokio-rustls 0.24.1",
+]
+
+[[package]]
+name = "hyper-rustls"
 version = "0.27.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3c93eb611681b207e1fe55d5a71ecf91572ec8a6705cdb6857f7d8d5242cf58"
@@ -2094,7 +2113,7 @@ dependencies = [
  "http 1.3.1",
  "hyper 1.6.0",
  "hyper-util",
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "rustls-native-certs 0.8.1",
  "rustls-pki-types",
  "tokio",
@@ -2420,7 +2439,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.6.0",
- "hyper-rustls",
+ "hyper-rustls 0.27.7",
  "hyper-util",
  "ring 0.17.14",
  "rustls-pki-types",
@@ -2582,9 +2601,8 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "947e6816f7825b2b45027c2c32e7085da9934defa535de4a6a46b10a4d5257fa"
+version = "0.30.1"
+source = "git+https://github.com/rusqlite/rusqlite?rev=c9f77814ddc99825f9c8eb52a0acb8d00f447f17#c9f77814ddc99825f9c8eb52a0acb8d00f447f17"
 dependencies = [
  "cc",
  "pkg-config",
@@ -3601,7 +3619,7 @@ dependencies = [
  "quinn-proto 0.11.12",
  "quinn-udp 0.5.13",
  "rustc-hash 2.1.1",
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "socket2",
  "thiserror 2.0.12",
  "tokio",
@@ -3651,7 +3669,7 @@ dependencies = [
  "rand 0.9.1",
  "ring 0.17.14",
  "rustc-hash 2.1.1",
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "rustls-pki-types",
  "slab",
  "thiserror 2.0.12",
@@ -3927,7 +3945,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.6.0",
- "hyper-rustls",
+ "hyper-rustls 0.27.7",
  "hyper-tls",
  "hyper-util",
  "js-sys",
@@ -4008,9 +4026,8 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.35.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a22715a5d6deef63c637207afbe68d0c72c3f8d0022d7cf9714c442d6157606b"
+version = "0.32.1"
+source = "git+https://github.com/rusqlite/rusqlite?rev=c9f77814ddc99825f9c8eb52a0acb8d00f447f17#c9f77814ddc99825f9c8eb52a0acb8d00f447f17"
 dependencies = [
  "bitflags 2.9.1",
  "chrono",
@@ -4068,15 +4085,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.7"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c71e83d6afe7ff64890ec6b71d6a69bb8a610ab78ce364b3352876bb4c801266"
+checksum = "11181fbabf243db407ef8df94a6ce0b2f9a733bd8be4ad02b4eda9602296cac8"
 dependencies = [
  "bitflags 2.9.1",
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4093,15 +4110,15 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.28"
+version = "0.23.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7160e3e10bf4535308537f3c4e1641468cd0e485175d6163087c0393c7d46643"
+checksum = "2491382039b29b9b11ff08b76ff6c97cf287671dbb74f0be44bda389fffe9bd1"
 dependencies = [
  "log",
  "once_cell",
  "ring 0.17.14",
  "rustls-pki-types",
- "rustls-webpki 0.103.3",
+ "rustls-webpki 0.103.4",
  "subtle",
  "zeroize",
 ]
@@ -4170,9 +4187,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.3"
+version = "0.103.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4a72fe2bcf7a6ac6fd7d0b9e5cb68aeb7d4c0a0271730218b3e92d43b4eb435"
+checksum = "0a17884ae0c1b773f1ccd2bd4a8c72f16da897310a98b0e84bf349ad5ead92fc"
 dependencies = [
  "ring 0.17.14",
  "rustls-pki-types",
@@ -4544,7 +4561,7 @@ dependencies = [
 [[package]]
 name = "spawn"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "futures",
  "pin-project-lite",
@@ -4597,7 +4614,7 @@ dependencies = [
 [[package]]
 name = "sqlite-functions"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -4606,7 +4623,7 @@ dependencies = [
 [[package]]
 name = "sqlite-pool"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "arc-swap",
  "deadpool",
@@ -5084,7 +5101,7 @@ version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e727b36a1a0e8b74c376ac2211e40c2c8af09fb4013c60d910495810f008e9b"
 dependencies = [
- "rustls 0.23.28",
+ "rustls 0.23.29",
  "tokio",
 ]
 
@@ -5391,7 +5408,7 @@ dependencies = [
 [[package]]
 name = "tripwire"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/beanpuppy/corrosion#8dcb933f6f91ff29e860ffd3ada07da8e6d370cd"
+source = "git+https://github.com/beanpuppy/corrosion#70f8d4556a00e608b457661b294d54134bbd5fa1"
 dependencies = [
  "futures",
  "futures-util",
@@ -5721,6 +5738,16 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed63aea5ce73d0ff405984102c42de94fc55a6b75765d621c65262469b3c9b53"
+dependencies = [
+ "ring 0.17.14",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -6105,9 +6132,9 @@ checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 
 [[package]]
 name = "winnow"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74c7b26e3480b707944fc872477815d29a8e429d2f93a1ce000f5fa84a15cbcd"
+checksum = "f3edebf492c8125044983378ecb5766203ad3b4c2f7a922bd7dd207f6d443e95"
 dependencies = [
  "memchr",
 ]

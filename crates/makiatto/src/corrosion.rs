@@ -146,10 +146,10 @@ pub async fn run(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
 
     let result = corro_agent::agent::start_with_config(cfg, tripwire.clone()).await;
 
-    let (_agent, _bookie) = match result {
-        Ok((agent, bookie)) => {
+    let (_agent, _bookie, _transport) = match result {
+        Ok((agent, bookie, transport)) => {
             info!("Corrosion agent started successfully");
-            (agent, bookie)
+            (agent, bookie, transport)
         }
         Err(e) => {
             error!("Failed to start Corrosion agent: {}", e);
