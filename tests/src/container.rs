@@ -126,23 +126,23 @@ impl ContainerContext {
         let mut container = TestContainer::new(Image::Daemon)?;
         let target = self.target.join(format!("container-{}", container.id));
 
-        Command::new("mkdir")
-            .arg("-p")
-            .arg(&target)
-            .status()
+        tokio::fs::create_dir_all(&target)
+            .await
             .map_err(|e| miette::miette!("Failed to create directory: {e}"))?;
 
-        Command::new("cp")
-            .arg(self.root.join("tests/fixtures/makiatto.toml"))
-            .arg(target.join("makiatto.toml"))
-            .status()
-            .map_err(|e| miette::miette!("Failed to copy makiatto.toml: {e}"))?;
+        tokio::fs::copy(
+            self.root.join("tests/fixtures/makiatto.toml"),
+            target.join("makiatto.toml"),
+        )
+        .await
+        .map_err(|e| miette::miette!("Failed to copy makiatto.toml: {e}"))?;
 
         Self::replace(
             "name = \"wawa-daemon\"",
             &format!("name = \"{}-wawa-daemon\"", container.id),
             &target.join("makiatto.toml"),
-        )?;
+        )
+        .await?;
 
         Self::replace(
             "external_addr = \"127.0.0.1:8787\"",
@@ -151,7 +151,8 @@ impl ContainerContext {
                 self.gateway_ip, container.ports.corrosion
             ),
             &target.join("makiatto.toml"),
-        )?;
+        )
+        .await?;
 
         let prev_corro_ports: Vec<u16> = self
             .containers
@@ -172,12 +173,12 @@ impl ContainerContext {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            let bootstrap = format!("[{bootstrap}]");
             Self::replace(
                 "bootstrap = []",
-                &format!("bootstrap = {bootstrap}"),
+                &format!("bootstrap = [{bootstrap}]"),
                 &target.join("makiatto.toml"),
-            )?;
+            )
+            .await?;
         }
 
         let image = GenericImage::new("makiatto-test-ubuntu_daemon", "latest")
@@ -208,13 +209,15 @@ impl ContainerContext {
     }
 
     /// replace a string in a file
-    fn replace(pattern: &str, replacement: &str, path: &path::Path) -> Result<()> {
-        let content = std::fs::read_to_string(path)
+    async fn replace(pattern: &str, replacement: &str, path: &path::Path) -> Result<()> {
+        let content = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| miette::miette!("Failed to read file: {e}"))?;
 
         let new_content = content.replace(pattern, replacement);
 
-        std::fs::write(path, new_content)
+        tokio::fs::write(path, new_content)
+            .await
             .map_err(|e| miette::miette!("Failed to write file: {e}"))?;
 
         Ok(())
@@ -226,9 +229,8 @@ impl Drop for ContainerContext {
         if self.target.exists() {
             if let Err(e) = std::fs::remove_dir_all(&self.target) {
                 eprintln!(
-                    "Warning: Failed to clean up test data directory {}: {}",
+                    "Warning: Failed to clean up test data directory {}: {e}",
                     self.target.display(),
-                    e
                 );
             } else {
                 eprintln!("Cleaned up test directory: {}", self.target.display());
