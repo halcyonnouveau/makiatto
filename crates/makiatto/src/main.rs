@@ -5,9 +5,7 @@ use makiatto::{
     cache::CacheStore,
     config,
     corrosion::{self, subscriptions::SubscriptionWatcher},
-    dns,
-    service::{handle_service_restarts, setup_service},
-    web, wireguard,
+    dns, service, web, wireguard,
 };
 use miette::Result;
 use tokio::{
@@ -110,7 +108,7 @@ async fn main() -> Result<()> {
     });
 
     let wg_manager = if services.wireguard {
-        let (wg_mgr, wg_handle) = wireguard::setup_wireguard(&config, peers)?;
+        let (wg_mgr, wg_handle) = wireguard::setup(&config, peers)?;
         let wg_task = tokio::spawn(async move {
             match wg_handle.await {
                 Ok(Ok(())) => Ok("wireguard"),
@@ -156,11 +154,11 @@ async fn main() -> Result<()> {
 
     let (dns_manager, dns_handle) = if services.dns && config.node.is_nameserver {
         info!("Starting dns server...");
-        let (dns_mgr, dns_task) = setup_service(
+        let (dns_mgr, dns_task) = service::setup(
             "dns",
             Arc::new(config.clone()),
             tripwire.clone(),
-            |config, tripwire| async move { dns::start_dns_server(config, tripwire).await },
+            |config, tripwire| async move { dns::start(config, tripwire).await },
         )?;
         (
             Some(dns_mgr),
@@ -183,17 +181,17 @@ async fn main() -> Result<()> {
     // handle dns restart signals with debouncing
     if let Some(dns_mgr) = dns_manager {
         let dns_restart_handle =
-            tokio::spawn(handle_service_restarts("dns", dns_restart_rx, dns_mgr));
+            tokio::spawn(service::handle_restarts("dns", dns_restart_rx, dns_mgr));
         handles.push(dns_restart_handle);
     }
 
     let (web_manager, web_handle) = if services.web {
         info!("Starting web server...");
-        let (web_manager, web_handle) = setup_service(
+        let (web_manager, web_handle) = service::setup(
             "web",
             Arc::new(config.clone()),
             tripwire.clone(),
-            |config, tripwire| async move { web::start_web_server(config, tripwire).await },
+            |config, tripwire| async move { web::start(config, tripwire).await },
         )?;
         (
             Some(web_manager),
@@ -216,7 +214,7 @@ async fn main() -> Result<()> {
     // handle web restart signals with debouncing
     if let Some(web_mgr) = web_manager {
         let web_restart_handle =
-            tokio::spawn(handle_service_restarts("web", web_restart_rx, web_mgr));
+            tokio::spawn(service::handle_restarts("web", web_restart_rx, web_mgr));
         handles.push(web_restart_handle);
     }
 

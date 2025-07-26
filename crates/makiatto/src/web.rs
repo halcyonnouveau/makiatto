@@ -33,8 +33,8 @@ async fn handle_request(
         .get("host")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("localhost");
-    let domain = hostname.split(':').next().unwrap_or(hostname);
 
+    let domain = hostname.split(':').next().unwrap_or(hostname);
     let domain_path = state.static_dir.join(domain);
 
     tracing::info!(
@@ -67,7 +67,7 @@ async fn handle_request(
 /// # Errors
 /// Returns an error if the web server fails to bind to HTTP/HTTPS addresses or encounters runtime errors
 #[allow(clippy::similar_names)]
-pub async fn start_web_server(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()> {
+pub async fn start(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()> {
     let state = WebState {
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
     };

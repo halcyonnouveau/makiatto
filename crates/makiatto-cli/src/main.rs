@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Machine(machine) => match machine.action {
             MachineAction::Init(init) => {
-                machine::init_machine(&init, &mut profile)?;
+                machine::init_machine(&init, &mut profile).await?;
                 profile.save(cli.profile_path)?;
 
                 Ok(())

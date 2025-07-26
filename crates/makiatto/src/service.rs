@@ -75,7 +75,7 @@ impl BasicServiceManager for ServiceManager<BasicServiceCommand> {
 ///
 /// # Errors
 /// Returns an error if the service fails to initialise
-pub fn setup_service<F, S>(
+pub fn setup<F, S>(
     service_name: &'static str,
     config: Arc<crate::config::Config>,
     tripwire: tripwire::Tripwire,
@@ -153,7 +153,7 @@ where
 ///
 /// # Errors
 /// Returns an error if the service manager channel is closed
-pub async fn handle_service_restarts(
+pub async fn handle_restarts(
     service_name: &'static str,
     mut restart_rx: mpsc::Receiver<()>,
     manager: ServiceManager<BasicServiceCommand>,

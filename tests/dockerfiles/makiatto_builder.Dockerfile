@@ -21,7 +21,7 @@ path = "src/main.rs"
 EOF
 
 RUN mkdir tests/src && echo 'fn main() {}' > tests/src/main.rs
-RUN cargo build --release -p makiatto
+RUN cargo build -p makiatto
 
 FROM busybox:stable AS export
-COPY --from=builder /app/target/release/makiatto /makiatto
+COPY --from=builder /app/target/debug/makiatto /makiatto

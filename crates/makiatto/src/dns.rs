@@ -316,7 +316,7 @@ pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
 ///
 /// # Errors
 /// Returns an error if the DNS server fails to start, bind to port 53, or encounters runtime errors
-pub async fn start_dns_server(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()> {
+pub async fn start(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()> {
     if !config.dns.geolite_path.exists() {
         download_geolite(&config.dns.geolite_path).await?;
     }
