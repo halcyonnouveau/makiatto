@@ -20,16 +20,14 @@ use hickory_server::{
 };
 use maxminddb::Reader;
 use miette::{IntoDiagnostic, Result};
-use tokio::{
-    net::{TcpListener, UdpSocket},
-    sync::{mpsc, oneshot},
-};
+use tokio::net::{TcpListener, UdpSocket};
 use tracing::{error, info};
 use url::Url;
 
 use crate::{
     config::Config,
     corrosion::{self, DnsRecord},
+    service::{BasicServiceCommand, ServiceManager},
 };
 
 #[derive(thiserror::Error, Debug, miette::Diagnostic)]
@@ -245,58 +243,7 @@ impl Handler {
     }
 }
 
-#[derive(Debug)]
-pub enum DnsCommand {
-    Restart {
-        response: oneshot::Sender<Result<()>>,
-    },
-    Shutdown {
-        response: oneshot::Sender<Result<()>>,
-    },
-}
-
-#[derive(Clone)]
-pub struct DnsManager {
-    tx: mpsc::UnboundedSender<DnsCommand>,
-}
-
-impl DnsManager {
-    /// Restart the DNS server (useful after configuration changes)
-    ///
-    /// # Errors
-    /// Returns an error if the manager task has stopped or the restart fails
-    pub async fn restart(&self) -> Result<()> {
-        let (response_tx, response_rx) = oneshot::channel();
-
-        self.tx
-            .send(DnsCommand::Restart {
-                response: response_tx,
-            })
-            .map_err(|_| miette::miette!("DNS manager task has stopped"))?;
-
-        response_rx
-            .await
-            .map_err(|_| miette::miette!("Failed to receive response from DNS manager"))?
-    }
-
-    /// Shutdown the DNS server gracefully
-    ///
-    /// # Errors
-    /// Returns an error if the manager task has stopped or the shutdown fails
-    pub async fn shutdown(&self) -> Result<()> {
-        let (response_tx, response_rx) = oneshot::channel();
-
-        self.tx
-            .send(DnsCommand::Shutdown {
-                response: response_tx,
-            })
-            .map_err(|_| miette::miette!("DNS manager task has stopped"))?;
-
-        response_rx
-            .await
-            .map_err(|_| miette::miette!("Failed to receive response from DNS manager"))?
-    }
-}
+pub type DnsManager = ServiceManager<BasicServiceCommand>;
 
 #[async_trait::async_trait]
 impl RequestHandler for Handler {
@@ -365,152 +312,74 @@ pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Set up the DNS server with management capabilities
+/// Start a DNS server instance and return a handle to control it
 ///
 /// # Errors
-/// Returns an error if the server fails to start or bind to the configured address
-pub fn setup_dns(
-    config: Config,
-    tripwire: tripwire::Tripwire,
-) -> Result<(DnsManager, tokio::task::JoinHandle<Result<()>>)> {
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let manager = DnsManager { tx };
+/// Returns an error if the DNS server fails to start, bind to port 53, or encounters runtime errors
+pub async fn start_dns_server(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()> {
+    if !config.dns.geolite_path.exists() {
+        download_geolite(&config.dns.geolite_path).await?;
+    }
 
-    let handle = tokio::spawn(async move {
-        let mut current_server = Some(start_dns_server(&config, tripwire.clone()));
+    let peers: Vec<DnsPeer> = corrosion::get_peers(&config)
+        .unwrap_or_else(|_| Arc::from([]))
+        .iter()
+        .map(|p| DnsPeer {
+            point: point!(x: p.latitude, y: p.longitude),
+            ipv4: p.ipv4.to_string(),
+            ipv6: p.ipv6.as_ref().map(ToString::to_string),
+        })
+        .collect();
 
-        loop {
-            tokio::select! {
-                command = rx.recv() => {
-                    let Some(command) = command else {
-                        break;
-                    };
+    let records = corrosion::get_dns_records(&config).unwrap_or_default();
+    let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
+    let handler = Handler::new(Arc::from(peers), records, reader);
+    let mut server = ServerFuture::new(handler);
 
-                    match command {
-                        DnsCommand::Restart { response } => {
-                            info!("Restarting DNS server");
+    server.register_socket(
+        UdpSocket::bind("[::]:53")
+            .await
+            .map_err(|e| miette::miette!("Failed to bind UDP socket: {e}"))?,
+    );
 
-                            if let Some(server) = current_server.take() {
-                                server.abort();
-                            }
+    server.register_listener(
+        TcpListener::bind("[::]:53")
+            .await
+            .map_err(|e| miette::miette!("Failed to bind TCP socket: {e}"))?,
+        Duration::from_secs(5),
+    );
 
-                            let new_server = start_dns_server(&config, tripwire.clone());
-                            current_server = Some(new_server);
-                            let _ = response.send(Ok(()));
-                        }
-                        DnsCommand::Shutdown { response } => {
-                            info!("Shutting down DNS server");
+    // TODO: Add TLS/QUIC support when we have certificates
+    // This will require integrating with the certificate management system
+    //
+    // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
+    //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
+    //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
 
-                            if let Some(server) = current_server.take() {
-                                server.abort();
-                            }
+    //     server.register_quic_listener(
+    //         UdpSocket::bind("[::]:853").await?,
+    //         Duration::from_secs(1),
+    //         (cert.clone(), key.clone()),
+    //         None,
+    //     )?;
 
-                            let _ = response.send(Ok(()));
-                            break;
-                        }
-                    }
-                }
-                () = tripwire.clone() => {
-                    info!("DNS manager received shutdown signal");
-                    if let Some(server) = current_server.take() {
-                        server.abort();
-                    }
-                    break;
-                }
-            }
+    //     server.register_tls_listener_with_tls_config(
+    //         TcpListener::bind("[::]:853").await?,
+    //         Duration::from_secs(5),
+    //         Arc::new(tls_server::new_acceptor(cert, key)?),
+    //     )?;
+    // }
+
+    info!("DNS server started");
+
+    tokio::select! {
+        result = server.block_until_done() => {
+            result.map_err(|e| miette::miette!("DNS server error: {e}"))?;
         }
-
-        if let Some(server) = current_server {
-            server.abort();
+        () = tripwire => {
+            info!("DNS server received shutdown signal");
         }
+    }
 
-        Ok(())
-    });
-
-    Ok((manager, handle))
-}
-
-/// Start a DNS server instance and return a handle to control it
-fn start_dns_server(
-    config: &Config,
-    tripwire: tripwire::Tripwire,
-) -> tokio::task::JoinHandle<Result<()>> {
-    let config = config.clone();
-
-    tokio::spawn(async move {
-        let result: Result<()> = async {
-            if !config.dns.geolite_path.exists() {
-                download_geolite(&config.dns.geolite_path).await?;
-            }
-
-            let peers: Vec<DnsPeer> = corrosion::get_peers(&config)
-                .unwrap_or_else(|_| Arc::from([]))
-                .iter()
-                .map(|p| DnsPeer {
-                    point: point!(x: p.latitude, y: p.longitude),
-                    ipv4: p.ipv4.to_string(),
-                    ipv6: p.ipv6.as_ref().map(ToString::to_string),
-                })
-                .collect();
-
-            let records = corrosion::get_dns_records(&config).unwrap_or_default();
-            let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
-            let handler = Handler::new(Arc::from(peers), records, reader);
-            let mut server = ServerFuture::new(handler);
-
-            server.register_socket(
-                UdpSocket::bind("[::]:53")
-                    .await
-                    .map_err(|e| miette::miette!("Failed to bind UDP socket: {e}"))?,
-            );
-
-            server.register_listener(
-                TcpListener::bind("[::]:53")
-                    .await
-                    .map_err(|e| miette::miette!("Failed to bind TCP socket: {e}"))?,
-                Duration::from_secs(5),
-            );
-
-            // TODO: Add TLS/QUIC support when we have certificates
-            // This will require integrating with the certificate management system
-            //
-            // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
-            //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
-            //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
-
-            //     server.register_quic_listener(
-            //         UdpSocket::bind("[::]:853").await?,
-            //         Duration::from_secs(1),
-            //         (cert.clone(), key.clone()),
-            //         None,
-            //     )?;
-
-            //     server.register_tls_listener_with_tls_config(
-            //         TcpListener::bind("[::]:853").await?,
-            //         Duration::from_secs(5),
-            //         Arc::new(tls_server::new_acceptor(cert, key)?),
-            //     )?;
-            // }
-
-            info!("DNS server started");
-
-            tokio::select! {
-                result = server.block_until_done() => {
-                    result.map_err(|e| miette::miette!("DNS server error: {e}"))?;
-                }
-                () = tripwire => {
-                    info!("DNS server received shutdown signal");
-                }
-            }
-
-            Ok(())
-        }
-        .await;
-
-        if let Err(ref e) = result {
-            error!("DNS server failed: {e}");
-        }
-
-        result
-    })
+    Ok(())
 }

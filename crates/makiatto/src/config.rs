@@ -73,6 +73,12 @@ pub struct DnsConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WebConfig {
+    /// HTTP server address
+    pub http_addr: Arc<str>,
+
+    /// HTTPS server address
+    pub https_addr: Arc<str>,
+
     /// Directory to serve static files from
     pub static_dir: Utf8PathBuf,
 }
@@ -99,7 +105,8 @@ pub fn load() -> Result<Config> {
         Utf8PathBuf::from("/etc/makiatto/makiatto.toml"),
         Utf8PathBuf::from("/etc/makiatto/config.toml"),
         Utf8PathBuf::from("/etc/makiatto.toml"),
-        Utf8PathBuf::from("./makiatto-daemon.toml"),
+        #[cfg(debug_assertions)]
+        Utf8PathBuf::from("./tests/fixtures/makiatto-local.toml"),
     ];
 
     for path in &config_paths {

@@ -58,10 +58,10 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 
 4. **Deploy your content**
 
-   Deploy your static files to all nodes in the mesh:
+   Sync your static files and domain config to all nodes in the mesh:
 
    ```bash
-   makiatto-cli deploy
+   makiatto-cli sync
    ```
 
 Your content is now distributed globally with automatic geolocation DNS routing!

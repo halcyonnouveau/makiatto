@@ -14,6 +14,7 @@ testcontainers = { workspace = true }
 tokio = { workspace = true }
 tokio-test = { workspace = true }
 rand = { workspace = true }
+reqwest = { workspace = true }
 
 [build-dependencies]
 miette = { workspace = true }

@@ -185,12 +185,16 @@ impl ContainerContext {
             .with_exposed_port(22.tcp())
             .with_exposed_port(53.tcp())
             .with_exposed_port(53.udp())
+            .with_exposed_port(80.tcp())
+            .with_exposed_port(443.tcp())
             .with_exposed_port(8787.udp())
             .with_wait_for(WaitFor::Nothing)
             .with_container_name(format!("{}-wawa-daemon", container.id))
             .with_mapped_port(container.ports.ssh, 22.tcp())
             .with_mapped_port(container.ports.dns, 53.tcp())
             .with_mapped_port(container.ports.dns, 53.udp())
+            .with_mapped_port(container.ports.http, 80.tcp())
+            .with_mapped_port(container.ports.https, 443.tcp())
             .with_mapped_port(container.ports.corrosion, 8787.udp())
             .with_network("wawa")
             .with_mount(Mount::bind_mount(
@@ -296,33 +300,76 @@ pub struct PortMap {
     pub ssh: u16,
     pub dns: u16,
     pub corrosion: u16,
+    pub http: u16,
+    pub https: u16,
 }
 
 impl PortMap {
     pub fn new() -> Result<Self> {
+        for attempt in 1..=3 {
+            match Self::try_allocate_ports() {
+                Ok(ports) => return Ok(ports),
+                Err(e) if attempt < 3 => {
+                    eprintln!("Port allocation attempt {attempt} failed: {e}, retrying...");
+                    std::thread::sleep(std::time::Duration::from_millis(100 * attempt));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        unreachable!()
+    }
+
+    fn try_allocate_ports() -> Result<Self> {
+        let mut ports = std::collections::HashSet::new();
+        let mut allocated = Vec::new();
+
+        for _ in 0..5 {
+            let mut attempts = 0;
+            loop {
+                let port = Self::get_unused_port()?;
+                if !ports.contains(&port) {
+                    ports.insert(port);
+                    allocated.push(port);
+                    break;
+                }
+                attempts += 1;
+                if attempts > 50 {
+                    return Err(miette::miette!(
+                        "Failed to allocate unique ports after 50 attempts"
+                    ));
+                }
+            }
+        }
+
         Ok(Self {
-            ssh: Self::get_unused_port()?,
-            dns: Self::get_unused_port()?,
-            corrosion: Self::get_unused_port()?,
+            ssh: allocated[0],
+            dns: allocated[1],
+            corrosion: allocated[2],
+            http: allocated[3],
+            https: allocated[4],
         })
     }
 
     pub fn get_unused_port() -> Result<u16> {
-        const MAX_ATTEMPTS: u32 = 1000;
+        const MAX_ATTEMPTS: u32 = 100;
 
         let mut rng = rand::rng();
         let mut attempts = 0;
 
         while attempts < MAX_ATTEMPTS {
-            let port = rng.random_range(49152..=65535);
-            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            let port = rng.random_range(32768..=65535);
+
+            if TcpListener::bind(("127.0.0.1", port)).is_ok()
+                && let Ok(socket) = std::net::UdpSocket::bind(("127.0.0.1", port))
+            {
+                drop(socket);
                 return Ok(port);
             }
             attempts += 1;
         }
 
         Err(miette::miette!(
-            "No unused ports available in range 49152-65535 after {} attempts",
+            "No unused ports available in range 32768-65535 after {} attempts",
             MAX_ATTEMPTS
         ))
     }

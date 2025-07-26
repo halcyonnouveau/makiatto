@@ -46,6 +46,8 @@ maxminddb = "0.26"
 axum = "0.8"
 defguard_wireguard_rs = "0.7"
 instant-acme = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
 ssh2 = "0.9"
 
 # Utilities

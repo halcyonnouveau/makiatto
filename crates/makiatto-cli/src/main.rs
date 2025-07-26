@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 use makiatto_cli::{
-    config::{LocalConfig, MachineConfig},
+    config::{Config, Profile},
     machine::{self, AddMachine, InitMachine},
     ui,
 };
@@ -15,9 +15,9 @@ struct Cli {
     #[argh(option, long = "config")]
     config_path: Option<PathBuf>,
 
-    /// path to machines config (default: ~/.config/makiatto/default.toml)
-    #[argh(option, long = "machines-config")]
-    machines_config_path: Option<PathBuf>,
+    /// path to machines profile (default: ~/.config/makiatto/default.toml)
+    #[argh(option, long = "profile")]
+    profile_path: Option<PathBuf>,
 
     #[argh(subcommand)]
     command: Command,
@@ -27,9 +27,15 @@ struct Cli {
 #[argh(subcommand)]
 enum Command {
     Machine(MachineCommand),
-    Deploy(DeployCommand),
+    Sync(SyncCommand),
     Status(StatusCommand),
 }
+
+// TODO: commands to add
+// machine remove - remove a machine from the cluster
+// update - update all machines with latest makiatto server
+// domain list - list all domains in the corrosion db
+// domain remove - remove a domain from the corrosion db
 
 /// manage makiatto machines
 #[derive(FromArgs)]
@@ -52,10 +58,10 @@ enum MachineAction {
 #[argh(subcommand, name = "list")]
 struct ListMachines {}
 
-/// deploy the project to the cdn
+/// sync the project to the cdn
 #[derive(FromArgs)]
 #[argh(subcommand, name = "sync")]
-struct DeployCommand {}
+struct SyncCommand {}
 
 /// show cluster status
 #[derive(FromArgs)]
@@ -65,28 +71,28 @@ struct StatusCommand {}
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli: Cli = argh::from_env();
-    let mut machines_config = MachineConfig::load(cli.machines_config_path.clone())?;
+    let mut profile = Profile::load(cli.profile_path.clone())?;
 
     match cli.command {
         Command::Machine(machine) => match machine.action {
             MachineAction::Init(init) => {
-                machine::init_machine(&init, &mut machines_config)?;
-                machines_config.save(cli.machines_config_path)?;
+                machine::init_machine(&init, &mut profile)?;
+                profile.save(cli.profile_path)?;
 
                 Ok(())
             }
             MachineAction::Add(add) => {
-                machine::add_machine(&add, &mut machines_config)?;
-                machines_config.save(cli.machines_config_path)?;
+                machine::add_machine(&add, &mut profile)?;
+                profile.save(cli.profile_path)?;
 
                 Ok(())
             }
             MachineAction::List(_) => {
-                if machines_config.machines.is_empty() {
+                if profile.machines.is_empty() {
                     ui::info("No machines configured yet. Use `machine init` to add one");
                 } else {
                     ui::header("Configured machines:");
-                    for (i, machine) in machines_config.machines.iter().enumerate() {
+                    for (i, machine) in profile.machines.iter().enumerate() {
                         if i > 0 {
                             ui::separator();
                         }
@@ -99,8 +105,8 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
-        Command::Deploy(_) => {
-            let _ = LocalConfig::load(cli.config_path);
+        Command::Sync(_) => {
+            let _ = Config::load(cli.config_path);
             /*
              * Update LocalConfig Structure
              *    - Add ttl field to DnsRecord struct (optional, defaults to 300)
