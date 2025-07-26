@@ -21,6 +21,7 @@ miette = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "process"] }
+reqwest = { workspace = true, features = ["json"] }
 toml = { workspace = true }
 ssh2 = { workspace = true }
 camino = { workspace = true }

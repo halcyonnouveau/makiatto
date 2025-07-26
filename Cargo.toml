@@ -33,6 +33,11 @@ toml = "0.8"
 base64 = "0.22"
 x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 
+# Corrosion
+corro-agent = { git = "https://github.com/beanpuppy/corrosion" }
+corro-types = { git = "https://github.com/beanpuppy/corrosion" }
+tripwire = { git = "https://github.com/beanpuppy/corrosion" }
+
 # DNS
 hickory-proto = "0.25"
 hickory-server = { version = "0.25", features = [
@@ -65,16 +70,17 @@ ctor = "0.4"
 testcontainers = "0.24"
 tokio-test = "0.4"
 
-corro-agent = { git = "https://github.com/beanpuppy/corrosion" }
-corro-types = { git = "https://github.com/beanpuppy/corrosion" }
-tripwire = { git = "https://github.com/beanpuppy/corrosion" }
-
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 2
 strip = "symbols"
 panic = "abort"
+
+[profile.dev]
+debug = 1
+incremental = true
+codegen-units = 256
 
 [workspace.lints.rust]
 missing_copy_implementations = "warn"

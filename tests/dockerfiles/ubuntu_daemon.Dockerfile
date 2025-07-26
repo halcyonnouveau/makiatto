@@ -9,9 +9,7 @@ makiatto ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/sbin/setcap, /usr/bin/mkdi
 EOF
 
 COPY --from=builder /makiatto /usr/local/bin/makiatto
-RUN chmod +x /usr/local/bin/makiatto
-RUN chown makiatto:makiatto /usr/local/bin/makiatto
-RUN chown makiatto:makiatto /etc/makiatto
+RUN chmod +x /usr/local/bin/makiatto && chown makiatto:makiatto /usr/local/bin/makiatto && chown makiatto:makiatto /etc/makiatto
 RUN echo 'net.ipv4.ip_unprivileged_port_start=0' > /etc/sysctl.d/50-unprivileged-ports.conf
 RUN setcap 'cap_net_bind_service=+ep' /usr/local/bin/makiatto
 

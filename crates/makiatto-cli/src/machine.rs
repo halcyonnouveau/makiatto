@@ -77,7 +77,7 @@ pub struct AddMachine {
 ///
 /// # Errors
 /// Returns an error if SSH connection fails, installation fails, or configuration is invalid
-pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshSession> {
+pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshSession> {
     if profile.find_machine(&request.name).is_some() {
         if request.override_existing {
             ui::info(&format!(
@@ -106,7 +106,7 @@ pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshS
     let (wg_private_key, wg_public_key) = generate_wireguard_keypair();
 
     ui::status("Detecting public IP addresses and location...");
-    let (ipv4, ipv6, latitude, longitude) = geolocation::detect_node_info(&host)?;
+    let (ipv4, ipv6, latitude, longitude) = geolocation::detect_node_info(&host).await?;
 
     ui::header("Initialising machine:");
     ui::field("Name", &request.name);

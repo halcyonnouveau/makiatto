@@ -296,7 +296,7 @@ where
 ///
 /// # Errors
 /// Returns an error if the interface cannot be created or configured
-pub fn setup_wireguard(
+pub fn setup(
     config: &Config,
     peers: Option<Arc<[corrosion::Peer]>>,
 ) -> Result<(WireguardManager, tokio::task::JoinHandle<Result<()>>)> {
