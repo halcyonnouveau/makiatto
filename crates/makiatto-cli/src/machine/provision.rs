@@ -4,7 +4,7 @@ use indoc::formatdoc;
 use miette::Result;
 
 use crate::{
-    config::{Machine, MachineConfig},
+    config::{Machine, Profile},
     constants::{CORROSION_API_PORT, CORROSION_GOSSIP_PORT, WIREGUARD_PORT},
     machine::corrosion,
     ssh::SshSession,
@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub fn install_makiatto(
-    machine_config: &MachineConfig,
+    profile: &Profile,
     machine: &Machine,
     wg_private_key: &str,
     binary_path: Option<&PathBuf>,
@@ -25,7 +25,7 @@ pub fn install_makiatto(
     install_makiatto_binary(&ssh, binary_path)?;
     setup_system_permissions(&ssh)?;
     ensure_sqlite3_installed(&ssh)?;
-    create_daemon_config(&ssh, machine_config, machine, wg_private_key)?;
+    create_daemon_config(&ssh, profile, machine, wg_private_key)?;
 
     if ssh.is_container() {
         ui::info("Container environment detected - starting makiatto as background process");
@@ -150,8 +150,8 @@ fn ensure_sqlite3_installed(ssh: &SshSession) -> Result<()> {
     ))
 }
 
-fn setup_dns_configuration(ssh: &SshSession, machine_config: &Machine) -> Result<()> {
-    if machine_config.is_nameserver {
+fn setup_dns_configuration(ssh: &SshSession, machine: &Machine) -> Result<()> {
+    if machine.is_nameserver {
         ui::status("Configuring DNS...");
         ui::action("Disabling systemd-resolved");
         ssh.exec("sudo systemctl disable --now systemd-resolved")?;
@@ -171,14 +171,14 @@ fn setup_dns_configuration(ssh: &SshSession, machine_config: &Machine) -> Result
 
 fn create_daemon_config(
     ssh: &SshSession,
-    machine_config: &MachineConfig,
+    profile: &Profile,
     machine: &Machine,
     wg_private_key: &str,
 ) -> Result<()> {
     ui::status("Creating makiatto configuration...");
 
     // bootstrap with wireguard ip address + corrosion gossip port
-    let corrosion_bootstrap: Vec<String> = machine_config
+    let corrosion_bootstrap: Vec<String> = profile
         .machines
         .iter()
         .take(10)
@@ -187,7 +187,7 @@ fn create_daemon_config(
         .collect();
 
     // collect wireguard bootstrap peers
-    let wireguard_peers: Vec<String> = machine_config
+    let wireguard_peers: Vec<String> = profile
         .machines
         .iter()
         .map(|m| {
@@ -222,6 +222,8 @@ fn create_daemon_config(
         geolite_path = "/var/makiatto/geolite/GeoLite2-City.mmdb"
 
         [web]
+        http_addr = "0.0.0.0:80"
+        https_addr = "0.0.0.0:443"
         static_dir = "/var/makiatto/sites"
 
         [corrosion.admin]
@@ -284,7 +286,7 @@ fn setup_systemd_service(ssh: &SshSession) -> Result<()> {
 
     let service_content = formatdoc! {r"
         [Unit]
-        Description=Makiatto Service
+        Description=Makiatto CDN
         After=network.target
         Wants=network.target
 
@@ -347,7 +349,7 @@ fn start_makiatto_service(ssh: &SshSession) -> Result<()> {
     Ok(())
 }
 
-fn add_self_as_peer(ssh: &SshSession, machine_config: &Machine) -> Result<()> {
+fn add_self_as_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
     ui::status("Inserting self into database...");
     let spinner = ui::spinner("Checking for waiting for database to be ready...");
     let start_time = std::time::Instant::now();
@@ -375,7 +377,7 @@ fn add_self_as_peer(ssh: &SshSession, machine_config: &Machine) -> Result<()> {
     }
 
     ui::action("Writing to Corrosion API");
-    corrosion::insert_peer(ssh, machine_config)?;
+    corrosion::insert_peer(ssh, machine)?;
 
     Ok(())
 }

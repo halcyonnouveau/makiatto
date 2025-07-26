@@ -105,29 +105,29 @@ where
                 config.interface
             );
             let wgapi = WGApi::<T>::new(config.interface.to_string())
-                .map_err(|e| miette!("Failed to create WireGuard API: {}", e))?;
+                .map_err(|e| miette!("Failed to create WireGuard API: {e}"))?;
             return Ok(Self { api: wgapi });
         }
 
         info!("Setting up WireGuard interface '{}'", config.interface);
 
         let wgapi = WGApi::<T>::new(config.interface.to_string())
-            .map_err(|e| miette!("Failed to create WireGuard API: {}", e))?;
+            .map_err(|e| miette!("Failed to create WireGuard API: {e}"))?;
 
         if Self::check_interface_exists(&wgapi) {
             wgapi
                 .remove_interface()
-                .map_err(|e| miette!("Failed to remove existing interface: {}", e))?;
+                .map_err(|e| miette!("Failed to remove existing interface: {e}"))?;
         }
 
         wgapi
             .create_interface()
-            .map_err(|e| miette!("Failed to create WireGuard interface: {}", e))?;
+            .map_err(|e| miette!("Failed to create WireGuard interface: {e}"))?;
 
         info!("Created WireGuard interface '{}'", config.interface);
 
         let address_mask = IpAddrMask::from_str(&config.address)
-            .map_err(|e| miette!("Invalid WireGuard address format: {}", e))?;
+            .map_err(|e| miette!("Invalid WireGuard address format: {e}"))?;
 
         let interface_config = InterfaceConfiguration {
             name: config.interface.to_string(),
@@ -142,16 +142,16 @@ where
 
         wgapi
             .configure_interface(&interface_config)
-            .map_err(|e| miette!("Failed to configure WireGuard interface: {}", e))?;
+            .map_err(|e| miette!("Failed to configure WireGuard interface: {e}"))?;
 
         let output = std::process::Command::new("sudo")
             .args(["ip", "link", "set", &config.interface, "up"])
             .output()
-            .map_err(|e| miette!("Failed to execute ip command: {}", e))?;
+            .map_err(|e| miette!("Failed to execute ip command: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(miette!("Failed to bring up interface: {}", stderr));
+            return Err(miette!("Failed to bring up interface: {stderr}"));
         }
 
         info!(
@@ -302,7 +302,6 @@ pub fn setup_wireguard(
 ) -> Result<(WireguardManager, tokio::task::JoinHandle<Result<()>>)> {
     let wg_interface = Wireguard::new(&config.wireguard, peers)?;
     let (tx, mut rx) = mpsc::unbounded_channel();
-
     let manager = WireguardManager { tx };
 
     let handle = spawn_blocking(move || {

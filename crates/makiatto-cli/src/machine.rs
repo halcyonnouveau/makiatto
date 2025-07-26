@@ -11,7 +11,7 @@ mod geolocation;
 mod provision;
 
 use crate::{
-    config::{Machine, MachineConfig},
+    config::{Machine, Profile},
     ssh::{self, SshSession},
     ui,
 };
@@ -77,17 +77,14 @@ pub struct AddMachine {
 ///
 /// # Errors
 /// Returns an error if SSH connection fails, installation fails, or configuration is invalid
-pub fn init_machine(
-    request: &InitMachine,
-    machine_config: &mut MachineConfig,
-) -> Result<SshSession> {
-    if machine_config.find_machine(&request.name).is_some() {
+pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshSession> {
+    if profile.find_machine(&request.name).is_some() {
         if request.override_existing {
             ui::info(&format!(
                 "Overriding existing machine configuration for '{}'",
                 request.name
             ));
-            machine_config.remove_machine(&request.name);
+            profile.remove_machine(&request.name);
         } else {
             return Err(miette!(
                 "Machine '{}' already exists in configuration. Use `--override` to replace it",
@@ -101,16 +98,11 @@ pub fn init_machine(
     } else if request.skip_nameserver {
         false
     } else {
-        machine_config
-            .machines
-            .iter()
-            .filter(|m| m.is_nameserver)
-            .count()
-            < 3
+        profile.machines.iter().filter(|m| m.is_nameserver).count() < 3
     };
 
     let (_user, host, _port) = ssh::parse_ssh_target(&request.ssh_target)?;
-    let wg_address = assign_wireguard_address(machine_config)?;
+    let wg_address = assign_wireguard_address(profile)?;
     let (wg_private_key, wg_public_key) = generate_wireguard_keypair();
 
     ui::status("Detecting public IP addresses and location...");
@@ -152,19 +144,19 @@ pub fn init_machine(
     };
 
     let session = provision::install_makiatto(
-        machine_config,
+        profile,
         &machine,
         &wg_private_key,
         request.binary_path.as_ref(),
         request.key_path.as_ref(),
     )?;
 
-    machine_config.add_machine(machine.clone());
+    profile.add_machine(machine.clone());
 
-    if machine_config.machines.len() > 1 {
+    if profile.machines.len() > 1 {
         ui::status("Adding machine to cluster...");
 
-        if let Some(existing_machine) = machine_config.machines.iter().nth_back(1) {
+        if let Some(existing_machine) = profile.machines.iter().nth_back(1) {
             ui::action(&format!(
                 "Connecting to `{}` to add `{}` as a peer",
                 existing_machine.name, machine.name
@@ -186,7 +178,7 @@ pub fn init_machine(
 ///
 /// # Errors
 /// Returns an error if SSH connection fails or configuration cannot be retrieved
-pub fn add_machine(request: &AddMachine, machine_config: &mut MachineConfig) -> Result<()> {
+pub fn add_machine(request: &AddMachine, profile: &mut Profile) -> Result<()> {
     ui::status(&format!("Connecting to {}", request.ssh_target));
     let session = SshSession::new(&request.ssh_target, request.key_path.as_ref())?;
 
@@ -227,7 +219,7 @@ pub fn add_machine(request: &AddMachine, machine_config: &mut MachineConfig) -> 
     let latitude = Some(peer.latitude);
     let longitude = Some(peer.longitude);
 
-    if machine_config.find_machine(node_name).is_some() {
+    if profile.find_machine(node_name).is_some() {
         return Err(miette!(
             "Machine '{node_name}' already exists in configuration",
         ));
@@ -268,7 +260,7 @@ pub fn add_machine(request: &AddMachine, machine_config: &mut MachineConfig) -> 
         ipv6: ipv6.map(Arc::from),
     };
 
-    machine_config.add_machine(machine);
+    profile.add_machine(machine);
     ui::status("Machine added successfully");
 
     Ok(())
@@ -284,7 +276,7 @@ fn generate_wireguard_keypair() -> (String, String) {
     )
 }
 
-fn assign_wireguard_address(machines_config: &MachineConfig) -> Result<String> {
+fn assign_wireguard_address(machines_config: &Profile) -> Result<String> {
     let used_ips: std::collections::HashSet<&str> = machines_config
         .machines
         .iter()
@@ -309,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_assign_wireguard_address_empty_config() {
-        let config = MachineConfig { machines: vec![] };
+        let config = Profile { machines: vec![] };
 
         let address = assign_wireguard_address(&config).unwrap();
         assert_eq!(address, "10.44.44.1");
@@ -317,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_assign_wireguard_address_with_existing() {
-        let config = MachineConfig {
+        let config = Profile {
             machines: vec![
                 Machine {
                     name: Arc::from("node1"),
@@ -371,7 +363,7 @@ mod tests {
             });
         }
 
-        let config = MachineConfig { machines };
+        let config = Profile { machines };
 
         let result = assign_wireguard_address(&config);
         assert!(result.is_err());

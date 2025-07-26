@@ -3,9 +3,9 @@ use std::{path::PathBuf, sync::Arc};
 use miette::{Result, miette};
 use serde::{Deserialize, Serialize};
 
-/// Machines configuration stored in ~/.config/makiatto/default.toml
+/// Profile configuration stored in ~/.config/makiatto/default.toml
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct MachineConfig {
+pub struct Profile {
     pub machines: Vec<Machine>,
 }
 
@@ -22,9 +22,9 @@ pub struct Machine {
     pub ipv6: Option<Arc<str>>,
 }
 
-/// Local project configuration stored in ./makiatto.toml
+/// Project configuration stored in ./makiatto.toml
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LocalConfig {
+pub struct Config {
     pub domain: Arc<str>,
     /// CNAME records to the canonical domain
     pub aliases: Arc<[Arc<str>]>,
@@ -40,8 +40,8 @@ pub struct DnsRecord {
     pub value: Arc<str>,
 }
 
-impl MachineConfig {
-    /// Load machines configuration from file
+impl Profile {
+    /// Load profile from file
     ///
     /// # Errors
     /// Returns an error if the file cannot be read or parsed
@@ -56,9 +56,9 @@ impl MachineConfig {
         }
 
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| miette!("Failed to read config: {}", e))?;
+            .map_err(|e| miette!("Failed to read config: {e}"))?;
 
-        toml::from_str(&content).map_err(|e| miette!("Failed to parse config: {}", e))
+        toml::from_str(&content).map_err(|e| miette!("Failed to parse config: {e}"))
     }
 
     pub fn add_machine(&mut self, machine: Machine) {
@@ -80,7 +80,7 @@ impl MachineConfig {
         self.machines.iter().find(|m| m.name == name.into())
     }
 
-    /// Save machines configuration to file
+    /// Save profile to file
     ///
     /// # Errors
     /// Returns an error if the file cannot be written
@@ -114,8 +114,8 @@ impl MachineConfig {
     }
 }
 
-impl LocalConfig {
-    /// Load local project configuration from file
+impl Config {
+    /// Load project configuration from file
     ///
     /// # Errors
     /// Returns an error if the file cannot be read or parsed
@@ -133,9 +133,9 @@ impl LocalConfig {
         }
 
         let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| miette!("Failed to read local config: {}", e))?;
+            .map_err(|e| miette!("Failed to read local config: {e}"))?;
 
-        toml::from_str(&content).map_err(|e| miette!("Failed to parse local config: {}", e))
+        toml::from_str(&content).map_err(|e| miette!("Failed to parse local config: {e}"))
     }
 }
 
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_machines_config_machine_management() {
-        let mut config = MachineConfig::default();
+        let mut config = Profile::default();
 
         let machine1 = Machine {
             name: Arc::from("test1"),
