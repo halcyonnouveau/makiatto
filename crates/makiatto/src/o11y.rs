@@ -5,9 +5,10 @@ use opentelemetry::{
     global,
     trace::{SamplingDecision, SamplingResult, TraceContextExt, TracerProvider},
 };
-use opentelemetry_otlp::{MetricExporter, SpanExporter, WithExportConfig};
+use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{
     Resource,
+    logs::SdkLoggerProvider,
     metrics::{PeriodicReader, SdkMeterProvider, Temporality},
     trace::{Sampler, SdkTracerProvider},
 };
@@ -42,11 +43,10 @@ impl opentelemetry_sdk::trace::ShouldSample for SmartSampler {
         attributes: &[opentelemetry::KeyValue],
         links: &[opentelemetry::trace::Link],
     ) -> SamplingResult {
-        // Check attributes for error or slow indicators
         for attr in attributes {
             let key = attr.key.as_str();
             if key == "error" || key == "slow" {
-                // Always sample spans with error or slow attributes
+                // always sample spans with `error` or `slow` attributes
                 return SamplingResult {
                     decision: SamplingDecision::RecordAndSample,
                     attributes: Vec::new(),
@@ -57,7 +57,6 @@ impl opentelemetry_sdk::trace::ShouldSample for SmartSampler {
             }
         }
 
-        // For everything else, use base sampler
         self.base_sampler.should_sample(
             parent_context,
             trace_id,
@@ -83,7 +82,7 @@ pub fn init(Config { o11y, node, .. }: &Config) -> Result<()> {
 
     let fmt_layer = tracing_subscriber::fmt::layer();
 
-    if o11y.tracing_enabled || o11y.metrics_enabled {
+    if o11y.tracing_enabled || o11y.metrics_enabled || o11y.logging_enabled {
         info!("Initialising OpenTelemetry to {}", o11y.otlp_endpoint);
     }
 
@@ -91,25 +90,54 @@ pub fn init(Config { o11y, node, .. }: &Config) -> Result<()> {
         init_metrics(o11y, resource.clone())?;
     }
 
+    let logger_provider = if o11y.logging_enabled {
+        Some(init_logging(o11y, resource.clone())?)
+    } else {
+        None
+    };
+
     let tracer_provider = if o11y.tracing_enabled {
         Some(init_tracer(o11y, resource)?)
     } else {
         None
     };
 
-    if let Some(provider) = tracer_provider {
-        let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("makiatto"));
+    match (tracer_provider, logger_provider) {
+        (Some(tracer), Some(logger)) => {
+            let trace_layer = tracing_opentelemetry::layer().with_tracer(tracer.tracer("makiatto"));
+            let log_layer =
+                opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(&logger);
 
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(fmt_layer)
-            .with(otel_layer)
-            .init();
-    } else {
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(fmt_layer)
-            .init();
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt_layer)
+                .with(trace_layer)
+                .with(log_layer)
+                .init();
+        }
+        (Some(tracer), None) => {
+            let trace_layer = tracing_opentelemetry::layer().with_tracer(tracer.tracer("makiatto"));
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt_layer)
+                .with(trace_layer)
+                .init();
+        }
+        (None, Some(logger)) => {
+            let log_layer =
+                opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(&logger);
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt_layer)
+                .with(log_layer)
+                .init();
+        }
+        (None, None) => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt_layer)
+                .init();
+        }
     }
 
     Ok(())
@@ -130,6 +158,22 @@ fn init_tracer(config: &ObservabilityConfig, resource: Resource) -> Result<SdkTr
         .build();
 
     Ok(tracer_provider)
+}
+
+/// Initialise OpenTelemetry logging
+fn init_logging(config: &ObservabilityConfig, resource: Resource) -> Result<SdkLoggerProvider> {
+    let exporter = LogExporter::builder()
+        .with_tonic()
+        .with_endpoint(config.otlp_endpoint.to_string())
+        .build()
+        .map_err(|e| miette::miette!("Failed to create OTLP log exporter: {e}"))?;
+
+    let logger_provider = SdkLoggerProvider::builder()
+        .with_resource(resource)
+        .with_batch_exporter(exporter)
+        .build();
+
+    Ok(logger_provider)
 }
 
 /// Initialise OpenTelemetry metrics
