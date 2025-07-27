@@ -54,6 +54,15 @@ pub struct DnsRecord {
     pub geo_enabled: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct Certificate {
+    pub domain: String,
+    pub certificate_pem: String,
+    pub private_key_pem: String,
+    pub expires_at: i64,
+    pub issuer: String,
+}
+
 pub(crate) fn setup_migrations(data_dir: &camino::Utf8PathBuf) -> Result<Vec<camino::Utf8PathBuf>> {
     info!("Setting up makiatto database migrations...");
 
