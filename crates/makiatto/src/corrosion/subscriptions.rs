@@ -17,8 +17,9 @@ const MAX_BACKOFF_SECS: u64 = 86400; // 1 day
 pub struct SubscriptionWatcher {
     config: Arc<Config>,
     cache_store: CacheStore,
-    wireguard_manager: WireguardManager,
+    wireguard_manager: Option<WireguardManager>,
     dns_restart_tx: tokio::sync::mpsc::Sender<()>,
+    axum_restart_tx: tokio::sync::mpsc::Sender<()>,
 }
 
 impl SubscriptionWatcher {
@@ -26,21 +27,81 @@ impl SubscriptionWatcher {
     pub fn new(
         config: Arc<Config>,
         cache_store: CacheStore,
+        wireguard_manager: Option<WireguardManager>,
         dns_restart_tx: tokio::sync::mpsc::Sender<()>,
-        wireguard_manager: WireguardManager,
+        axum_restart_tx: tokio::sync::mpsc::Sender<()>,
     ) -> Self {
         Self {
             config,
             cache_store,
             wireguard_manager,
             dns_restart_tx,
+            axum_restart_tx,
         }
     }
 
     /// Start watching subscriptions
     pub async fn run(&self, mut tripwire: tripwire::Tripwire) {
-        let peers_handle = tokio::spawn(Arc::new(self.clone()).watch_peers(tripwire.clone()));
-        let dns_handle = tokio::spawn(Arc::new(self.clone()).watch_dns_records(tripwire.clone()));
+        let peers_handle = tokio::spawn({
+            let watcher = self.clone();
+            let tripwire = tripwire.clone();
+            async move {
+                watcher
+                    .watch_table(
+                        tripwire,
+                        "Peers",
+                        "SELECT name, ipv4, wg_public_key, wg_address FROM peers",
+                        "subscription_peers",
+                        |event| {
+                            let watcher = watcher.clone();
+                            Box::pin(async move { watcher.handle_peers_change(event).await })
+                        },
+                    )
+                    .await;
+            }
+        });
+
+        let dns_handle = tokio::spawn({
+            let watcher = self.clone();
+            let tripwire = tripwire.clone();
+            async move {
+                watcher
+                    .watch_table(
+                        tripwire,
+                        "DNS records",
+                        "SELECT domain, name, record_type, base_value FROM dns_records",
+                        "subscription_dns_records",
+                        |event| {
+                            let watcher = watcher.clone();
+                            Box::pin(async move {
+                                watcher.handle_dns_change(event);
+                                Ok(())
+                            })
+                        },
+                    )
+                    .await;
+            }
+        });
+
+        let certificates_handle = tokio::spawn({
+            let watcher = self.clone();
+            let tripwire = tripwire.clone();
+            async move {
+                watcher.watch_table(
+                    tripwire,
+                    "Certificates",
+                    "SELECT domain, certificate_pem, private_key_pem, expires_at, issuer FROM certificates",
+                    "subscription_certificates",
+                    |event| {
+                        let watcher = watcher.clone();
+                        Box::pin(async move {
+                            watcher.handle_certificates_change(event);
+                            Ok(())
+                        })
+                    },
+                ).await;
+            }
+        });
 
         tokio::select! {
             () = &mut tripwire => {
@@ -56,63 +117,39 @@ impl SubscriptionWatcher {
                     error!("DNS records watcher task failed: {e}");
                 }
             }
-        }
-    }
-
-    /// Watch `peers` table for changes
-    async fn watch_peers(self: Arc<Self>, mut tripwire: tripwire::Tripwire) {
-        let mut backoff_secs = 1u64;
-        let query = "SELECT name, ipv4, wg_public_key, wg_address FROM peers";
-        let state_key = "subscription_peers";
-
-        loop {
-            tokio::select! {
-                () = &mut tripwire => {
-                    info!("Peers watcher shutting down");
-                    break;
-                }
-                result = self.subscribe_and_watch(query, state_key, |event| {
-                    let watcher = self.clone();
-                    Box::pin(async move { watcher.handle_peers_change(event).await })
-                }) => {
-                    if let Err(e) = result {
-                        warn!("Peers subscription failed: {e}, retrying in {backoff_secs} seconds");
-                    } else {
-                        backoff_secs = 1;
-                        warn!("Peers subscription ended, retrying...");
-                    }
-
-                    sleep(Duration::from_secs(backoff_secs)).await;
-                    backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
+            res = certificates_handle => {
+                if let Err(e) = res {
+                    error!("Certificates watcher task failed: {e}");
                 }
             }
         }
     }
 
-    /// Watch `dns_records` table for changes
-    async fn watch_dns_records(self: Arc<Self>, mut tripwire: tripwire::Tripwire) {
+    /// Generic watcher for table changes with backoff and retry logic
+    async fn watch_table<F>(
+        &self,
+        mut tripwire: tripwire::Tripwire,
+        table_name: &str,
+        query: &str,
+        state_key: &str,
+        handler: F,
+    ) where
+        F: Fn(&QueryEvent) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>,
+    {
         let mut backoff_secs = 1u64;
-        let query = "SELECT domain, name, record_type, base_value FROM dns_records";
-        let state_key = "subscription_dns_records";
 
         loop {
             tokio::select! {
                 () = &mut tripwire => {
-                    info!("DNS records watcher shutting down");
+                    info!("{table_name} watcher shutting down");
                     break;
                 }
-                result = self.subscribe_and_watch(query, state_key, |event| {
-                    let watcher = self.clone();
-                    Box::pin(async move {
-                        watcher.handle_dns_change(event);
-                        Ok(())
-                    })
-                }) => {
+                result = self.subscribe_and_watch(query, state_key, &handler) => {
                     if let Err(e) = result {
-                        warn!("DNS subscription failed: {e}, retrying in {backoff_secs} seconds");
+                        warn!("{table_name} subscription failed: {e}, retrying in {backoff_secs} seconds");
                     } else {
                         backoff_secs = 1;
-                        warn!("DNS subscription ended, retrying...");
+                        warn!("{table_name} subscription ended, retrying...");
                     }
 
                     sleep(Duration::from_secs(backoff_secs)).await;
@@ -251,22 +288,22 @@ impl SubscriptionWatcher {
                         info!("New peer added: {name}");
                         let endpoint = format!("{ipv4}:{WIREGUARD_PORT}");
                         let address = format!("{wg_address}/32");
-                        if let Err(e) = self
-                            .wireguard_manager
-                            .add_peer(&endpoint, &address, public_key)
-                            .await
-                        {
-                            error!("Failed to add WireGuard peer {name}: {e}");
-                        } else {
-                            info!("Added WireGuard peer: {name} ({endpoint} -> {address})");
+                        if let Some(ref wg_mgr) = self.wireguard_manager {
+                            if let Err(e) = wg_mgr.add_peer(&endpoint, &address, public_key).await {
+                                error!("Failed to add WireGuard peer {name}: {e}");
+                            } else {
+                                info!("Added WireGuard peer: {name} ({endpoint} -> {address})");
+                            }
                         }
                     }
                     ChangeType::Delete => {
                         info!("Peer removed: {name}");
-                        if let Err(e) = self.wireguard_manager.remove_peer(public_key).await {
-                            error!("Failed to remove WireGuard peer: {e}");
-                        } else {
-                            info!("Removed WireGuard peer: {name}");
+                        if let Some(ref wg_mgr) = self.wireguard_manager {
+                            if let Err(e) = wg_mgr.remove_peer(public_key).await {
+                                error!("Failed to remove WireGuard peer: {e}");
+                            } else {
+                                info!("Removed WireGuard peer: {name}");
+                            }
                         }
                     }
                     ChangeType::Update => {
@@ -275,18 +312,16 @@ impl SubscriptionWatcher {
                         let address = format!("{wg_address}/32");
 
                         // Update peer in WireGuard (remove and re-add)
-                        if let Err(e) = self.wireguard_manager.remove_peer(public_key).await {
-                            error!("Failed to remove WireGuard peer for update: {e}");
-                        }
+                        if let Some(ref wg_mgr) = self.wireguard_manager {
+                            if let Err(e) = wg_mgr.remove_peer(public_key).await {
+                                error!("Failed to remove WireGuard peer for update: {e}");
+                            }
 
-                        if let Err(e) = self
-                            .wireguard_manager
-                            .add_peer(&endpoint, &address, public_key)
-                            .await
-                        {
-                            error!("Failed to re-add WireGuard peer {name}: {e}");
-                        } else {
-                            info!("Updated WireGuard peer: {name} ({endpoint} -> {address})");
+                            if let Err(e) = wg_mgr.add_peer(&endpoint, &address, public_key).await {
+                                error!("Failed to re-add WireGuard peer {name}: {e}");
+                            } else {
+                                info!("Updated WireGuard peer: {name} ({endpoint} -> {address})");
+                            }
                         }
                     }
                 }
@@ -306,6 +341,23 @@ impl SubscriptionWatcher {
             }
         }
     }
+
+    /// Handle changes to `certificates` table
+    fn handle_certificates_change(&self, event: &QueryEvent) {
+        if let QueryEvent::Change(change_type, row_id, values, _) = event {
+            let domain = if values.is_empty() {
+                "unknown"
+            } else {
+                values[0].as_text().unwrap_or("unknown")
+            };
+
+            info!("Certificates change: {change_type:?} row {row_id} domain {domain}");
+
+            if let Err(e) = self.axum_restart_tx.try_send(()) {
+                error!("Failed to signal Axum restart: {e}");
+            }
+        }
+    }
 }
 
 impl Clone for SubscriptionWatcher {
@@ -315,6 +367,7 @@ impl Clone for SubscriptionWatcher {
             cache_store: self.cache_store.clone(),
             wireguard_manager: self.wireguard_manager.clone(),
             dns_restart_tx: self.dns_restart_tx.clone(),
+            axum_restart_tx: self.axum_restart_tx.clone(),
         }
     }
 }

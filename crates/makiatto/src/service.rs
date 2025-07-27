@@ -85,14 +85,16 @@ pub fn setup<F, S>(
     tokio::task::JoinHandle<Result<()>>,
 )>
 where
-    F: Fn(Arc<crate::config::Config>, tripwire::Tripwire) -> S + Send + 'static,
+    F: Fn(Arc<crate::config::Config>, mpsc::Receiver<()>) -> S + Send + 'static,
     S: std::future::Future<Output = Result<()>> + Send + 'static,
 {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let manager = ServiceManager { tx };
 
     let handle = tokio::spawn(async move {
-        let mut current_server = Some(tokio::spawn(start_fn(config.clone(), tripwire.clone())));
+        let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+        let mut current_shutdown_tx = Some(shutdown_tx);
+        let mut current_server = Some(tokio::spawn(start_fn(config.clone(), shutdown_rx)));
 
         loop {
             tokio::select! {
@@ -105,20 +107,25 @@ where
                         BasicServiceCommand::Restart { response } => {
                             info!("Restarting {service_name} service");
 
-                            if let Some(server) = current_server.take() {
-                                server.abort();
-                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            // Gracefully stop current server
+                            if let (Some(server), Some(shutdown_tx)) = (current_server.take(), current_shutdown_tx.take()) {
+                                let _ = shutdown_tx.send(()).await;
+                                // Wait for graceful shutdown
+                                let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server).await;
                             }
 
-                            let new_server = tokio::spawn(start_fn(config.clone(), tripwire.clone()));
-                            current_server = Some(new_server);
+                            // Start new server with new shutdown channel
+                            let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+                            current_shutdown_tx = Some(shutdown_tx);
+                            current_server = Some(tokio::spawn(start_fn(config.clone(), shutdown_rx)));
                             let _ = response.send(Ok(()));
                         }
                         BasicServiceCommand::Shutdown { response } => {
                             info!("Shutting down {service_name} service");
 
-                            if let Some(server) = current_server.take() {
-                                server.abort();
+                            if let (Some(server), Some(shutdown_tx)) = (current_server.take(), current_shutdown_tx.take()) {
+                                let _ = shutdown_tx.send(()).await;
+                                let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server).await;
                             }
 
                             let _ = response.send(Ok(()));
@@ -128,16 +135,18 @@ where
                 }
                 () = tripwire.clone() => {
                     info!("{service_name} manager received shutdown signal");
-                    if let Some(server) = current_server.take() {
-                        server.abort();
+                    if let (Some(server), Some(shutdown_tx)) = (current_server.take(), current_shutdown_tx.take()) {
+                        let _ = shutdown_tx.send(()).await;
+                        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server).await;
                     }
                     break;
                 }
             }
         }
 
-        if let Some(server) = current_server {
-            server.abort();
+        if let (Some(server), Some(shutdown_tx)) = (current_server, current_shutdown_tx) {
+            let _ = shutdown_tx.send(()).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server).await;
         }
 
         Ok(())

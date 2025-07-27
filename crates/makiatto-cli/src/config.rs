@@ -25,7 +25,12 @@ pub struct Machine {
 /// Project configuration stored in ./makiatto.toml
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
-    pub domain: Arc<str>,
+    pub domains: Arc<[Domain]>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Domain {
+    pub name: Arc<str>,
     /// CNAME records to the canonical domain
     pub aliases: Arc<[Arc<str>]>,
     pub paths: Arc<[PathBuf]>,

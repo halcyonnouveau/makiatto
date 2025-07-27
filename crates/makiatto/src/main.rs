@@ -5,7 +5,7 @@ use makiatto::{
     cache::CacheStore,
     config,
     corrosion::{self, subscriptions::SubscriptionWatcher},
-    dns, service, web, wireguard,
+    service, web, wireguard,
 };
 use miette::Result;
 use tokio::{
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
 
     let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
     let (dns_restart_tx, dns_restart_rx) = mpsc::channel(100);
-    let (_web_restart_tx, web_restart_rx) = mpsc::channel(100);
+    let (axum_restart_tx, axum_restart_rx) = mpsc::channel(100);
 
     let cache_store = CacheStore::new(&config.node.data_dir)?;
     let mut handles = vec![];
@@ -135,13 +135,14 @@ async fn main() -> Result<()> {
         handles.push(corrosion_handle);
     }
 
-    if let Some(wg_mgr) = wg_manager {
+    if services.corrosion {
         info!("Starting subscription watcher...");
         let subscription_watcher = SubscriptionWatcher::new(
             Arc::new(config.clone()),
             cache_store,
+            wg_manager,
             dns_restart_tx,
-            wg_mgr,
+            axum_restart_tx,
         );
 
         let sub_tripwire = tripwire.clone();
@@ -158,7 +159,7 @@ async fn main() -> Result<()> {
             "dns",
             Arc::new(config.clone()),
             tripwire.clone(),
-            |config, tripwire| async move { dns::start(config, tripwire).await },
+            |config, tripwire| async move { web::dns::start(config, tripwire).await },
         )?;
         (
             Some(dns_mgr),
@@ -185,21 +186,21 @@ async fn main() -> Result<()> {
         handles.push(dns_restart_handle);
     }
 
-    let (web_manager, web_handle) = if services.web {
-        info!("Starting web server...");
-        let (web_manager, web_handle) = service::setup(
-            "web",
+    let (axum_manager, axum_handle) = if services.web {
+        info!("Starting axum server...");
+        let (axum_manager, axum_handle) = service::setup(
+            "axum",
             Arc::new(config.clone()),
             tripwire.clone(),
-            |config, tripwire| async move { web::start(config, tripwire).await },
+            |config, tripwire| async move { web::axum::start(config, tripwire).await },
         )?;
         (
-            Some(web_manager),
+            Some(axum_manager),
             Some(tokio::spawn(async move {
-                match web_handle.await {
-                    Ok(Ok(())) => Ok("web"),
-                    Ok(Err(e)) => Err(format!("Web server failed: {e}")),
-                    Err(e) => Err(format!("Web server task panicked: {e}")),
+                match axum_handle.await {
+                    Ok(Ok(())) => Ok("axum"),
+                    Ok(Err(e)) => Err(format!("axum server failed: {e}")),
+                    Err(e) => Err(format!("axum server task panicked: {e}")),
                 }
             })),
         )
@@ -207,15 +208,15 @@ async fn main() -> Result<()> {
         (None, None)
     };
 
-    if let Some(handle) = web_handle {
+    if let Some(handle) = axum_handle {
         handles.push(handle);
     }
 
-    // handle web restart signals with debouncing
-    if let Some(web_mgr) = web_manager {
-        let web_restart_handle =
-            tokio::spawn(service::handle_restarts("web", web_restart_rx, web_mgr));
-        handles.push(web_restart_handle);
+    // handle axum restart signals with debouncing
+    if let Some(axum_mgr) = axum_manager {
+        let axum_restart_handle =
+            tokio::spawn(service::handle_restarts("axum", axum_restart_rx, axum_mgr));
+        handles.push(axum_restart_handle);
     }
 
     // TODO: Spawn other services (file sync)

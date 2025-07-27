@@ -8,13 +8,16 @@ publish = false
 makiatto = { path = "../crates/makiatto" }
 makiatto-cli = { path = "../crates/makiatto-cli" }
 
+base64 = { workspace = true }
 ctor = { workspace = true }
+jiff = { workspace = true }
 miette = { workspace = true }
 testcontainers = { workspace = true }
 tokio = { workspace = true }
 tokio-test = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
+serde_json = { workspace = true }
 
 [build-dependencies]
 miette = { workspace = true }

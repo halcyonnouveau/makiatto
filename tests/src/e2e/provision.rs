@@ -6,7 +6,7 @@ use testcontainers::core::ExecCommand;
 use crate::container::{ContainerContext, PortMap, TestContainer};
 
 #[tokio::test]
-async fn test_machine_init_first() -> Result<()> {
+async fn test_provision_first() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
     let TestContainer {
@@ -36,7 +36,7 @@ async fn test_machine_init_first() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_machine_init_second() -> Result<()> {
+async fn test_provision_second() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
     let TestContainer {
