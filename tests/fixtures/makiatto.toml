@@ -17,7 +17,6 @@ geolite_path = "/var/makiatto/geolite/GeoLite2-City.mmdb"
 http_addr = "0.0.0.0:80"
 https_addr = "0.0.0.0:443"
 static_dir = "/var/makiatto/sites"
-metrics_addr = "0.0.0.0:9090"
 
 [corrosion.admin]
 path = "/var/makiatto/admin.sock"
