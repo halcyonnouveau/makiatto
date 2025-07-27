@@ -1,5 +1,5 @@
 #![cfg(test)]
-use miette::{IntoDiagnostic, Result, miette};
+use miette::{IntoDiagnostic, Result};
 use testcontainers::core::ExecCommand;
 
 use crate::container::{ContainerContext, TestContainer};
@@ -37,7 +37,7 @@ async fn test_corrosion() -> Result<()> {
             "http://127.0.0.1:8181/v1/transactions",
         ]))
         .await
-        .map_err(|e| miette!("Failed to insert peer in d2: {e}"))?;
+        .into_diagnostic()?;
 
     let _ = insert.stdout_to_vec().await.into_diagnostic()?;
 
@@ -50,7 +50,7 @@ async fn test_corrosion() -> Result<()> {
             "SELECT name, wg_public_key, ipv4 FROM peers WHERE name = 'test-peer';",
         ]))
         .await
-        .map_err(|e| miette!("Failed to query d1: {e}"))?;
+        .into_diagnostic()?;
 
     let d1_stdout = query.stdout_to_vec().await.into_diagnostic()?;
     let stdout = String::from_utf8_lossy(&d1_stdout);

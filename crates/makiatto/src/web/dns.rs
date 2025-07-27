@@ -29,6 +29,7 @@ use crate::{
     config::Config,
     corrosion::{self, DnsRecord},
     service::{BasicServiceCommand, ServiceManager},
+    web::certificate::CertificateManager,
 };
 
 #[derive(thiserror::Error, Debug, miette::Diagnostic)]
@@ -421,6 +422,42 @@ pub async fn start(
 
     let records = corrosion::get_dns_records(&config).unwrap_or_default();
     let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
+
+    let cert_manager = {
+        let manager = CertificateManager::new(config.corrosion.db.path.clone());
+        if let Err(e) = manager.load_certificates_from_db().await {
+            error!("Failed to load certificates for DNS: {e}");
+            None
+        } else {
+            info!("Loaded certificates for DNS virtual hosts");
+            Some(manager)
+        }
+    };
+
+    let tls_config = if let Some(ref cert_manager) = cert_manager {
+        match cert_manager.build_tls_config().await {
+            Ok(tls_config) => {
+                let cert_resolver = tls_config.cert_resolver.clone();
+
+                let dot_listener = TcpListener::bind("[::]:853")
+                    .await
+                    .map_err(|e| miette::miette!("Failed to bind DoT TCP socket: {e}"))?;
+
+                let doq_socket = UdpSocket::bind("[::]:853")
+                    .await
+                    .map_err(|e| miette::miette!("Failed to bind DoQ UDP socket: {e}"))?;
+
+                Some((dot_listener, doq_socket, cert_resolver))
+            }
+            Err(e) => {
+                info!("DNS secure protocols disabled: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let handler = Handler::new(Arc::from(peers), records, reader);
     let mut server = ServerFuture::new(handler);
 
@@ -437,26 +474,17 @@ pub async fn start(
         Duration::from_secs(5),
     );
 
-    // TODO: Add TLS/QUIC support when we have certificates
-    // This will require integrating with the certificate management system
-    //
-    // if Path::new(PRIV_PATH).exists() && Path::new(CERT_PATH).exists() {
-    //     let key = tls_server::read_key_from_pem(Path::new(PRIV_PATH))?;
-    //     let cert = tls_server::read_cert(Path::new(CERT_PATH))?;
+    if let Some((dot_listener, doq_socket, cert_resolver)) = tls_config {
+        server
+            .register_tls_listener(dot_listener, Duration::from_secs(5), cert_resolver.clone())
+            .map_err(|e| miette::miette!("Failed to register DoT listener: {e}"))?;
 
-    //     server.register_quic_listener(
-    //         UdpSocket::bind("[::]:853").await?,
-    //         Duration::from_secs(1),
-    //         (cert.clone(), key.clone()),
-    //         None,
-    //     )?;
+        server
+            .register_quic_listener(doq_socket, Duration::from_secs(1), cert_resolver, None)
+            .map_err(|e| miette::miette!("Failed to register DoQ listener: {e}"))?;
 
-    //     server.register_tls_listener_with_tls_config(
-    //         TcpListener::bind("[::]:853").await?,
-    //         Duration::from_secs(5),
-    //         Arc::new(tls_server::new_acceptor(cert, key)?),
-    //     )?;
-    // }
+        info!("DNS over TLS (DoT) and DNS over QUIC (DoQ) enabled on port 853");
+    }
 
     info!("DNS server started");
 

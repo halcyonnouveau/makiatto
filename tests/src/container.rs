@@ -1,12 +1,13 @@
 #![cfg(test)]
 use std::{env, net::TcpListener, path, process::Command, sync::Arc};
 
+use base64::prelude::*;
 use makiatto_cli::config::Machine;
 use miette::{Result, miette};
 use rand::{Rng, distr::Alphanumeric};
 use testcontainers::{
     ContainerAsync, ContainerRequest, GenericImage, ImageExt,
-    core::{IntoContainerPort, Mount, WaitFor},
+    core::{ExecCommand, IntoContainerPort, Mount, WaitFor},
     runners::AsyncRunner,
 };
 
@@ -187,6 +188,8 @@ impl ContainerContext {
             .with_exposed_port(22.tcp())
             .with_exposed_port(53.tcp())
             .with_exposed_port(53.udp())
+            .with_exposed_port(853.tcp())
+            .with_exposed_port(853.udp())
             .with_exposed_port(80.tcp())
             .with_exposed_port(443.tcp())
             .with_exposed_port(8787.udp())
@@ -196,6 +199,8 @@ impl ContainerContext {
             .with_mapped_port(container.ports.ssh, 22.tcp())
             .with_mapped_port(container.ports.dns, 53.tcp())
             .with_mapped_port(container.ports.dns, 53.udp())
+            .with_mapped_port(container.ports.dns_secure, 853.tcp())
+            .with_mapped_port(container.ports.dns_secure, 853.udp())
             .with_mapped_port(container.ports.http, 80.tcp())
             .with_mapped_port(container.ports.https, 443.tcp())
             .with_mapped_port(container.ports.corrosion, 8787.udp())
@@ -305,6 +310,7 @@ impl TestContainer {
 pub struct PortMap {
     pub ssh: u16,
     pub dns: u16,
+    pub dns_secure: u16,
     pub corrosion: u16,
     pub http: u16,
     pub https: u16,
@@ -330,7 +336,7 @@ impl PortMap {
         let mut ports = std::collections::HashSet::new();
         let mut allocated = Vec::new();
 
-        for _ in 0..6 {
+        for _ in 0..7 {
             let mut attempts = 0;
             loop {
                 let port = Self::get_unused_port()?;
@@ -351,10 +357,11 @@ impl PortMap {
         Ok(Self {
             ssh: allocated[0],
             dns: allocated[1],
-            corrosion: allocated[2],
-            http: allocated[3],
-            https: allocated[4],
-            metrics: allocated[5],
+            dns_secure: allocated[2],
+            corrosion: allocated[3],
+            http: allocated[4],
+            https: allocated[5],
+            metrics: allocated[6],
         })
     }
 
@@ -381,4 +388,157 @@ impl PortMap {
             MAX_ATTEMPTS
         ))
     }
+}
+
+/// Helper function to execute a list of commands with logging
+pub async fn execute_commands(
+    daemon: &Arc<ContainerAsync<GenericImage>>,
+    commands: &[&str],
+) -> Result<()> {
+    for cmd in commands {
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let mut result = daemon
+            .exec(ExecCommand::new(vec!["sh", "-c", cmd]))
+            .await
+            .map_err(|e| miette!("Failed to execute command '{cmd}': {e}"))?;
+
+        eprintln!("Command: {cmd}");
+        eprintln!(
+            "Stdout: {}",
+            String::from_utf8_lossy(
+                &result
+                    .stdout_to_vec()
+                    .await
+                    .map_err(|e| miette!("Failed to get stdout: {e}"))?
+            )
+        );
+        eprintln!(
+            "Stderr: {}",
+            String::from_utf8_lossy(
+                &result
+                    .stderr_to_vec()
+                    .await
+                    .map_err(|e| miette!("Failed to get stderr: {e}"))?
+            )
+        );
+    }
+    Ok(())
+}
+
+/// Helper function to generate and insert a certificate for a domain
+pub async fn create_cert(
+    daemon: &Arc<ContainerAsync<GenericImage>>,
+    domain: &str,
+    cert_filename: &str,
+    key_filename: &str,
+) -> Result<()> {
+    daemon
+        .exec(ExecCommand::new(vec!["sudo", "mkdir", "-p", "/tmp/certs"]))
+        .await
+        .map_err(|e| miette!("Failed to create cert directory: {e}"))?;
+
+    let openssl_cmd = format!(
+        "sudo openssl req -x509 -newkey rsa:2048 -keyout /tmp/certs/{key_filename} -out /tmp/certs/{cert_filename} -days 1 -nodes -subj '/CN={domain}'",
+    );
+
+    let mut result = daemon
+        .exec(ExecCommand::new(vec!["sh", "-c", &openssl_cmd]))
+        .await
+        .map_err(|e| miette!("Failed to execute openssl command: {e}"))?;
+
+    let stderr = result.stderr_to_vec().await.unwrap_or_default();
+    if !stderr.is_empty() {
+        let stderr_str = String::from_utf8_lossy(&stderr);
+        if stderr_str.contains("error") || stderr_str.contains("Error") {
+            return Err(miette::miette!("OpenSSL command failed: {}", stderr_str));
+        }
+    }
+
+    // Verify certificate files exist
+    let cert_check = daemon
+        .exec(ExecCommand::new(vec![
+            "test",
+            "-f",
+            &format!("/tmp/certs/{cert_filename}"),
+        ]))
+        .await;
+    let key_check = daemon
+        .exec(ExecCommand::new(vec![
+            "test",
+            "-f",
+            &format!("/tmp/certs/{key_filename}"),
+        ]))
+        .await;
+
+    if cert_check.is_err() || key_check.is_err() {
+        return Err(miette::miette!(
+            "Certificate files were not created properly"
+        ));
+    }
+
+    // Read certificate and key files
+    let mut cert_result = daemon
+        .exec(ExecCommand::new(vec![
+            "cat",
+            &format!("/tmp/certs/{cert_filename}"),
+        ]))
+        .await
+        .map_err(|e| miette!("Failed to read cert: {e}"))?;
+
+    let mut key_result = daemon
+        .exec(ExecCommand::new(vec![
+            "cat",
+            &format!("/tmp/certs/{key_filename}"),
+        ]))
+        .await
+        .map_err(|e| miette!("Failed to read key: {e}"))?;
+
+    let cert_bytes = cert_result.stdout_to_vec().await.unwrap();
+    let key_bytes = key_result.stdout_to_vec().await.unwrap();
+    let cert_pem = String::from_utf8_lossy(&cert_bytes).trim().to_string();
+    let key_pem = String::from_utf8_lossy(&key_bytes).trim().to_string();
+
+    // Validate certificate format
+    if !cert_pem.starts_with("-----BEGIN CERTIFICATE-----") {
+        return Err(miette::miette!("Invalid certificate format"));
+    }
+    if !key_pem.starts_with("-----BEGIN PRIVATE KEY-----")
+        && !key_pem.starts_with("-----BEGIN RSA PRIVATE KEY-----")
+    {
+        return Err(miette::miette!("Invalid private key format"));
+    }
+
+    let cert_b64 = BASE64_STANDARD.encode(cert_pem.as_bytes());
+    let key_b64 = BASE64_STANDARD.encode(key_pem.as_bytes());
+
+    // Insert certificate into database
+    let cert_sql = format!(
+        "INSERT INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{domain}', '{cert_b64}', '{key_b64}', {}, 'test')",
+        jiff::Timestamp::now().as_second() + 86400
+    );
+
+    let json_payload = serde_json::to_string(&[cert_sql]).unwrap();
+
+    let mut insert_result = daemon
+        .exec(ExecCommand::new(vec![
+            "curl",
+            "-s",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &json_payload,
+            "http://127.0.0.1:8181/v1/transactions",
+        ]))
+        .await
+        .map_err(|e| miette!("Failed to insert certificate: {e}"))?;
+
+    let insert_bytes = insert_result.stdout_to_vec().await.unwrap();
+    let response = String::from_utf8_lossy(&insert_bytes);
+    if !response.contains("\"rows_affected\"") || response.contains("\"error\"") {
+        return Err(miette!("Certificate insertion failed: {}", response));
+    }
+
+    Ok(())
 }
