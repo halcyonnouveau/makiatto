@@ -316,7 +316,10 @@ pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
 ///
 /// # Errors
 /// Returns an error if the DNS server fails to start, bind to port 53, or encounters runtime errors
-pub async fn start(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()> {
+pub async fn start(
+    config: Arc<Config>,
+    mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
+) -> Result<()> {
     if !config.dns.geolite_path.exists() {
         download_geolite(&config.dns.geolite_path).await?;
     }
@@ -376,7 +379,7 @@ pub async fn start(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<
         result = server.block_until_done() => {
             result.map_err(|e| miette::miette!("DNS server error: {e}"))?;
         }
-        () = tripwire => {
+        _ = shutdown_rx.recv() => {
             info!("DNS server received shutdown signal");
         }
     }
