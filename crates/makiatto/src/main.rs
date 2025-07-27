@@ -19,23 +19,23 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[allow(clippy::struct_excessive_bools)]
 /// Makiatto network daemon
 struct Args {
-    /// disable `WireGuard` interface setup
+    /// disable wireguard interface setup
     #[argh(switch)]
     no_wireguard: bool,
 
-    /// disable DNS server
+    /// disable dns server
     #[argh(switch)]
     no_dns: bool,
 
-    /// disable web server
+    /// disable axum server
     #[argh(switch)]
-    no_web: bool,
+    no_axum: bool,
 
-    /// disable Corrosion database
+    /// disable corrosion database
     #[argh(switch)]
     no_corrosion: bool,
 
-    /// only run specific services (comma-separated: wireguard,dns,web,corrosion)
+    /// only run specific services (comma-separated: wireguard,dns,axum,corrosion)
     #[argh(option)]
     only: Option<String>,
 }
@@ -44,7 +44,7 @@ struct Args {
 struct ServiceFlags {
     wireguard: bool,
     dns: bool,
-    web: bool,
+    axum: bool,
     corrosion: bool,
 }
 
@@ -55,14 +55,14 @@ impl ServiceFlags {
             Self {
                 wireguard: services.contains("wireguard"),
                 dns: services.contains("dns"),
-                web: services.contains("web"),
+                axum: services.contains("axum"),
                 corrosion: services.contains("corrosion"),
             }
         } else {
             Self {
                 wireguard: !args.no_wireguard,
                 dns: !args.no_dns,
-                web: !args.no_web,
+                axum: !args.no_axum,
                 corrosion: !args.no_corrosion,
             }
         }
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     info!("Loaded config for node '{}'", config.node.name);
     info!(
         "Services enabled: wireguard={}, dns={}, web={}, corrosion={}",
-        services.wireguard, services.dns, services.web, services.corrosion
+        services.wireguard, services.dns, services.axum, services.corrosion
     );
 
     let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
@@ -186,14 +186,23 @@ async fn main() -> Result<()> {
         handles.push(dns_restart_handle);
     }
 
-    let (axum_manager, axum_handle) = if services.web {
+    let (axum_manager, axum_handle) = if services.axum {
         info!("Starting axum server...");
-        let (axum_manager, axum_handle) = service::setup(
-            "axum",
-            Arc::new(config.clone()),
-            tripwire.clone(),
-            |config, tripwire| async move { web::axum::start(config, tripwire).await },
-        )?;
+
+        let metrics_handle = if config.web.metrics_enabled {
+            Some(web::metrics::setup_metrics_recorder()?)
+        } else {
+            None
+        };
+
+        let (axum_manager, axum_handle) =
+            service::setup("axum", Arc::new(config.clone()), tripwire.clone(), {
+                let metrics_handle = metrics_handle.clone();
+                move |config, tripwire| {
+                    let metrics_handle = metrics_handle.clone();
+                    async move { web::axum::start(config, tripwire, metrics_handle).await }
+                }
+            })?;
         (
             Some(axum_manager),
             Some(tokio::spawn(async move {

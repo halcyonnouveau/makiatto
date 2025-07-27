@@ -24,8 +24,6 @@ async fn test_dns_replication() -> Result<()> {
     let d1 = daemon1_container.unwrap();
     let d2 = daemon2_container.unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
     let insert_sql = r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"example.com\", \"test\", \"A\", \"192.168.1.100\", 300, NULL, 0)"#;
     let json_payload = format!("[\"{insert_sql}\"]");
 
@@ -131,8 +129,6 @@ async fn test_dns_geolocation() -> Result<()> {
     } = context.make_daemon().await?;
 
     let daemon = daemon_container.unwrap();
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     let insert_peers_sql = [
         r#"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6) VALUES (\"peer-nyc\", \"pubkey-nyc-123\", \"10.0.0.10/32\", 40.7128, -74.0060, \"192.168.1.10\", NULL)"#,

@@ -15,8 +15,6 @@ async fn test_provision_first() -> Result<()> {
         ..
     } = context.make_base().await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
     let mut config = Profile { machines: vec![] };
 
     let request = InitMachine {
@@ -46,8 +44,6 @@ async fn test_provision_second() -> Result<()> {
     } = context.make_base().await?;
 
     let daemon = context.make_daemon().await?;
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let mut config = Profile {
         machines: vec![daemon.get_config()],

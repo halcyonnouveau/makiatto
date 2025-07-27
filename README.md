@@ -52,7 +52,7 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
    Create a `makiatto.toml` file in your project to define your domain and content paths:
 
    ```toml
-   [[domains]]
+   [[domain]]
    name = "quaso.cafe"
    paths = ["./dist"]
    ```

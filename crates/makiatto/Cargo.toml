@@ -20,6 +20,7 @@ async-trait = "0.1"
 argh = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
+crc32fast = { workspace = true }
 defguard_wireguard_rs = { workspace = true }
 camino = { workspace = true }
 corro-agent = { workspace = true }
@@ -34,6 +35,8 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 instant-acme = { workspace = true }
 maxminddb = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 miette = { workspace = true }
 notify = { workspace = true }
 reqwest = { workspace = true }

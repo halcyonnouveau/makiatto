@@ -1,15 +1,21 @@
+use std::path::Path;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{
     Router,
     body::Body,
     extract::{Request, State},
-    http::{HeaderMap, StatusCode, Uri},
-    response::{Redirect, Response},
+    http::{
+        HeaderMap, HeaderValue, StatusCode, Uri,
+        header::{CACHE_CONTROL, ETAG, IF_NONE_MATCH},
+    },
+    middleware::{self, Next},
+    response::{IntoResponse, Redirect, Response},
 };
 use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use metrics_exporter_prometheus::PrometheusHandle;
 use miette::Result;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
@@ -20,7 +26,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::Config,
     service::{BasicServiceCommand, ServiceManager},
-    web::certificate::CertificateManager,
+    web::{certificate::CertificateManager, metrics},
 };
 
 pub type WebManager = ServiceManager<BasicServiceCommand>;
@@ -72,16 +78,30 @@ async fn handle_request(
 ///
 /// # Errors
 /// Returns an error if the web server fails to bind to HTTP/HTTPS addresses or encounters runtime errors
-#[allow(clippy::similar_names)]
+#[allow(clippy::similar_names, clippy::too_many_lines)]
 pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
+    metrics_handle: Option<PrometheusHandle>,
 ) -> Result<()> {
+    let metrics_server = if let Some(handle) = metrics_handle {
+        let (metrics_shutdown_tx, metrics_shutdown_rx) = tokio::sync::mpsc::channel(1);
+        let metrics_task =
+            tokio::spawn(metrics::start(config.clone(), handle, metrics_shutdown_rx));
+        Some((metrics_task, metrics_shutdown_tx))
+    } else {
+        None
+    };
+
     let state = WebState {
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
     };
 
-    let app = Router::new().fallback(handle_request).with_state(state);
+    let app = Router::new()
+        .fallback(handle_request)
+        .layer(middleware::from_fn(metrics::metrics_middleware))
+        .layer(middleware::from_fn(caching_middleware))
+        .with_state(state);
 
     let http_addr: SocketAddr = config
         .web
@@ -166,6 +186,9 @@ pub async fn start(
                 info!("Web server received shutdown signal");
                 let _ = http_shutdown_tx.send(()).await;
                 let _ = https_shutdown_tx.send(()).await;
+                if let Some((_, metrics_shutdown_tx)) = &metrics_server {
+                    let _ = metrics_shutdown_tx.send(()).await;
+                }
             }
         }
     } else {
@@ -180,11 +203,99 @@ pub async fn start(
             _ = shutdown_rx.recv() => {
                 info!("Web server received shutdown signal");
                 let _ = http_shutdown_tx.send(()).await;
+                if let Some((_, metrics_shutdown_tx)) = &metrics_server {
+                    let _ = metrics_shutdown_tx.send(()).await;
+                }
             }
         }
     }
 
     Ok(())
+}
+
+/// Generate `ETag` using CRC32 hash of content
+fn generate_etag(content: &[u8]) -> String {
+    let checksum = crc32fast::hash(content);
+    format!("\"{checksum}\"")
+}
+
+/// Get cache control header based on file extension
+/// With `ETags` providing content validation, we can use longer cache times safely
+fn get_cache_control(path: &str) -> HeaderValue {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("");
+
+    #[allow(clippy::match_same_arms)]
+    match extension {
+        // Static assets (images, fonts) - rarely change, expensive to download
+        "png" | "jpg" | "jpeg" | "webp" | "avif" | "gif" | "ico" | "svg" | "woff" | "woff2"
+        | "ttf" | "otf" | "eot" => {
+            HeaderValue::from_static("public, max-age=2592000") // 30 days
+        }
+        // CSS/JS - might change but ETag protects us
+        "css" | "js" => {
+            HeaderValue::from_static("public, max-age=86400") // 1 day
+        }
+        // Videos/media - larger files, less frequent updates
+        "mp4" | "webm" | "mov" | "avi" => {
+            HeaderValue::from_static("public, max-age=2592000") // 30 days
+        }
+        // Documents
+        "pdf" | "doc" | "docx" => {
+            HeaderValue::from_static("public, max-age=3600") // 1 hour
+        }
+        // Feeds - should be checked frequently but ETag avoids unnecessary transfers
+        "xml" | "rss" | "atom" => {
+            HeaderValue::from_static("public, max-age=1800") // 30 minutes
+        }
+        // Everything else including HTML
+        _ => HeaderValue::from_static("public, max-age=3600"), // 1 hour
+    }
+}
+
+/// Middleware to add caching headers and `ETag` validation
+async fn caching_middleware(request: Request, next: Next) -> impl IntoResponse {
+    let path = request.uri().path().to_string();
+    let if_none_match = request.headers().get(IF_NONE_MATCH).cloned();
+
+    let response = next.run(request).await;
+
+    // Only apply caching to successful responses
+    if response.status() != StatusCode::OK {
+        return response;
+    }
+
+    let (mut parts, body) = response.into_parts();
+
+    let Ok(body_bytes) = axum::body::to_bytes(body, usize::MAX).await else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to read response body",
+        )
+            .into_response();
+    };
+
+    let etag = generate_etag(&body_bytes);
+
+    if let Some(client_etag) = if_none_match
+        && client_etag.to_str().unwrap_or("") == etag
+    {
+        parts
+            .headers
+            .insert(ETAG, HeaderValue::from_str(&etag).unwrap());
+        return (StatusCode::NOT_MODIFIED, parts).into_response();
+    }
+
+    parts
+        .headers
+        .insert(ETAG, HeaderValue::from_str(&etag).unwrap());
+    parts
+        .headers
+        .insert(CACHE_CONTROL, get_cache_control(&path));
+
+    (parts, Body::from(body_bytes)).into_response()
 }
 
 async fn https_redirect(headers: HeaderMap, uri: Uri) -> Redirect {

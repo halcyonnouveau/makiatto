@@ -119,6 +119,8 @@ impl ContainerContext {
         container.start_image(image).await?;
         self.containers.push(container.clone());
 
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
         Ok(container)
     }
 
@@ -188,6 +190,7 @@ impl ContainerContext {
             .with_exposed_port(80.tcp())
             .with_exposed_port(443.tcp())
             .with_exposed_port(8787.udp())
+            .with_exposed_port(9090.tcp())
             .with_wait_for(WaitFor::Nothing)
             .with_container_name(format!("{}-wawa-daemon", container.id))
             .with_mapped_port(container.ports.ssh, 22.tcp())
@@ -196,6 +199,7 @@ impl ContainerContext {
             .with_mapped_port(container.ports.http, 80.tcp())
             .with_mapped_port(container.ports.https, 443.tcp())
             .with_mapped_port(container.ports.corrosion, 8787.udp())
+            .with_mapped_port(container.ports.metrics, 9090.tcp())
             .with_network("wawa")
             .with_mount(Mount::bind_mount(
                 self.root.join("target/tests/geolite").display().to_string(),
@@ -208,6 +212,8 @@ impl ContainerContext {
 
         container.start_image(image).await?;
         self.containers.push(container.clone());
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         Ok(container)
     }
@@ -302,6 +308,7 @@ pub struct PortMap {
     pub corrosion: u16,
     pub http: u16,
     pub https: u16,
+    pub metrics: u16,
 }
 
 impl PortMap {
@@ -323,7 +330,7 @@ impl PortMap {
         let mut ports = std::collections::HashSet::new();
         let mut allocated = Vec::new();
 
-        for _ in 0..5 {
+        for _ in 0..6 {
             let mut attempts = 0;
             loop {
                 let port = Self::get_unused_port()?;
@@ -347,6 +354,7 @@ impl PortMap {
             corrosion: allocated[2],
             http: allocated[3],
             https: allocated[4],
+            metrics: allocated[5],
         })
     }
 
