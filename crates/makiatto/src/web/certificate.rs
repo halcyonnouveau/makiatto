@@ -12,14 +12,8 @@ use rustls_pemfile::{certs, private_key};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 
-#[derive(Debug, Clone)]
-pub struct Certificate {
-    pub domain: String,
-    pub certificate_pem: String,
-    pub private_key_pem: String,
-    pub expires_at: i64,
-    pub issuer: String,
-}
+use crate::constants::CORROSION_API_PORT;
+use crate::corrosion::schema::Certificate;
 
 #[derive(Debug, Clone)]
 pub struct CertificateManager {
@@ -40,7 +34,7 @@ impl CertificateManager {
     ///
     /// # Errors
     /// Returns an error if the database connection fails or the query fails
-    pub async fn load_certificates_from_db(&self) -> miette::Result<()> {
+    pub async fn load_certificates(&self) -> miette::Result<()> {
         let db_path = self.db_path.clone();
 
         let certs = tokio::task::spawn_blocking(move || -> miette::Result<Vec<Certificate>> {
@@ -61,7 +55,6 @@ impl CertificateManager {
                     let cert_b64: String = row.get(1)?;
                     let key_b64: String = row.get(2)?;
 
-                    // Decode base64 PEM data
                     let certificate_pem = BASE64_STANDARD.decode(&cert_b64)
                         .map_err(|e| SqliteError::FromSqlConversionFailure(1, SqliteType::Text, Box::new(e)))
                         .and_then(|bytes| String::from_utf8(bytes)
@@ -102,6 +95,7 @@ impl CertificateManager {
 
         let mut certificates = self.certificates.write().await;
         certificates.clear();
+
         for cert in certs {
             certificates.insert(cert.domain.clone(), cert);
         }
@@ -118,7 +112,6 @@ impl CertificateManager {
     /// # Errors
     /// Returns an error if the database transaction fails
     pub async fn save_certificate(&self, cert: Certificate) -> miette::Result<()> {
-        // Base64 encode the certificate and key PEM data to avoid escaping issues
         let cert_pem_b64 = BASE64_STANDARD.encode(cert.certificate_pem.as_bytes());
         let key_pem_b64 = BASE64_STANDARD.encode(cert.private_key_pem.as_bytes());
 
@@ -135,7 +128,9 @@ impl CertificateManager {
 
         let client = reqwest::Client::new();
         let response = client
-            .post("http://127.0.0.1:8181/v1/transactions")
+            .post(format!(
+                "http://127.0.0.1:{CORROSION_API_PORT}/v1/transactions",
+            ))
             .header("Content-Type", "application/json")
             .body(json_payload)
             .send()
@@ -160,6 +155,7 @@ impl CertificateManager {
             .write()
             .await
             .insert(cert.domain.clone(), cert);
+
         Ok(())
     }
 
@@ -170,12 +166,7 @@ impl CertificateManager {
     pub async fn build_tls_config(&self) -> miette::Result<ServerConfig> {
         let certificates = self.certificates.read().await;
 
-        debug!(
-            "Building TLS config with {} certificates",
-            certificates.len()
-        );
         if certificates.is_empty() {
-            debug!("No certificates available for TLS config");
             return Err(miette::miette!("No certificates available"));
         }
 
@@ -184,20 +175,14 @@ impl CertificateManager {
         let mut default_cert = None;
 
         for (domain, cert) in certificates.iter() {
-            debug!("Processing certificate for domain: {}", domain);
-            let cert_chain = load_certs_from_pem(&cert.certificate_pem).map_err(|e| {
-                error!("Failed to parse certificate PEM for {}: {}", domain, e);
-                e
-            })?;
-            let key = load_key_from_pem(&cert.private_key_pem).map_err(|e| {
-                error!("Failed to parse private key PEM for {}: {}", domain, e);
-                e
-            })?;
+            let cert_chain = load_certs_from_pem(&cert.certificate_pem)
+                .map_err(|e| miette::miette!("Failed to parse PEM for {domain}: {e}"))?;
 
-            let signing_key = any_supported_type(&key).map_err(|e| {
-                error!("Failed to create signing key for {}: {}", domain, e);
-                miette::miette!("Failed to create signing key for {}: {}", domain, e)
-            })?;
+            let key = load_key_from_pem(&cert.private_key_pem)
+                .map_err(|e| miette::miette!("Failed to create private key for {domain}: {e}"))?;
+
+            let signing_key = any_supported_type(&key)
+                .map_err(|e| miette::miette!("Failed to create signing key for {domain}: {e}"))?;
 
             let certified_key = Arc::new(CertifiedKey::new(cert_chain, signing_key));
 
@@ -259,10 +244,7 @@ impl ResolvesServerCert for SniCertResolver {
                 }
             };
 
-            debug!("SNI: Client requested hostname: {name}");
-
             if let Some(cert) = self.certs.get(name) {
-                debug!("SNI: Found exact match for {name}");
                 return Some(cert.clone());
             }
 
@@ -270,13 +252,11 @@ impl ResolvesServerCert for SniCertResolver {
             if let Some(dot_pos) = name.find('.') {
                 let wildcard = format!("*{}", &name[dot_pos..]);
                 if let Some(cert) = self.certs.get(&wildcard) {
-                    debug!("SNI: Found wildcard match {wildcard} for {name}");
                     return Some(cert.clone());
                 }
             }
         }
 
-        debug!("SNI: Using default certificate");
         self.default_cert.clone()
     }
 }

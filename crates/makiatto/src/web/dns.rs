@@ -28,7 +28,6 @@ use url::Url;
 use crate::{
     config::Config,
     corrosion::{self, DnsRecord},
-    service::{BasicServiceCommand, ServiceManager},
     web::certificate::CertificateManager,
 };
 
@@ -307,8 +306,6 @@ impl Handler {
     }
 }
 
-pub type DnsManager = ServiceManager<BasicServiceCommand>;
-
 #[async_trait::async_trait]
 impl RequestHandler for Handler {
     #[instrument(skip(self, handler), fields(query_name, query_type, client_ip))]
@@ -425,7 +422,7 @@ pub async fn start(
 
     let cert_manager = {
         let manager = CertificateManager::new(config.corrosion.db.path.clone());
-        if let Err(e) = manager.load_certificates_from_db().await {
+        if let Err(e) = manager.load_certificates().await {
             error!("Failed to load certificates for DNS: {e}");
             None
         } else {

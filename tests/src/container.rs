@@ -1,5 +1,12 @@
 #![cfg(test)]
-use std::{env, net::TcpListener, path, process::Command, sync::Arc};
+use std::{
+    collections::HashSet,
+    env,
+    net::TcpListener,
+    path,
+    process::Command,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use base64::prelude::*;
 use makiatto_cli::config::Machine;
@@ -10,6 +17,12 @@ use testcontainers::{
     core::{ExecCommand, IntoContainerPort, Mount, WaitFor},
     runners::AsyncRunner,
 };
+
+static PORT_REGISTRY: OnceLock<Mutex<HashSet<u16>>> = OnceLock::new();
+
+fn get_port_registry() -> &'static Mutex<HashSet<u16>> {
+    PORT_REGISTRY.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 #[derive(Clone, PartialEq)]
 pub enum Image {
@@ -193,7 +206,6 @@ impl ContainerContext {
             .with_exposed_port(80.tcp())
             .with_exposed_port(443.tcp())
             .with_exposed_port(8787.udp())
-            .with_exposed_port(9090.tcp())
             .with_wait_for(WaitFor::Nothing)
             .with_container_name(format!("{}-wawa-daemon", container.id))
             .with_mapped_port(container.ports.ssh, 22.tcp())
@@ -204,7 +216,6 @@ impl ContainerContext {
             .with_mapped_port(container.ports.http, 80.tcp())
             .with_mapped_port(container.ports.https, 443.tcp())
             .with_mapped_port(container.ports.corrosion, 8787.udp())
-            .with_mapped_port(container.ports.metrics, 9090.tcp())
             .with_network("wawa")
             .with_mount(Mount::bind_mount(
                 self.root.join("target/tests/geolite").display().to_string(),
@@ -306,7 +317,7 @@ impl TestContainer {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct PortMap {
     pub ssh: u16,
     pub dns: u16,
@@ -314,79 +325,63 @@ pub struct PortMap {
     pub corrosion: u16,
     pub http: u16,
     pub https: u16,
-    pub metrics: u16,
 }
 
 impl PortMap {
     pub fn new() -> Result<Self> {
-        for attempt in 1..=3 {
-            match Self::try_allocate_ports() {
-                Ok(ports) => return Ok(ports),
-                Err(e) if attempt < 3 => {
-                    eprintln!("Port allocation attempt {attempt} failed: {e}, retrying...");
-                    std::thread::sleep(std::time::Duration::from_millis(100 * attempt));
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        unreachable!()
-    }
-
-    fn try_allocate_ports() -> Result<Self> {
-        let mut ports = std::collections::HashSet::new();
-        let mut allocated = Vec::new();
-
-        for _ in 0..7 {
-            let mut attempts = 0;
-            loop {
-                let port = Self::get_unused_port()?;
-                if !ports.contains(&port) {
-                    ports.insert(port);
-                    allocated.push(port);
-                    break;
-                }
-                attempts += 1;
-                if attempts > 50 {
-                    return Err(miette::miette!(
-                        "Failed to allocate unique ports after 50 attempts"
-                    ));
-                }
-            }
-        }
-
         Ok(Self {
-            ssh: allocated[0],
-            dns: allocated[1],
-            dns_secure: allocated[2],
-            corrosion: allocated[3],
-            http: allocated[4],
-            https: allocated[5],
-            metrics: allocated[6],
+            ssh: Self::get_unused_port()?,
+            dns: Self::get_unused_port()?,
+            dns_secure: Self::get_unused_port()?,
+            corrosion: Self::get_unused_port()?,
+            http: Self::get_unused_port()?,
+            https: Self::get_unused_port()?,
         })
     }
 
-    pub fn get_unused_port() -> Result<u16> {
-        const MAX_ATTEMPTS: u32 = 100;
+    fn get_unused_port() -> Result<u16> {
+        let mut registry = get_port_registry()
+            .lock()
+            .map_err(|_| miette::miette!("Failed to acquire port registry lock"))?;
 
         let mut rng = rand::rng();
-        let mut attempts = 0;
 
-        while attempts < MAX_ATTEMPTS {
-            let port = rng.random_range(32768..=65535);
+        for _ in 0..100 {
+            let port = rng.random_range(49152..=65535);
+
+            if registry.contains(&port) {
+                continue;
+            }
 
             if TcpListener::bind(("127.0.0.1", port)).is_ok()
-                && let Ok(socket) = std::net::UdpSocket::bind(("127.0.0.1", port))
+                && std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
             {
-                drop(socket);
+                registry.insert(port);
                 return Ok(port);
             }
-            attempts += 1;
         }
 
         Err(miette::miette!(
-            "No unused ports available in range 32768-65535 after {} attempts",
-            MAX_ATTEMPTS
+            "No unused ports available after 100 attempts"
         ))
+    }
+
+    /// Release all allocated ports back to the pool
+    fn release_ports(&self) {
+        if let Ok(mut registry) = get_port_registry().lock() {
+            registry.remove(&self.ssh);
+            registry.remove(&self.dns);
+            registry.remove(&self.dns_secure);
+            registry.remove(&self.corrosion);
+            registry.remove(&self.http);
+            registry.remove(&self.https);
+        }
+    }
+}
+
+impl Drop for PortMap {
+    fn drop(&mut self) {
+        self.release_ports();
     }
 }
 

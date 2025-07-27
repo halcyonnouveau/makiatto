@@ -23,13 +23,7 @@ use tower::{Service, ServiceExt};
 use tower_http::services::ServeDir;
 use tracing::{error, info, instrument, warn};
 
-use crate::{
-    config::Config,
-    service::{BasicServiceCommand, ServiceManager},
-    web::certificate::CertificateManager,
-};
-
-pub type WebManager = ServiceManager<BasicServiceCommand>;
+use crate::{config::Config, web::certificate::CertificateManager};
 
 #[derive(Clone)]
 struct WebState {
@@ -102,7 +96,7 @@ pub async fn start(
 
     let cert_manager = CertificateManager::new(config.corrosion.db.path.clone());
 
-    if let Err(e) = cert_manager.load_certificates_from_db().await {
+    if let Err(e) = cert_manager.load_certificates().await {
         warn!("Failed to load certificates from database: {e}");
     }
 

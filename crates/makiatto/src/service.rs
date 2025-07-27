@@ -7,52 +7,30 @@ use miette::Result;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info};
 
-/// Generic service manager for handling service lifecycle
+/// Simple service manager for handling service lifecycle
 #[derive(Clone)]
-pub struct ServiceManager<T: Send + 'static> {
-    pub tx: mpsc::UnboundedSender<T>,
+pub struct ServiceManager {
+    pub tx: mpsc::UnboundedSender<ServiceCommand>,
 }
 
-impl<T: Send + 'static> ServiceManager<T> {
+impl ServiceManager {
     /// Send a command to the service
     ///
     /// # Errors
     /// Returns an error if the service manager task has stopped
-    pub fn send(&self, command: T) -> Result<()> {
+    pub fn send(&self, command: ServiceCommand) -> Result<()> {
         self.tx
             .send(command)
             .map_err(|_| miette::miette!("Failed to send command - service may have stopped"))
     }
-}
 
-/// Common commands that most services will need
-#[derive(Debug)]
-pub enum BasicServiceCommand {
-    Restart {
-        response: oneshot::Sender<Result<()>>,
-    },
-    Shutdown {
-        response: oneshot::Sender<Result<()>>,
-    },
-}
-
-impl BasicServiceCommand {
-    #[must_use]
-    pub fn is_shutdown(&self) -> bool {
-        matches!(self, Self::Shutdown { .. })
-    }
-}
-
-#[allow(async_fn_in_trait)]
-pub trait BasicServiceManager {
-    async fn restart(&self) -> Result<()>;
-    async fn shutdown(&self) -> Result<()>;
-}
-
-impl BasicServiceManager for ServiceManager<BasicServiceCommand> {
-    async fn restart(&self) -> Result<()> {
+    /// Restart the service
+    ///
+    /// # Errors
+    /// Returns an error if the service manager channel is closed or restart fails
+    pub async fn restart(&self) -> Result<()> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.send(BasicServiceCommand::Restart {
+        self.send(ServiceCommand::Restart {
             response: response_tx,
         })?;
         response_rx
@@ -60,9 +38,13 @@ impl BasicServiceManager for ServiceManager<BasicServiceCommand> {
             .map_err(|_| miette::miette!("Failed to receive restart response"))?
     }
 
-    async fn shutdown(&self) -> Result<()> {
+    /// Shutdown the service
+    ///
+    /// # Errors
+    /// Returns an error if the service manager channel is closed or shutdown fails
+    pub async fn shutdown(&self) -> Result<()> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.send(BasicServiceCommand::Shutdown {
+        self.send(ServiceCommand::Shutdown {
             response: response_tx,
         })?;
         response_rx
@@ -71,7 +53,17 @@ impl BasicServiceManager for ServiceManager<BasicServiceCommand> {
     }
 }
 
-/// Set up a generic service with management capabilities
+#[derive(Debug)]
+pub enum ServiceCommand {
+    Restart {
+        response: oneshot::Sender<Result<()>>,
+    },
+    Shutdown {
+        response: oneshot::Sender<Result<()>>,
+    },
+}
+
+/// Set up a service with management capabilities
 ///
 /// # Errors
 /// Returns an error if the service fails to initialise
@@ -80,10 +72,7 @@ pub fn setup<F, S>(
     config: Arc<crate::config::Config>,
     tripwire: tripwire::Tripwire,
     start_fn: F,
-) -> Result<(
-    ServiceManager<BasicServiceCommand>,
-    tokio::task::JoinHandle<Result<()>>,
-)>
+) -> Result<(ServiceManager, tokio::task::JoinHandle<Result<()>>)>
 where
     F: Fn(Arc<crate::config::Config>, mpsc::Receiver<()>) -> S + Send + 'static,
     S: std::future::Future<Output = Result<()>> + Send + 'static,
@@ -104,17 +93,16 @@ where
                     };
 
                     match command {
-                        BasicServiceCommand::Restart { response } => {
+                        ServiceCommand::Restart { response } => {
                             info!("Restarting {service_name} service");
 
-                            // Gracefully stop current server
                             if let (Some(server), Some(shutdown_tx)) = (current_server.take(), current_shutdown_tx.take()) {
                                 let _ = shutdown_tx.send(()).await;
                                 // Wait for graceful shutdown
                                 let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server).await;
                             }
 
-                            // Start new server with new shutdown channel
+                            // start new server with new shutdown channel
                             let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
                             current_shutdown_tx = Some(shutdown_tx);
                             current_server = Some(tokio::spawn(start_fn(config.clone(), shutdown_rx)));
@@ -122,7 +110,7 @@ where
                             info!("{service_name} server restarted");
                             let _ = response.send(Ok(()));
                         }
-                        BasicServiceCommand::Shutdown { response } => {
+                        ServiceCommand::Shutdown { response } => {
                             info!("Shutting down {service_name} service");
 
                             if let (Some(server), Some(shutdown_tx)) = (current_server.take(), current_shutdown_tx.take()) {
@@ -180,15 +168,15 @@ where
 
 /// Handle service restart signals with debouncing
 ///
-/// This function listens for restart signals and forwards them to the service manager
-/// with debouncing to prevent rapid restarts. Only one restart can be pending at a time.
+/// Listens for restart signals and forwards them to the service manager with
+/// debouncing to prevent rapid restarts. Only one restart can be pending at a time.
 ///
 /// # Errors
 /// Returns an error if the service manager channel is closed
 pub async fn handle_restarts(
     service_name: &'static str,
     mut restart_rx: mpsc::Receiver<()>,
-    manager: ServiceManager<BasicServiceCommand>,
+    manager: ServiceManager,
 ) -> std::result::Result<&'static str, String> {
     let restart_pending = Arc::new(AtomicBool::new(false));
 
@@ -197,7 +185,7 @@ pub async fn handle_restarts(
             let restart_pending_clone = restart_pending.clone();
             let (response_tx, response_rx) = oneshot::channel();
 
-            if let Err(e) = manager.send(BasicServiceCommand::Restart {
+            if let Err(e) = manager.send(ServiceCommand::Restart {
                 response: response_tx,
             }) {
                 tracing::error!("Failed to send {service_name} restart command: {e}");
