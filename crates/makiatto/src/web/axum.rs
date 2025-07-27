@@ -15,18 +15,18 @@ use axum::{
 use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use metrics_exporter_prometheus::PrometheusHandle;
 use miette::Result;
+use opentelemetry::{KeyValue, global};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tower::{Service, ServiceExt};
 use tower_http::services::ServeDir;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     config::Config,
     service::{BasicServiceCommand, ServiceManager},
-    web::{certificate::CertificateManager, metrics},
+    web::certificate::CertificateManager,
 };
 
 pub type WebManager = ServiceManager<BasicServiceCommand>;
@@ -36,6 +36,7 @@ struct WebState {
     static_dir: Arc<PathBuf>,
 }
 
+#[instrument(skip(state, headers, request), fields(hostname = tracing::field::Empty, method = %request.method(), uri = %request.uri()))]
 async fn handle_request(
     State(state): State<WebState>,
     headers: HeaderMap,
@@ -49,13 +50,7 @@ async fn handle_request(
     let domain = hostname.split(':').next().unwrap_or(hostname);
     let domain_path = state.static_dir.join(domain);
 
-    tracing::info!(
-        "Web request: hostname={}, domain={}, domain_path={:?}, exists={}",
-        hostname,
-        domain,
-        domain_path,
-        domain_path.exists()
-    );
+    tracing::Span::current().record("hostname", hostname);
 
     if !domain_path.exists() {
         return Response::builder()
@@ -82,24 +77,14 @@ async fn handle_request(
 pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
-    metrics_handle: Option<PrometheusHandle>,
 ) -> Result<()> {
-    let metrics_server = if let Some(handle) = metrics_handle {
-        let (metrics_shutdown_tx, metrics_shutdown_rx) = tokio::sync::mpsc::channel(1);
-        let metrics_task =
-            tokio::spawn(metrics::start(config.clone(), handle, metrics_shutdown_rx));
-        Some((metrics_task, metrics_shutdown_tx))
-    } else {
-        None
-    };
-
     let state = WebState {
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
     };
 
     let app = Router::new()
         .fallback(handle_request)
-        .layer(middleware::from_fn(metrics::metrics_middleware))
+        .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(caching_middleware))
         .with_state(state);
 
@@ -186,9 +171,6 @@ pub async fn start(
                 info!("Web server received shutdown signal");
                 let _ = http_shutdown_tx.send(()).await;
                 let _ = https_shutdown_tx.send(()).await;
-                if let Some((_, metrics_shutdown_tx)) = &metrics_server {
-                    let _ = metrics_shutdown_tx.send(()).await;
-                }
             }
         }
     } else {
@@ -203,9 +185,6 @@ pub async fn start(
             _ = shutdown_rx.recv() => {
                 info!("Web server received shutdown signal");
                 let _ = http_shutdown_tx.send(()).await;
-                if let Some((_, metrics_shutdown_tx)) = &metrics_server {
-                    let _ = metrics_shutdown_tx.send(()).await;
-                }
             }
         }
     }
@@ -296,6 +275,66 @@ async fn caching_middleware(request: Request, next: Next) -> impl IntoResponse {
         .insert(CACHE_CONTROL, get_cache_control(&path));
 
     (parts, Body::from(body_bytes)).into_response()
+}
+
+/// Middleware to collect HTTP metrics with domain separation
+async fn metrics_middleware(request: Request, next: Next) -> Response {
+    use std::time::Instant;
+
+    let start = Instant::now();
+    let method = request.method().to_string();
+
+    let domain = request
+        .headers()
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .map_or("unknown", |h| h.split(':').next().unwrap_or(h))
+        .to_string();
+
+    let response = next.run(request).await;
+
+    let status = response.status().as_u16();
+    let duration = start.elapsed().as_secs_f64();
+
+    let meter = global::meter("makiatto.web");
+
+    let attributes = vec![
+        KeyValue::new("method", method.clone()),
+        KeyValue::new("domain", domain.clone()),
+        KeyValue::new("status", status.to_string()),
+    ];
+
+    // Record request count
+    let counter = meter
+        .u64_counter("http.server.request.count")
+        .with_description("Total number of HTTP requests")
+        .build();
+    counter.add(1, &attributes);
+
+    // Record request duration
+    let histogram = meter
+        .f64_histogram("http.server.request.duration")
+        .with_unit("s")
+        .with_description("HTTP request duration in seconds")
+        .build();
+    histogram.record(duration, &attributes);
+
+    // Track cache effectiveness (if ETag header is present)
+    if response.headers().contains_key("etag") {
+        let cache_status = if status == 304 { "hit" } else { "miss" };
+        let cache_attributes = vec![
+            KeyValue::new("domain", domain),
+            KeyValue::new("cache_status", cache_status),
+        ];
+
+        let cache_counter = meter
+            .u64_counter("http.server.cache.requests")
+            .with_description("Cache requests by status")
+            .build();
+        cache_counter.add(1, &cache_attributes);
+    }
+
+    response
 }
 
 async fn https_redirect(headers: HeaderMap, uri: Uri) -> Redirect {

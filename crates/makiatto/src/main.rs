@@ -13,7 +13,6 @@ use tokio::{
     sync::mpsc,
 };
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(FromArgs)]
 #[allow(clippy::struct_excessive_bools)]
@@ -75,23 +74,18 @@ async fn main() -> Result<()> {
     let args: Args = argh::from_env();
     let services = ServiceFlags::from_args(&args);
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "makiatto=info,corro_agent=info".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let config = config::load()?;
+    makiatto::o11y::init(&config.o11y)?;
 
     info!("Starting makiatto...");
 
-    let config = config::load()?;
+    let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
     info!("Loaded config for node '{}'", config.node.name);
     info!(
         "Services enabled: wireguard={}, dns={}, web={}, corrosion={}",
         services.wireguard, services.dns, services.axum, services.corrosion
     );
 
-    let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
     let (dns_restart_tx, dns_restart_rx) = mpsc::channel(100);
     let (axum_restart_tx, axum_restart_rx) = mpsc::channel(100);
 
@@ -189,19 +183,9 @@ async fn main() -> Result<()> {
     let (axum_manager, axum_handle) = if services.axum {
         info!("Starting axum server...");
 
-        let metrics_handle = if config.web.metrics_enabled {
-            Some(web::metrics::setup_metrics_recorder()?)
-        } else {
-            None
-        };
-
         let (axum_manager, axum_handle) =
             service::setup("axum", Arc::new(config.clone()), tripwire.clone(), {
-                let metrics_handle = metrics_handle.clone();
-                move |config, tripwire| {
-                    let metrics_handle = metrics_handle.clone();
-                    async move { web::axum::start(config, tripwire, metrics_handle).await }
-                }
+                move |config, tripwire| async move { web::axum::start(config, tripwire).await }
             })?;
         (
             Some(axum_manager),

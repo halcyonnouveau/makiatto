@@ -20,8 +20,9 @@ use hickory_server::{
 };
 use maxminddb::Reader;
 use miette::{IntoDiagnostic, Result};
+use opentelemetry::{KeyValue, global};
 use tokio::net::{TcpListener, UdpSocket};
-use tracing::{error, info};
+use tracing::{Level, debug, error, info, instrument, span};
 use url::Url;
 
 use crate::{
@@ -167,6 +168,7 @@ impl Handler {
         Record::from_rdata(name.into(), ttl, rdata.expect("Invalid record type"))
     }
 
+    #[instrument(skip(self), fields(query_name = %request.name, client_ip = %request.ip))]
     fn build_records(&self, request: &DnsRequest) -> Result<Vec<Record>> {
         // make sure the request is a query
         if request.op_code != OpCode::Query {
@@ -179,16 +181,30 @@ impl Handler {
         }
 
         // get coordinates of request
-        let lookup = self.reader.lookup::<maxminddb::geoip2::City>(request.ip);
-        let coords = match lookup {
-            Ok(Some(response)) => match response.location {
-                Some(location) => point!(
-                    x: location.latitude.unwrap_or(0.0),
-                    y: location.longitude.unwrap_or(0.0),
-                ),
-                None => point!(x: 0.0, y: 0.0),
-            },
-            Ok(None) | Err(_) => point!(x: 0.0, y: 0.0),
+        let coords = {
+            let _span = span!(Level::DEBUG, "geoip_lookup", ip = %request.ip).entered();
+            let lookup = self.reader.lookup::<maxminddb::geoip2::City>(request.ip);
+            match lookup {
+                Ok(Some(response)) => {
+                    if let Some(location) = response.location {
+                        let lat = location.latitude.unwrap_or(0.0);
+                        let lon = location.longitude.unwrap_or(0.0);
+                        debug!("GeoIP lookup found: lat={lat}, lon={lon}");
+                        point!(x: lat, y: lon)
+                    } else {
+                        debug!("GeoIP lookup found no location data");
+                        point!(x: 0.0, y: 0.0)
+                    }
+                }
+                Ok(None) => {
+                    debug!("GeoIP lookup found no data for IP");
+                    point!(x: 0.0, y: 0.0)
+                }
+                Err(e) => {
+                    debug!("GeoIP lookup failed: {e}");
+                    point!(x: 0.0, y: 0.0)
+                }
+            }
         };
 
         let lookup_name = request.name.to_string().trim_end_matches('.').to_string();
@@ -241,17 +257,81 @@ impl Handler {
             })
             .collect())
     }
+
+    fn record_dns_metrics(
+        &self,
+        query_name: &str,
+        query_type: &str,
+        response_code: &str,
+        duration: Duration,
+    ) {
+        let meter = global::meter("makiatto.dns");
+
+        let attributes = vec![
+            KeyValue::new("query_type", query_type.to_string()),
+            KeyValue::new("response_code", response_code.to_string()),
+            KeyValue::new(
+                "geo_enabled",
+                self.records
+                    .get(query_name)
+                    .is_some_and(|records| records.iter().any(|r| r.geo_enabled))
+                    .to_string(),
+            ),
+        ];
+
+        let counter = meter
+            .u64_counter("dns.server.query.count")
+            .with_description("Total number of DNS queries")
+            .build();
+        counter.add(1, &attributes);
+
+        let histogram = meter
+            .f64_histogram("dns.server.query.duration")
+            .with_unit("s")
+            .with_description("DNS query response time in seconds")
+            .build();
+        histogram.record(duration.as_secs_f64(), &attributes);
+
+        if self
+            .records
+            .get(query_name)
+            .is_some_and(|records| records.iter().any(|r| r.geo_enabled))
+        {
+            let peer_gauge = meter
+                .u64_gauge("dns.server.peers.available")
+                .with_description("Number of available peers for geo-routing")
+                .build();
+            peer_gauge.record(self.peers.len() as u64, &[]);
+        }
+    }
 }
 
 pub type DnsManager = ServiceManager<BasicServiceCommand>;
 
 #[async_trait::async_trait]
 impl RequestHandler for Handler {
+    #[instrument(skip(self, handler), fields(query_name, query_type, client_ip))]
     async fn handle_request<R: ResponseHandler>(
         &self,
         request: &Request,
         mut handler: R,
     ) -> ResponseInfo {
+        let start_time = std::time::Instant::now();
+        let query_name = request
+            .queries()
+            .first()
+            .map(|q| q.name().to_string())
+            .unwrap_or_default();
+        let query_type = request
+            .queries()
+            .first()
+            .map(|q| q.query_type().to_string())
+            .unwrap_or_default();
+
+        let span = tracing::Span::current();
+        span.record("query_name", &query_name);
+        span.record("query_type", &query_type);
+
         let dns_request = DnsRequest {
             op_code: request.op_code(),
             message_type: request.message_type(),
@@ -263,6 +343,7 @@ impl RequestHandler for Handler {
             Ok(res) => res,
             Err(e) => {
                 error!("Failed to build DNS records: {e}");
+                self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
                 return Self::create_failure_response();
             }
         };
@@ -273,9 +354,13 @@ impl RequestHandler for Handler {
         let response = builder.build(header, records.iter(), &[], &[], &[]);
 
         match handler.send_response(response).await {
-            Ok(info) => info,
+            Ok(info) => {
+                self.record_dns_metrics(&query_name, &query_type, "NOERROR", start_time.elapsed());
+                info
+            }
             Err(e) => {
                 error!("Failed to send DNS response: {e}");
+                self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
                 Self::create_failure_response()
             }
         }
