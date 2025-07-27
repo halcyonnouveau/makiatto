@@ -60,9 +60,18 @@ tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-opentelemetry = "0.31"
-opentelemetry = { version = "0.30", features = ["metrics"] }
-opentelemetry-otlp = { version = "0.30", features = ["metrics", "grpc-tonic"] }
-opentelemetry_sdk = { version = "0.30", features = ["rt-tokio", "metrics"] }
+opentelemetry = { version = "0.30", features = ["metrics", "logs"] }
+opentelemetry-appender-tracing = "0.30"
+opentelemetry_sdk = { version = "0.30", features = [
+    "rt-tokio",
+    "metrics",
+    "logs",
+] }
+opentelemetry-otlp = { version = "0.30", features = [
+    "metrics",
+    "logs",
+    "grpc-tonic",
+] }
 
 # Utilities
 camino = "1.1"

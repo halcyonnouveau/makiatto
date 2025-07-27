@@ -97,6 +97,10 @@ pub struct ObservabilityConfig {
     #[serde(default = "default_true")]
     pub metrics_enabled: bool,
 
+    /// Enable log export
+    #[serde(default = "default_true")]
+    pub logging_enabled: bool,
+
     /// OTLP endpoint
     #[serde(default = "default_otlp_endpoint")]
     pub otlp_endpoint: Arc<str>,
@@ -111,6 +115,7 @@ impl Default for ObservabilityConfig {
         Self {
             tracing_enabled: default_true(),
             metrics_enabled: default_true(),
+            logging_enabled: default_true(),
             otlp_endpoint: default_otlp_endpoint(),
             sampling_ratio: default_sampling_ratio(),
         }
