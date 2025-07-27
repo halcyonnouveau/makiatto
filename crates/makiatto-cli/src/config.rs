@@ -32,9 +32,9 @@ pub struct Config {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Domain {
     pub name: Arc<str>,
+    pub path: PathBuf,
     /// CNAME records to the canonical domain
     pub aliases: Arc<[Arc<str>]>,
-    pub paths: Arc<[PathBuf]>,
     pub records: Arc<[DnsRecord]>,
 }
 

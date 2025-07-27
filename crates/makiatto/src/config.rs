@@ -89,16 +89,12 @@ pub struct WebConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ObservabilityConfig {
-    /// Service name for tracing
-    #[serde(default = "default_service_name")]
-    pub service_name: Arc<str>,
-
     /// Enable tracing export
-    #[serde(default = "default_tracing_enabled")]
+    #[serde(default = "default_true")]
     pub tracing_enabled: bool,
 
     /// Enable metrics collection and export
-    #[serde(default = "default_metrics_enabled")]
+    #[serde(default = "default_true")]
     pub metrics_enabled: bool,
 
     /// OTLP endpoint
@@ -113,20 +109,15 @@ pub struct ObservabilityConfig {
 impl Default for ObservabilityConfig {
     fn default() -> Self {
         Self {
-            service_name: default_service_name(),
-            tracing_enabled: default_tracing_enabled(),
-            metrics_enabled: default_metrics_enabled(),
+            tracing_enabled: default_true(),
+            metrics_enabled: default_true(),
             otlp_endpoint: default_otlp_endpoint(),
             sampling_ratio: default_sampling_ratio(),
         }
     }
 }
 
-fn default_tracing_enabled() -> bool {
-    true
-}
-
-fn default_metrics_enabled() -> bool {
+fn default_true() -> bool {
     true
 }
 
@@ -134,12 +125,8 @@ fn default_otlp_endpoint() -> Arc<str> {
     Arc::from("http://localhost:4317")
 }
 
-fn default_service_name() -> Arc<str> {
-    Arc::from("makiatto")
-}
-
 fn default_sampling_ratio() -> f64 {
-    1.0
+    0.1
 }
 
 impl Config {
