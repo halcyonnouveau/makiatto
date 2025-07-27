@@ -87,15 +87,15 @@ pub fn init(Config { o11y, node, .. }: &Config) -> Result<()> {
         info!("Initialising OpenTelemetry to {}", o11y.otlp_endpoint);
     }
 
+    if o11y.metrics_enabled {
+        init_metrics(o11y, resource.clone())?;
+    }
+
     let tracer_provider = if o11y.tracing_enabled {
-        Some(init_tracer(o11y, resource.clone())?)
+        Some(init_tracer(o11y, resource)?)
     } else {
         None
     };
-
-    if o11y.metrics_enabled {
-        init_metrics(o11y, resource)?;
-    }
 
     if let Some(provider) = tracer_provider {
         let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("makiatto"));

@@ -73,11 +73,37 @@ pub struct AddMachine {
     pub key_path: Option<PathBuf>,
 }
 
+/// Validate node name contains only allowed characters
+fn validate_node_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(miette!("Node name cannot be empty"));
+    }
+
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(miette!(
+            "Node name '{name}' contains invalid characters. Only A-Z, a-z, 0-9, underscores (_), and dashes (-) are allowed",
+        ));
+    }
+
+    if name.len() > 63 {
+        return Err(miette!(
+            "Node name '{name}' is too long. Maximum length is 63 characters",
+        ));
+    }
+
+    Ok(())
+}
+
 /// Initialize a new makiatto node by installing and configuring the daemon
 ///
 /// # Errors
 /// Returns an error if SSH connection fails, installation fails, or configuration is invalid
 pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshSession> {
+    validate_node_name(&request.name)?;
+
     if profile.find_machine(&request.name).is_some() {
         if request.override_existing {
             ui::info(&format!(
@@ -298,6 +324,39 @@ fn assign_wireguard_address(machines_config: &Profile) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_node_name_valid() {
+        assert!(validate_node_name("node1").is_ok());
+        assert!(validate_node_name("node123").is_ok());
+        assert!(validate_node_name("my-node").is_ok());
+        assert!(validate_node_name("my_node").is_ok());
+        assert!(validate_node_name("Node-With-Dashes").is_ok());
+        assert!(validate_node_name("Node_With_Underscores").is_ok());
+        assert!(validate_node_name("server01").is_ok());
+        assert!(validate_node_name("web-01").is_ok());
+        assert!(validate_node_name("a").is_ok());
+        assert!(validate_node_name("A").is_ok());
+        assert!(validate_node_name("1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_node_name_invalid() {
+        assert!(validate_node_name("").is_err());
+        assert!(validate_node_name("node.with.dots").is_err());
+        assert!(validate_node_name("node with spaces").is_err());
+        assert!(validate_node_name("node@with@symbols").is_err());
+        assert!(validate_node_name("node!").is_err());
+        assert!(validate_node_name("node#").is_err());
+        assert!(validate_node_name("node$").is_err());
+
+        // Test max length (63 chars)
+        let long_name = "a".repeat(64);
+        assert!(validate_node_name(&long_name).is_err());
+
+        let max_name = "a".repeat(63);
+        assert!(validate_node_name(&max_name).is_ok());
+    }
 
     #[test]
     fn test_assign_wireguard_address_empty_config() {
