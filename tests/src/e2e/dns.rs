@@ -1,12 +1,11 @@
 #![cfg(test)]
-use miette::{IntoDiagnostic, Result, miette};
+use miette::{IntoDiagnostic, Result};
 use testcontainers::core::ExecCommand;
 
-use crate::container::{ContainerContext, TestContainer};
+use crate::container::{ContainerContext, TestContainer, create_cert};
 
-#[allow(clippy::too_many_lines)]
 #[tokio::test]
-async fn test_dns_replication() -> Result<()> {
+async fn test_replication() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
     let TestContainer {
@@ -40,7 +39,7 @@ async fn test_dns_replication() -> Result<()> {
             "http://127.0.0.1:8181/v1/transactions",
         ]))
         .await
-        .map_err(|e| miette!("Failed to insert DNS record in d2: {e}"))?;
+        .into_diagnostic()?;
 
     let _ = insert.stdout_to_vec().await.into_diagnostic()?;
 
@@ -53,7 +52,7 @@ async fn test_dns_replication() -> Result<()> {
             "SELECT domain, name, record_type, base_value FROM dns_records WHERE domain = 'example.com';",
         ]))
         .await
-        .map_err(|e| miette!("Failed to query d1: {e}"))?;
+        .into_diagnostic()?;
 
     let d1_stdout = query.stdout_to_vec().await.into_diagnostic()?;
     let stdout = String::from_utf8_lossy(&d1_stdout);
@@ -74,7 +73,7 @@ async fn test_dns_replication() -> Result<()> {
             "+short",
         ])
         .output()
-        .map_err(|e| miette!("Failed to run dig on d1 from host: {e}"))?;
+        .into_diagnostic()?;
 
     let dig_d1_result = String::from_utf8_lossy(&dig_d1_output.stdout)
         .trim()
@@ -99,7 +98,7 @@ async fn test_dns_replication() -> Result<()> {
             "+short",
         ])
         .output()
-        .map_err(|e| miette!("Failed to run dig on d2 from host: {e}"))?;
+        .into_diagnostic()?;
 
     let dig_d2_result = String::from_utf8_lossy(&dig_d2_output.stdout)
         .trim()
@@ -117,8 +116,8 @@ async fn test_dns_replication() -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn test_dns_geolocation() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
@@ -158,7 +157,7 @@ async fn test_dns_geolocation() -> Result<()> {
             "http://127.0.0.1:8181/v1/transactions",
         ]))
         .await
-        .map_err(|e| miette!("Failed to insert peers: {e}"))?;
+        .into_diagnostic()?;
 
     let _ = insert_peers.stdout_to_vec().await.into_diagnostic()?;
 
@@ -180,7 +179,7 @@ async fn test_dns_geolocation() -> Result<()> {
             "http://127.0.0.1:8181/v1/transactions",
         ]))
         .await
-        .map_err(|e| miette!("Failed to insert DNS record: {e}"))?;
+        .into_diagnostic()?;
 
     let _ = insert_dns.stdout_to_vec().await.into_diagnostic()?;
 
@@ -193,7 +192,7 @@ async fn test_dns_geolocation() -> Result<()> {
             "SELECT name, latitude, longitude, ipv4 FROM peers ORDER BY name;",
         ]))
         .await
-        .map_err(|e| miette!("Failed to query peers: {e}"))?;
+        .into_diagnostic()?;
 
     let peers_stdout = query_peers.stdout_to_vec().await.into_diagnostic()?;
     let peers_output = String::from_utf8_lossy(&peers_stdout);
@@ -209,7 +208,7 @@ async fn test_dns_geolocation() -> Result<()> {
             "SELECT domain, name, record_type, geo_enabled FROM dns_records WHERE domain = 'example.com';",
         ]))
         .await
-        .map_err(|e| miette!("Failed to query DNS records: {e}"))?;
+        .into_diagnostic()?;
 
     let dns_stdout = query_dns.stdout_to_vec().await.into_diagnostic()?;
     let dns_output = String::from_utf8_lossy(&dns_stdout);
@@ -227,7 +226,7 @@ async fn test_dns_geolocation() -> Result<()> {
             "+tcp",
         ])
         .output()
-        .map_err(|e| miette!("Failed to run dig: {e}"))?;
+        .into_diagnostic()?;
 
     let dig_result = String::from_utf8_lossy(&dig_output.stdout)
         .trim()
@@ -243,6 +242,265 @@ async fn test_dns_geolocation() -> Result<()> {
             || dig_result.contains("192.168.1.20")
             || dig_result.contains("192.168.1.30"),
         "DNS geolocation should return one of the peer IPs, got: {dig_result}",
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_over_tls_with_certificates() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ..
+    } = context.make_daemon().await?;
+
+    let daemon = daemon_container.unwrap();
+
+    create_cert(&daemon, "wawa.ns.example.com", "dns.crt", "dns.key").await?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let dns_record_sql = r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"example.com\", \"test\", \"A\", \"192.168.1.100\", 300, NULL, 0)"#;
+    let json_payload = format!("[\"{dns_record_sql}\"]");
+
+    let mut insert_dns = daemon
+        .exec(ExecCommand::new(vec![
+            "curl",
+            "-s",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &json_payload,
+            "http://127.0.0.1:8181/v1/transactions",
+        ]))
+        .await
+        .into_diagnostic()?;
+
+    let _ = insert_dns.stdout_to_vec().await.into_diagnostic()?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let mut result = daemon
+        .exec(ExecCommand::new(vec![
+            "timeout",
+            "5",
+            "openssl",
+            "s_client",
+            "-connect",
+            "127.0.0.1:853",
+            "-servername",
+            "wawa.ns.example.com",
+            "-verify_return_error",
+        ]))
+        .await
+        .into_diagnostic()?;
+
+    let stdout = result.stdout_to_vec().await.unwrap_or_default();
+    let stderr = result.stderr_to_vec().await.unwrap_or_default();
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    );
+
+    assert!(
+        output.contains("CONNECTED")
+            || output.contains("Verification: OK")
+            || output.contains("SSL-Session"),
+        "DoT TLS connection should work when certificates are configured. Output: {output}",
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn test_multi_domain_sni() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let daemon = daemon_container.unwrap();
+
+    create_cert(&daemon, "ns1.example.com", "ns1.crt", "ns1.key").await?;
+    create_cert(&daemon, "ns2.example.com", "ns2.crt", "ns2.key").await?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let dns_records_sql = [
+        r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"example.com\", \"api\", \"A\", \"192.168.1.10\", 300, NULL, 0)"#,
+        r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"test.com\", \"api\", \"A\", \"192.168.1.20\", 300, NULL, 0)"#,
+    ];
+
+    let json_payload = format!(
+        "[{}]",
+        dns_records_sql
+            .iter()
+            .map(|sql| format!("\"{sql}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let mut insert_dns = daemon
+        .exec(ExecCommand::new(vec![
+            "curl",
+            "-s",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &json_payload,
+            "http://127.0.0.1:8181/v1/transactions",
+        ]))
+        .await
+        .into_diagnostic()?;
+
+    let _ = insert_dns.stdout_to_vec().await.into_diagnostic()?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let dig_example_output = std::process::Command::new("dig")
+        .args([
+            "@127.0.0.1",
+            "-p",
+            &ports.dns.to_string(),
+            "api.example.com",
+            "A",
+            "+short",
+        ])
+        .output()
+        .into_diagnostic()?;
+
+    let example_result = String::from_utf8_lossy(&dig_example_output.stdout)
+        .trim()
+        .to_string();
+
+    assert!(
+        !example_result.is_empty(),
+        "DNS resolution for example.com should work"
+    );
+    assert!(
+        example_result.contains("192.168.1.10"),
+        "DNS should return correct IP for example.com"
+    );
+
+    let dig_test_output = std::process::Command::new("dig")
+        .args([
+            "@127.0.0.1",
+            "-p",
+            &ports.dns.to_string(),
+            "api.test.com",
+            "A",
+            "+short",
+        ])
+        .output()
+        .into_diagnostic()?;
+
+    let test_result = String::from_utf8_lossy(&dig_test_output.stdout)
+        .trim()
+        .to_string();
+
+    assert!(
+        !test_result.is_empty(),
+        "DNS resolution for test.com should work"
+    );
+    assert!(
+        test_result.contains("192.168.1.20"),
+        "DNS should return correct IP for test.com"
+    );
+
+    let mut ss = daemon
+        .exec(ExecCommand::new(vec!["ss", "-tulpn"]))
+        .await
+        .into_diagnostic()?;
+
+    let ss_output = ss.stdout_to_vec().await.into_diagnostic()?;
+    let ss_str = String::from_utf8_lossy(&ss_output);
+
+    assert!(
+        ss_str.contains(":853"),
+        "Port 853 should be listening when certificates are configured"
+    );
+
+    // Test SNI with ns1.example.com certificate
+    let mut ns1_result = daemon
+        .exec(ExecCommand::new(vec![
+            "timeout",
+            "5",
+            "openssl",
+            "s_client",
+            "-connect",
+            "127.0.0.1:853",
+            "-servername",
+            "ns1.example.com",
+            "-verify_return_error",
+        ]))
+        .await
+        .into_diagnostic()?;
+
+    let ns1_stdout = ns1_result.stdout_to_vec().await.unwrap_or_default();
+    let ns1_stderr = ns1_result.stderr_to_vec().await.unwrap_or_default();
+    let ns1_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&ns1_stdout),
+        String::from_utf8_lossy(&ns1_stderr)
+    );
+
+    assert!(
+        ns1_output.contains("CONNECTED")
+            || ns1_output.contains("Verification: OK")
+            || ns1_output.contains("SSL-Session"),
+        "DoT TLS connection should work for ns1.example.com. Output: {ns1_output}",
+    );
+
+    assert!(
+        ns1_output.contains("ns1.example.com"),
+        "Certificate should be for ns1.example.com. Output: {ns1_output}",
+    );
+
+    // Test SNI with ns2.example.com certificate
+    let mut ns2_result = daemon
+        .exec(ExecCommand::new(vec![
+            "timeout",
+            "5",
+            "openssl",
+            "s_client",
+            "-connect",
+            "127.0.0.1:853",
+            "-servername",
+            "ns2.example.com",
+            "-verify_return_error",
+        ]))
+        .await
+        .into_diagnostic()?;
+
+    let ns2_stdout = ns2_result.stdout_to_vec().await.unwrap_or_default();
+    let ns2_stderr = ns2_result.stderr_to_vec().await.unwrap_or_default();
+    let ns2_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&ns2_stdout),
+        String::from_utf8_lossy(&ns2_stderr)
+    );
+
+    assert!(
+        ns2_output.contains("CONNECTED")
+            || ns2_output.contains("Verification: OK")
+            || ns2_output.contains("SSL-Session"),
+        "DoT TLS connection should work for ns2.example.com. Output: {ns2_output}",
+    );
+
+    assert!(
+        ns2_output.contains("ns2.example.com"),
+        "Certificate should be for ns2.example.com. Output: {ns2_output}",
     );
 
     Ok(())

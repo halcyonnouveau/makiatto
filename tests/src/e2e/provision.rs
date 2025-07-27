@@ -1,6 +1,6 @@
 #![cfg(test)]
 use makiatto_cli::{config::Profile, machine::InitMachine};
-use miette::{IntoDiagnostic, Result, miette};
+use miette::{IntoDiagnostic, Result};
 use testcontainers::core::ExecCommand;
 
 use crate::container::{ContainerContext, PortMap, TestContainer};
@@ -73,7 +73,7 @@ async fn test_provision_second() -> Result<()> {
             "SELECT name, wg_public_key, ipv4 FROM peers WHERE name = 'test-machine-init-second';",
         ]))
         .await
-        .map_err(|e| miette!("Failed to query d1: {e}"))?;
+        .into_diagnostic()?;
 
     let d1_stdout = query.stdout_to_vec().await.into_diagnostic()?;
     let stdout = String::from_utf8_lossy(&d1_stdout);

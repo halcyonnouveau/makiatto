@@ -350,6 +350,10 @@ pub async fn cleanup_wireguard(handle: tokio::task::JoinHandle<Result<()>>) -> R
 }
 
 fn is_container() -> bool {
-    std::path::Path::new("/.dockerenv").exists()
-        || std::path::Path::new("/run/.containerenv").exists()
+    if cfg!(debug_assertions) {
+        std::path::Path::new("/.dockerenv").exists()
+            || std::path::Path::new("/run/.containerenv").exists()
+    } else {
+        false
+    }
 }

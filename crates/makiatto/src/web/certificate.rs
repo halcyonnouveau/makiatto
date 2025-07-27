@@ -21,7 +21,7 @@ pub struct Certificate {
     pub issuer: String,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CertificateManager {
     certificates: Arc<RwLock<HashMap<String, Certificate>>>,
     db_path: camino::Utf8PathBuf,

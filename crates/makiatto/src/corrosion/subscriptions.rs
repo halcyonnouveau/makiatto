@@ -353,6 +353,10 @@ impl SubscriptionWatcher {
 
             info!("Certificates change: {change_type:?} row {row_id} domain {domain}");
 
+            if let Err(e) = self.dns_restart_tx.try_send(()) {
+                error!("Failed to signal DNS restart: {e}");
+            }
+
             if let Err(e) = self.axum_restart_tx.try_send(()) {
                 error!("Failed to signal Axum restart: {e}");
             }
