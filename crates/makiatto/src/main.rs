@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
     let services = ServiceFlags::from_args(&args);
 
     let config = config::load()?;
-    makiatto::o11y::init(&config.o11y)?;
+    makiatto::o11y::init(&config)?;
 
     info!("Starting makiatto...");
 

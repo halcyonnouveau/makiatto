@@ -22,7 +22,7 @@ use maxminddb::Reader;
 use miette::{IntoDiagnostic, Result};
 use opentelemetry::{KeyValue, global};
 use tokio::net::{TcpListener, UdpSocket};
-use tracing::{Level, debug, error, info, instrument, span};
+use tracing::{Level, debug, error, info, instrument, span, warn};
 use url::Url;
 
 use crate::{
@@ -265,7 +265,7 @@ impl Handler {
         response_code: &str,
         duration: Duration,
     ) {
-        let meter = global::meter("makiatto.dns");
+        let meter = global::meter("dns");
 
         let attributes = vec![
             KeyValue::new("query_type", query_type.to_string()),
@@ -280,17 +280,17 @@ impl Handler {
         ];
 
         let counter = meter
-            .u64_counter("dns.server.query.count")
+            .u64_counter("server.query.count")
             .with_description("Total number of DNS queries")
             .build();
         counter.add(1, &attributes);
 
         let histogram = meter
-            .f64_histogram("dns.server.query.duration")
+            .f64_histogram("server.query.duration")
             .with_unit("s")
-            .with_description("DNS query response time in seconds")
+            .with_description("DNS query response time in milliseconds")
             .build();
-        histogram.record(duration.as_secs_f64(), &attributes);
+        histogram.record(duration.as_millis_f64(), &attributes);
 
         if self
             .records
@@ -298,7 +298,7 @@ impl Handler {
             .is_some_and(|records| records.iter().any(|r| r.geo_enabled))
         {
             let peer_gauge = meter
-                .u64_gauge("dns.server.peers.available")
+                .u64_gauge("server.peers.available")
                 .with_description("Number of available peers for geo-routing")
                 .build();
             peer_gauge.record(self.peers.len() as u64, &[]);
@@ -308,7 +308,11 @@ impl Handler {
 
 #[async_trait::async_trait]
 impl RequestHandler for Handler {
-    #[instrument(skip(self, handler), fields(query_name, query_type, client_ip))]
+    #[instrument(
+        name = "dns_request",
+        skip(self, handler),
+        fields(query_name, query_type, error, slow)
+    )]
     async fn handle_request<R: ResponseHandler>(
         &self,
         request: &Request,
@@ -325,6 +329,7 @@ impl RequestHandler for Handler {
             .first()
             .map(|q| q.query_type().to_string())
             .unwrap_or_default();
+        let client_ip = request.src().ip();
 
         let span = tracing::Span::current();
         span.record("query_name", &query_name);
@@ -333,14 +338,16 @@ impl RequestHandler for Handler {
         let dns_request = DnsRequest {
             op_code: request.op_code(),
             message_type: request.message_type(),
-            ip: request.src().ip(),
+            ip: client_ip,
             name: request.queries().first().unwrap().name().clone(),
         };
 
         let records = match self.build_records(&dns_request) {
             Ok(res) => res,
             Err(e) => {
+                span.record("error", e.to_string());
                 error!("Failed to build DNS records: {e}");
+
                 self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
                 return Self::create_failure_response();
             }
@@ -353,11 +360,20 @@ impl RequestHandler for Handler {
 
         match handler.send_response(response).await {
             Ok(info) => {
-                self.record_dns_metrics(&query_name, &query_type, "NOERROR", start_time.elapsed());
+                let duration = start_time.elapsed();
+
+                if duration > Duration::from_millis(100) {
+                    span.record("slow", duration.as_millis());
+                    warn!("Slow DNS query detected: {}ms", duration.as_millis());
+                }
+
+                self.record_dns_metrics(&query_name, &query_type, "NOERROR", duration);
                 info
             }
             Err(e) => {
+                span.record("error", e.to_string());
                 error!("Failed to send DNS response: {e}");
+
                 self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
                 Self::create_failure_response()
             }

@@ -18,6 +18,9 @@ http_addr = "0.0.0.0:80"
 https_addr = "0.0.0.0:443"
 static_dir = "/var/makiatto/sites"
 
+[o11y]
+sampling_ratio = 1
+
 [corrosion.admin]
 path = "/var/makiatto/admin.sock"
 

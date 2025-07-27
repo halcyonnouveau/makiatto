@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -30,23 +30,36 @@ struct WebState {
     static_dir: Arc<PathBuf>,
 }
 
-#[instrument(skip(state, headers, request), fields(hostname = tracing::field::Empty, method = %request.method(), uri = %request.uri()))]
+#[instrument(
+    name = "http_request",
+    skip(state, headers, request),
+    fields(hostname, method, uri, error, slow)
+)]
 async fn handle_request(
     State(state): State<WebState>,
     headers: HeaderMap,
     request: Request<Body>,
 ) -> Response<Body> {
+    let start_time = std::time::Instant::now();
+    let method = request.method().to_string();
+    let uri = request.uri().to_string();
     let hostname = headers
         .get("host")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("localhost");
 
+    let span = tracing::Span::current();
+    span.record("hostname", hostname);
+    span.record("method", &method);
+    span.record("uri", &uri);
+
     let domain = hostname.split(':').next().unwrap_or(hostname);
     let domain_path = state.static_dir.join(domain);
 
-    tracing::Span::current().record("hostname", hostname);
-
     if !domain_path.exists() {
+        span.record("error", format!("Domain '{domain}' not found"));
+        warn!("Domain '{domain}' not found for {method} {uri}");
+
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from(format!("Domain '{domain}' not found")))
@@ -55,11 +68,32 @@ async fn handle_request(
 
     let serve_dir = ServeDir::new(&domain_path);
     match serve_dir.oneshot(request).await {
-        Ok(response) => response.map(Body::new),
-        Err(_) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from("Error serving file"))
-            .unwrap(),
+        Ok(response) => {
+            let status = response.status();
+            let duration = start_time.elapsed();
+
+            if status.is_client_error() || status.is_server_error() {
+                span.record("error", format!("HTTP {}", status.as_u16()));
+                error!("HTTP error: {method} {uri} -> {status}");
+            } else if duration > Duration::from_secs(1) {
+                span.record("slow", duration.as_millis());
+                warn!(
+                    "Slow HTTP request: {method} {uri} took {}ms",
+                    duration.as_millis()
+                );
+            }
+
+            response.map(Body::new)
+        }
+        Err(e) => {
+            span.record("error", e.to_string());
+            error!("Failed to serve file: {e}");
+
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("Error serving file"))
+                .unwrap()
+        }
     }
 }
 
@@ -288,9 +322,9 @@ async fn metrics_middleware(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
 
     let status = response.status().as_u16();
-    let duration = start.elapsed().as_secs_f64();
+    let duration = start.elapsed().as_millis_f64();
 
-    let meter = global::meter("makiatto.web");
+    let meter = global::meter("axum");
 
     let attributes = vec![
         KeyValue::new("method", method.clone()),
@@ -298,22 +332,21 @@ async fn metrics_middleware(request: Request, next: Next) -> Response {
         KeyValue::new("status", status.to_string()),
     ];
 
-    // Record request count
     let counter = meter
-        .u64_counter("http.server.request.count")
+        .u64_counter("server.request.count")
         .with_description("Total number of HTTP requests")
         .build();
+
     counter.add(1, &attributes);
 
-    // Record request duration
     let histogram = meter
-        .f64_histogram("http.server.request.duration")
+        .f64_histogram("server.request.duration")
         .with_unit("s")
-        .with_description("HTTP request duration in seconds")
+        .with_description("HTTP request duration in milliseconds")
         .build();
+
     histogram.record(duration, &attributes);
 
-    // Track cache effectiveness (if ETag header is present)
     if response.headers().contains_key("etag") {
         let cache_status = if status == 304 { "hit" } else { "miss" };
         let cache_attributes = vec![
@@ -322,9 +355,10 @@ async fn metrics_middleware(request: Request, next: Next) -> Response {
         ];
 
         let cache_counter = meter
-            .u64_counter("http.server.cache.requests")
+            .u64_counter("server.cache.requests")
             .with_description("Cache requests by status")
             .build();
+
         cache_counter.add(1, &cache_attributes);
     }
 
