@@ -25,6 +25,7 @@ pub struct Machine {
 /// Project configuration stored in ./makiatto.toml
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
+    #[serde(rename = "domain")]
     pub domains: Arc<[Domain]>,
 }
 

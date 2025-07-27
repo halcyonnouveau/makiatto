@@ -57,8 +57,6 @@ async fn test_static_file_serving() -> Result<()> {
 
     let daemon = daemon_container.unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
     let commands = vec![
         "sudo mkdir -p /var/makiatto/sites/localhost/assets",
         "echo '<!DOCTYPE html><html><head><title>Test</title></head><body><h1>Test Page</h1></body></html>' | sudo tee /var/makiatto/sites/localhost/index.html",
@@ -175,8 +173,6 @@ async fn test_https_single_certificate() -> Result<()> {
 
     let daemon = daemon_container.unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
     create_and_insert_certificate(&daemon, "localhost", "cert.pem", "key.pem").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -218,8 +214,6 @@ async fn test_https_sni_multiple_certificates() -> Result<()> {
     } = context.make_daemon().await?;
 
     let daemon = daemon_container.unwrap();
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     create_and_insert_certificate(&daemon, "example.com", "example.crt", "example.key").await?;
     create_and_insert_certificate(&daemon, "test.com", "test.crt", "test.key").await?;
@@ -277,8 +271,6 @@ async fn test_http_to_https_redirect() -> Result<()> {
 
     let daemon = daemon_container.unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
     create_and_insert_certificate(&daemon, "localhost", "cert.pem", "key.pem").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -300,6 +292,91 @@ async fn test_http_to_https_redirect() -> Result<()> {
     assert!(location.is_some());
     let location_str = location.unwrap().to_str().into_diagnostic()?;
     assert!(location_str.starts_with("https://"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_metrics_collection() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let daemon = daemon_container.unwrap();
+
+    let commands = vec![
+        "sudo mkdir -p /var/makiatto/sites/localhost",
+        "echo '<h1>Metrics Test</h1>' | sudo tee /var/makiatto/sites/localhost/index.html",
+        "echo 'body { color: blue; }' | sudo tee /var/makiatto/sites/localhost/style.css",
+    ];
+
+    execute_commands(&daemon, &commands).await?;
+
+    let client = reqwest::Client::new();
+
+    for _ in 0..3 {
+        let _ = client
+            .get(format!("http://127.0.0.1:{}", ports.http))
+            .header("Host", "localhost")
+            .send()
+            .await
+            .into_diagnostic()?;
+    }
+
+    let _ = client
+        .get(format!("http://127.0.0.1:{}/style.css", ports.http))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    let _ = client
+        .get(format!("http://127.0.0.1:{}", ports.http))
+        .header("Host", "nonexistent.com")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    let metrics_response = client
+        .get(format!("http://127.0.0.1:{}/metrics", ports.metrics))
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(metrics_response.status(), 200);
+    let metrics_text = metrics_response.text().await.into_diagnostic()?;
+
+    // Verify that metrics are present
+    assert!(metrics_text.contains("http_requests_total"));
+    assert!(metrics_text.contains("http_request_duration_seconds"));
+
+    // Verify domain separation in metrics
+    assert!(metrics_text.contains("domain=\"localhost\""));
+    assert!(metrics_text.contains("domain=\"nonexistent.com\""));
+
+    // Verify status codes are tracked
+    assert!(metrics_text.contains("status=\"200\""));
+    assert!(metrics_text.contains("status=\"404\""));
+
+    // Verify methods are tracked
+    assert!(metrics_text.contains("method=\"GET\""));
+
+    // Verify cache metrics are present (if ETags are being generated)
+    if metrics_text.contains("http_cache_requests_total") {
+        assert!(metrics_text.contains("cache_status=\"miss\""));
+    }
+
+    println!("Metrics output sample:");
+    println!(
+        "{}",
+        &metrics_text[..std::cmp::min(1000, metrics_text.len())]
+    );
 
     Ok(())
 }

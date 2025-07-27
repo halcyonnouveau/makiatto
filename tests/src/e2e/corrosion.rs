@@ -21,8 +21,6 @@ async fn test_corrosion() -> Result<()> {
     let d1 = daemon1_container.unwrap();
     let d2 = daemon2_container.unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
     let insert_sql = r#"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6) VALUES (\"test-peer\", \"test-pubkey-123\", \"10.0.0.99/32\", 12.345, 67.890, \"192.168.1.99\", NULL)"#;
     let json_payload = format!("[\"{insert_sql}\"]");
 

@@ -81,6 +81,22 @@ pub struct WebConfig {
 
     /// Directory to serve static files from
     pub static_dir: Utf8PathBuf,
+
+    /// Enable metrics collection and export
+    #[serde(default = "default_metrics_enabled")]
+    pub metrics_enabled: bool,
+
+    /// Metrics server bind address
+    #[serde(default = "default_metrics_addr")]
+    pub metrics_addr: Arc<str>,
+}
+
+fn default_metrics_enabled() -> bool {
+    true
+}
+
+fn default_metrics_addr() -> Arc<str> {
+    Arc::from("127.0.0.1:9090")
 }
 
 impl Config {

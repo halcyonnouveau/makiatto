@@ -31,6 +31,7 @@ toml = "0.8"
 
 # Cryptography
 base64 = "0.22"
+crc32fast = "1.5"
 x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 
 # Corrosion
@@ -47,7 +48,7 @@ hickory-server = { version = "0.25", features = [
 ] }
 maxminddb = "0.26"
 
-# Networking/Web
+# Web
 axum = "0.8"
 defguard_wireguard_rs = "0.7"
 hyper = "1.6"
@@ -58,7 +59,10 @@ rustls-pemfile = "2.2"
 tokio-rustls = "0.26"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs"] }
-ssh2 = "0.9"
+
+# O11y
+metrics = "0.24"
+metrics-exporter-prometheus = "0.17"
 
 # Utilities
 camino = "1.1"
@@ -68,6 +72,7 @@ jiff = "0.2"
 notify = "8.1"
 rand = "0.9"
 reqwest = { version = "0.12", features = ["json", "stream"] }
+ssh2 = "0.9"
 url = "2.5"
 uuid = "1.17"
 

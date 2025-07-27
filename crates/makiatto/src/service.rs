@@ -5,7 +5,7 @@ use std::sync::{
 
 use miette::Result;
 use tokio::sync::{mpsc, oneshot};
-use tracing::info;
+use tracing::{error, info};
 
 /// Generic service manager for handling service lifecycle
 #[derive(Clone)]
@@ -118,6 +118,8 @@ where
                             let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
                             current_shutdown_tx = Some(shutdown_tx);
                             current_server = Some(tokio::spawn(start_fn(config.clone(), shutdown_rx)));
+
+                            info!("{service_name} server restarted");
                             let _ = response.send(Ok(()));
                         }
                         BasicServiceCommand::Shutdown { response } => {
@@ -132,6 +134,27 @@ where
                             break;
                         }
                     }
+                }
+                result = async {
+                    if let Some(server) = current_server.as_mut() {
+                        server.await
+                    } else {
+                        std::future::pending().await
+                    }
+                } => {
+                    match result {
+                        Ok(Ok(())) => {
+                            info!("{service_name} server exited normally");
+                        }
+                        Ok(Err(e)) => {
+                            error!("{service_name} server failed: {e}");
+                        }
+                        Err(e) => {
+                            error!("{service_name} server task panicked: {e}");
+                        }
+                    }
+                    current_server = None;
+                    current_shutdown_tx = None;
                 }
                 () = tripwire.clone() => {
                     info!("{service_name} manager received shutdown signal");
