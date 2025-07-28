@@ -24,6 +24,14 @@ pub struct Config {
     /// Observability configuration
     #[serde(default)]
     pub o11y: ObservabilityConfig,
+
+    /// Consensus configuration
+    #[serde(default)]
+    pub consensus: ConsensusConfig,
+
+    /// Certificate renewal configuration
+    #[serde(default)]
+    pub certificate_renewal: CertificateRenewalConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -132,6 +140,96 @@ fn default_otlp_endpoint() -> Arc<str> {
 
 fn default_sampling_ratio() -> f64 {
     0.1
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct ConsensusConfig {
+    /// Enable consensus/leader election
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Heartbeat interval in seconds
+    #[serde(default = "default_heartbeat_interval")]
+    pub heartbeat_interval: u64,
+
+    /// Leadership lease duration in seconds
+    #[serde(default = "default_lease_duration")]
+    pub lease_duration: u64,
+}
+
+impl Default for ConsensusConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            heartbeat_interval: default_heartbeat_interval(),
+            lease_duration: default_lease_duration(),
+        }
+    }
+}
+
+fn default_heartbeat_interval() -> u64 {
+    30
+}
+
+fn default_lease_duration() -> u64 {
+    120
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CertificateRenewalConfig {
+    /// Enable automatic certificate renewal
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// How often to check certificates (seconds)
+    #[serde(default = "default_check_interval")]
+    pub check_interval: u64,
+
+    /// Days before expiry to renew
+    #[serde(default = "default_renewal_threshold")]
+    pub renewal_threshold: u32,
+
+    /// Maximum renewal retry attempts
+    #[serde(default = "default_max_retry_attempts")]
+    pub max_retry_attempts: u32,
+
+    /// ACME account email (optional but recommended)
+    #[serde(default)]
+    pub acme_email: String,
+
+    /// ACME directory URL
+    #[serde(default = "default_acme_directory_url")]
+    pub acme_directory_url: String,
+}
+
+impl Default for CertificateRenewalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            check_interval: default_check_interval(),
+            renewal_threshold: default_renewal_threshold(),
+            max_retry_attempts: default_max_retry_attempts(),
+            acme_email: String::new(),
+            acme_directory_url: default_acme_directory_url(),
+        }
+    }
+}
+
+fn default_check_interval() -> u64 {
+    3600 // 1 hour
+}
+
+fn default_renewal_threshold() -> u32 {
+    30 // days
+}
+
+fn default_max_retry_attempts() -> u32 {
+    5
+}
+
+fn default_acme_directory_url() -> String {
+    // Use staging by default for safety
+    "https://acme-staging-v02.api.letsencrypt.org/directory".to_string()
 }
 
 impl Config {

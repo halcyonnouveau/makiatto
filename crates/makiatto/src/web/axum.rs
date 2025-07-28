@@ -1,17 +1,23 @@
-use std::path::Path;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use axum::{
     Router,
     body::Body,
-    extract::{Request, State},
+    extract::{Path as ExtractPath, Request, State},
     http::{
         HeaderMap, HeaderValue, StatusCode, Uri,
         header::{CACHE_CONTROL, ETAG, IF_NONE_MATCH},
     },
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
+    routing::get,
 };
+use corro_agent::rusqlite;
 use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -23,11 +29,14 @@ use tower::{Service, ServiceExt};
 use tower_http::services::ServeDir;
 use tracing::{error, info, instrument, warn};
 
-use crate::{config::Config, web::certificate::CertificateManager};
+use crate::{
+    config::Config, corrosion::schema::AcmeChallenge, web::certificate::CertificateManager,
+};
 
 #[derive(Clone)]
 struct WebState {
     static_dir: Arc<PathBuf>,
+    db_path: camino::Utf8PathBuf,
 }
 
 #[instrument(
@@ -97,6 +106,106 @@ async fn handle_request(
     }
 }
 
+#[instrument(
+    name = "acme_challenge",
+    skip(state),
+    fields(token, found, expired, error, slow)
+)]
+async fn handle_acme_challenge(
+    State(state): State<WebState>,
+    ExtractPath(token): ExtractPath<String>,
+) -> impl IntoResponse {
+    let start_time = std::time::Instant::now();
+    let span = tracing::Span::current();
+    span.record("token", &token);
+
+    let db_path = state.db_path.clone();
+    let token_clone = token.clone();
+
+    let challenge_result = tokio::task::spawn_blocking(move || -> Result<Option<AcmeChallenge>> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        let conn = rusqlite::Connection::open(&db_path)
+            .map_err(|e| miette::miette!("Failed to open database: {e}"))?;
+
+        let mut stmt = conn
+            .prepare("SELECT token, key_authorisation, created_at, expires_at FROM acme_challenges WHERE token = ?1")
+            .map_err(|e| miette::miette!("Failed to prepare query: {e}"))?;
+
+        let challenge = stmt
+            .query_row([&token_clone], |row| {
+                Ok(AcmeChallenge {
+                    token: row.get(0)?,
+                    key_authorisation: row.get(1)?,
+                    created_at: row.get(2)?,
+                    expires_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    miette::miette!("Challenge not found")
+                }
+                _ => miette::miette!("Failed to query challenge: {e}"),
+            });
+
+        match challenge {
+            Ok(challenge) => Ok(Some(challenge)),
+            Err(e) if e.to_string().contains("Challenge not found") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }).await;
+
+    let duration = start_time.elapsed();
+    let response = match challenge_result {
+        Ok(Ok(Some(challenge))) => {
+            #[allow(clippy::cast_possible_wrap)]
+            let current_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+
+            if challenge.expires_at < current_time {
+                span.record("found", true);
+                span.record("expired", true);
+                info!("ACME challenge token '{token}' has expired");
+                (StatusCode::NOT_FOUND, "Challenge expired").into_response()
+            } else {
+                span.record("found", true);
+                span.record("expired", false);
+                info!("Serving ACME challenge for token '{token}'");
+                (StatusCode::OK, challenge.key_authorisation).into_response()
+            }
+        }
+        Ok(Ok(None)) => {
+            span.record("found", false);
+            info!("ACME challenge token '{token}' not found");
+            (StatusCode::NOT_FOUND, "Challenge not found").into_response()
+        }
+        Ok(Err(e)) => {
+            span.record("error", e.to_string());
+            error!("Failed to query ACME challenge: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+        }
+        Err(e) => {
+            span.record("error", e.to_string());
+            error!("Failed to spawn blocking task: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
+        }
+    };
+
+    if duration > Duration::from_millis(100) {
+        span.record("slow", duration.as_millis());
+        warn!(
+            "Slow ACME challenge lookup for token '{token}' took {}ms",
+            duration.as_millis()
+        );
+    }
+
+    response
+}
+
 /// Start a web server instance and return a handle to control it
 ///
 /// # Errors
@@ -108,9 +217,14 @@ pub async fn start(
 ) -> Result<()> {
     let state = WebState {
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
+        db_path: config.corrosion.db.path.clone(),
     };
 
     let app = Router::new()
+        .route(
+            "/.well-known/acme-challenge/{token}",
+            get(handle_acme_challenge),
+        )
         .fallback(handle_request)
         .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(caching_middleware))
@@ -249,15 +363,12 @@ fn get_cache_control(path: &str) -> HeaderValue {
         "mp4" | "webm" | "mov" | "avi" => {
             HeaderValue::from_static("public, max-age=2592000") // 30 days
         }
-        // Documents
         "pdf" | "doc" | "docx" => {
             HeaderValue::from_static("public, max-age=3600") // 1 hour
         }
-        // Feeds - should be checked frequently but ETag avoids unnecessary transfers
         "xml" | "rss" | "atom" => {
             HeaderValue::from_static("public, max-age=1800") // 30 minutes
         }
-        // Everything else including HTML
         _ => HeaderValue::from_static("public, max-age=3600"), // 1 hour
     }
 }

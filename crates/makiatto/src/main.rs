@@ -4,6 +4,7 @@ use argh::FromArgs;
 use makiatto::{
     cache::CacheStore,
     config,
+    consensus::DirectorElection,
     corrosion::{self, subscriptions::SubscriptionWatcher},
     service, web, wireguard,
 };
@@ -133,7 +134,7 @@ async fn main() -> Result<()> {
         info!("Starting subscription watcher...");
         let subscription_watcher = SubscriptionWatcher::new(
             Arc::new(config.clone()),
-            cache_store,
+            cache_store.clone(),
             wg_manager,
             dns_restart_tx,
             axum_restart_tx,
@@ -145,6 +146,18 @@ async fn main() -> Result<()> {
             Ok("subscriptions")
         });
         handles.push(subscription_handle);
+    }
+
+    if services.corrosion && config.consensus.enabled {
+        info!("Starting director election...");
+        let director_election = DirectorElection::new(Arc::new(config.clone()));
+
+        let consensus_tripwire = tripwire.clone();
+        let consensus_handle = tokio::spawn(async move {
+            director_election.run(consensus_tripwire).await;
+            Ok("consensus")
+        });
+        handles.push(consensus_handle);
     }
 
     let (dns_manager, dns_handle) = if services.dns && config.node.is_nameserver {
