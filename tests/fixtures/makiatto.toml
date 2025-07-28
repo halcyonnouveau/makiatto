@@ -35,3 +35,13 @@ plaintext = true
 
 [corrosion.api]
 addr = "127.0.0.1:8181"
+
+[consensus]
+enabled = true
+heartbeat_interval = 2
+lease_duration = 6
+
+[certificate_renewal]
+enabled = true
+check_interval = 3600
+renewal_threshold_days = 30
