@@ -1,0 +1,2 @@
+*.Dockerfile -linguist-detectable
+Dockerfile -linguist-detectable
