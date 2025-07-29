@@ -342,7 +342,7 @@ dependencies = [
 [[package]]
 name = "backoff"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "rand 0.8.5",
 ]
@@ -680,7 +680,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 [[package]]
 name = "consul-client"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "camino",
  "hyper 0.14.32",
@@ -724,7 +724,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "corro-agent"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -786,12 +786,11 @@ dependencies = [
 [[package]]
 name = "corro-api-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "async-trait",
  "camino",
  "compact_str",
- "corro-base-types",
  "corro-speedy",
  "deadpool",
  "hex",
@@ -807,7 +806,7 @@ dependencies = [
 [[package]]
 name = "corro-base-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "async-trait",
  "camino",
@@ -828,7 +827,7 @@ dependencies = [
 [[package]]
 name = "corro-pg"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "bytes",
  "chrono",
@@ -874,7 +873,7 @@ dependencies = [
 [[package]]
 name = "corro-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -927,7 +926,7 @@ dependencies = [
 [[package]]
 name = "corro-utils"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "eyre",
  "tokio",
@@ -1821,9 +1820,6 @@ name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
-dependencies = [
- "ahash",
-]
 
 [[package]]
 name = "hashbrown"
@@ -1838,11 +1834,11 @@ dependencies = [
 
 [[package]]
 name = "hashlink"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
+checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
- "hashbrown 0.14.5",
+ "hashbrown 0.15.4",
 ]
 
 [[package]]
@@ -2795,8 +2791,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.30.1"
-source = "git+https://github.com/rusqlite/rusqlite?rev=c9f77814ddc99825f9c8eb52a0acb8d00f447f17#c9f77814ddc99825f9c8eb52a0acb8d00f447f17"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"
 dependencies = [
  "cc",
  "pkg-config",
@@ -4382,8 +4379,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.32.1"
-source = "git+https://github.com/rusqlite/rusqlite?rev=c9f77814ddc99825f9c8eb52a0acb8d00f447f17#c9f77814ddc99825f9c8eb52a0acb8d00f447f17"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "165ca6e57b20e1351573e3729b958bc62f0e48025386970b6e4d29e7a7e71f3f"
 dependencies = [
  "bitflags 2.9.1",
  "chrono",
@@ -4942,7 +4940,7 @@ dependencies = [
 [[package]]
 name = "spawn"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "futures",
  "pin-project-lite",
@@ -4995,7 +4993,7 @@ dependencies = [
 [[package]]
 name = "sqlite-functions"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -5004,7 +5002,7 @@ dependencies = [
 [[package]]
 name = "sqlite-pool"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "arc-swap",
  "deadpool",
@@ -5846,7 +5844,7 @@ dependencies = [
 [[package]]
 name = "tripwire"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/beanpuppy/corrosion#27f7f0912c3f92dd07be20bebc54e8eb5255b813"
+source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
 dependencies = [
  "futures",
  "futures-util",
