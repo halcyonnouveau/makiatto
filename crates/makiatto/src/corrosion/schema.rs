@@ -71,8 +71,8 @@ pub struct Peer {
 
 #[derive(Debug, Clone)]
 pub struct DnsRecord {
-    pub record_type: String,
-    pub base_value: String,
+    pub record_type: Arc<str>,
+    pub base_value: Arc<str>,
     pub ttl: u32,
     pub priority: Option<i32>,
     pub geo_enabled: bool,
@@ -80,17 +80,17 @@ pub struct DnsRecord {
 
 #[derive(Debug, Clone)]
 pub struct Certificate {
-    pub domain: String,
-    pub certificate_pem: String,
-    pub private_key_pem: String,
+    pub domain: Arc<str>,
+    pub certificate_pem: Arc<str>,
+    pub private_key_pem: Arc<str>,
     pub expires_at: i64,
-    pub issuer: String,
+    pub issuer: Arc<str>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ClusterLeadership {
-    pub role: String,
-    pub node_name: String,
+    pub role: Arc<str>,
+    pub node_name: Arc<str>,
     pub term: i64,
     pub last_heartbeat: i64,
     pub expires_at: i64,
@@ -98,18 +98,18 @@ pub struct ClusterLeadership {
 
 #[derive(Debug, Clone)]
 pub struct CertificateRenewal {
-    pub domain: String,
+    pub domain: Arc<str>,
     pub last_check: i64,
     pub last_renewal: Option<i64>,
-    pub renewal_status: String,
+    pub renewal_status: Arc<str>,
     pub next_check: i64,
     pub retry_count: i32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AcmeChallenge {
-    pub token: String,
-    pub key_authorisation: String,
+    pub token: Arc<str>,
+    pub key_authorisation: Arc<str>,
     pub created_at: i64,
     pub expires_at: i64,
 }

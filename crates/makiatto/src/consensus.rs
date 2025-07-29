@@ -17,14 +17,14 @@ const DIRECTOR_ROLE: &str = "director";
 pub struct DirectorElection {
     config: Arc<Config>,
     db_path: camino::Utf8PathBuf,
-    node_name: String,
+    node_name: Arc<str>,
     state: Arc<RwLock<LeadershipState>>,
 }
 
 #[derive(Debug, Clone)]
 struct LeadershipState {
     is_leader: bool,
-    current_leader: Option<String>,
+    current_leader: Option<Arc<str>>,
     current_term: i64,
 }
 
@@ -37,7 +37,7 @@ impl DirectorElection {
         Self {
             config,
             db_path,
-            node_name: node_name.to_string(),
+            node_name,
             state: Arc::new(RwLock::new(LeadershipState {
                 is_leader: false,
                 current_leader: None,
@@ -363,7 +363,7 @@ impl DirectorElection {
     }
 
     /// Get the current leader node ID
-    pub async fn get_current_leader(&self) -> Option<String> {
+    pub async fn get_current_leader(&self) -> Option<Arc<str>> {
         self.state.read().await.current_leader.clone()
     }
 }

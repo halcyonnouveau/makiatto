@@ -44,8 +44,8 @@ pub enum Error {
 #[derive(Debug, Clone)]
 pub struct DnsPeer {
     point: Point,
-    ipv4: String,
-    ipv6: Option<String>,
+    ipv4: Arc<str>,
+    ipv6: Option<Arc<str>>,
 }
 
 #[derive(Debug)]
@@ -237,13 +237,12 @@ impl Handler {
 
                 let peer = closest_peer?;
 
-                if record.record_type == "AAAA" && peer.ipv6.is_none() {
-                    return None;
-                }
-
                 let value = match record.record_type.as_str() {
                     "A" => &peer.ipv4,
-                    "AAAA" => peer.ipv6.as_ref().unwrap(),
+                    "AAAA" => match &peer.ipv6 {
+                        Some(ipv6) => ipv6,
+                        None => return None,
+                    },
                     _ => &record.base_value,
                 };
 
@@ -428,8 +427,8 @@ pub async fn start(
         .iter()
         .map(|p| DnsPeer {
             point: point!(x: p.latitude, y: p.longitude),
-            ipv4: p.ipv4.to_string(),
-            ipv6: p.ipv6.as_ref().map(ToString::to_string),
+            ipv4: p.ipv4.clone(),
+            ipv6: p.ipv6.clone(),
         })
         .collect();
 
