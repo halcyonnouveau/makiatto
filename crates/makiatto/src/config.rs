@@ -40,7 +40,7 @@ pub struct NodeConfig {
     pub name: Arc<str>,
 
     /// Data directory for this node
-    pub data_dir: Utf8PathBuf,
+    pub data_dir: Arc<Utf8PathBuf>,
 
     /// Whether this node should act as a nameserver
     pub is_nameserver: bool,
@@ -80,7 +80,7 @@ pub struct Bootstrap {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DnsConfig {
     /// Path to `GeoLite2` database
-    pub geolite_path: Utf8PathBuf,
+    pub geolite_path: Arc<Utf8PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -92,7 +92,7 @@ pub struct WebConfig {
     pub https_addr: Arc<str>,
 
     /// Directory to serve static files from
-    pub static_dir: Utf8PathBuf,
+    pub static_dir: Arc<Utf8PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

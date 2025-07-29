@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
     let args: Args = argh::from_env();
     let services = ServiceFlags::from_args(&args);
 
-    let config = config::load()?;
+    let config = Arc::new(config::load()?);
     makiatto::o11y::init(&config)?;
 
     info!("Starting makiatto...");
@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
     if services.corrosion {
         info!("Starting subscription watcher...");
         let subscription_watcher = SubscriptionWatcher::new(
-            Arc::new(config.clone()),
+            config.clone(),
             cache_store.clone(),
             wg_manager,
             dns_restart_tx,
@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
 
     if services.corrosion && config.consensus.enabled {
         info!("Starting director election...");
-        let director_election = DirectorElection::new(Arc::new(config.clone()));
+        let director_election = DirectorElection::new(config.clone());
 
         let consensus_tripwire = tripwire.clone();
         let consensus_handle = tokio::spawn(async move {
@@ -164,7 +164,7 @@ async fn main() -> Result<()> {
         info!("Starting dns server...");
         let (dns_mgr, dns_task) = service::setup(
             "dns",
-            Arc::new(config.clone()),
+            config.clone(),
             tripwire.clone(),
             |config, tripwire| async move { web::dns::start(config, tripwire).await },
         )?;
@@ -197,7 +197,7 @@ async fn main() -> Result<()> {
         info!("Starting axum server...");
 
         let (axum_manager, axum_handle) =
-            service::setup("axum", Arc::new(config.clone()), tripwire.clone(), {
+            service::setup("axum", config.clone(), tripwire.clone(), {
                 move |config, tripwire| async move { web::axum::start(config, tripwire).await }
             })?;
         (

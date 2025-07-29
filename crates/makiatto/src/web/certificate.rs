@@ -67,8 +67,8 @@ impl CertificateManager {
 
                     Ok(Certificate {
                         domain: row.get(0)?,
-                        certificate_pem,
-                        private_key_pem,
+                        certificate_pem: Arc::from(certificate_pem),
+                        private_key_pem: Arc::from(private_key_pem),
                         expires_at: row.get(3)?,
                         issuer: row.get(4)?,
                     })
@@ -97,7 +97,7 @@ impl CertificateManager {
         certificates.clear();
 
         for cert in certs {
-            certificates.insert(cert.domain.clone(), cert);
+            certificates.insert(cert.domain.to_string(), cert);
         }
 
         Ok(())
@@ -154,7 +154,7 @@ impl CertificateManager {
         self.certificates
             .write()
             .await
-            .insert(cert.domain.clone(), cert);
+            .insert(cert.domain.to_string(), cert);
 
         Ok(())
     }

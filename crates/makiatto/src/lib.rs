@@ -1,4 +1,5 @@
 #![feature(duration_millis_float)]
+#![feature(str_as_str)]
 pub mod cache;
 pub mod config;
 pub mod consensus;

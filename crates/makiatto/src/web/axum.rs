@@ -175,7 +175,7 @@ async fn handle_acme_challenge(
                 span.record("found", true);
                 span.record("expired", false);
                 info!("Serving ACME challenge for token '{token}'");
-                (StatusCode::OK, challenge.key_authorisation).into_response()
+                (StatusCode::OK, challenge.key_authorisation.to_string()).into_response()
             }
         }
         Ok(Ok(None)) => {

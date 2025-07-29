@@ -102,8 +102,8 @@ pub fn get_dns_records(
             Ok((
                 lookup_key,
                 DnsRecord {
-                    record_type,
-                    base_value,
+                    record_type: Arc::from(record_type),
+                    base_value: Arc::from(base_value),
                     ttl,
                     priority,
                     geo_enabled: geo_enabled == 1,
@@ -130,7 +130,7 @@ pub fn get_dns_records(
 ///
 /// # Errors
 /// Returns an error if the agent fails to start or encounters runtime errors
-pub async fn run(config: Config, tripwire: tripwire::Tripwire) -> Result<()> {
+pub async fn run(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()> {
     info!("Starting Corrosion agent for node '{}'", config.node.name);
 
     if let Err(e) = tokio::fs::create_dir_all(&*config.node.data_dir).await {
