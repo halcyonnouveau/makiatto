@@ -30,6 +30,7 @@ futures = { workspace = true }
 futures-util = { workspace = true }
 geo = { workspace = true }
 hickory-proto = { workspace = true }
+hickory-resolver = { workspace = true }
 hickory-server = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
@@ -42,6 +43,7 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-cron-scheduler = { workspace = true }

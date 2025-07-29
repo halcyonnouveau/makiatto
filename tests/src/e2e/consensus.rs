@@ -2,25 +2,15 @@
 use std::{sync::Arc, time::Duration};
 
 use miette::Result;
-use testcontainers::{ContainerAsync, GenericImage, core::ExecCommand};
+use testcontainers::{ContainerAsync, GenericImage};
 
-use crate::container::{ContainerContext, TestContainer};
+use crate::container::{ContainerContext, TestContainer, util};
 
 /// Helper function to query cluster leadership
 async fn get_cluster_leadership(
     daemon: &Arc<ContainerAsync<GenericImage>>,
 ) -> Result<Option<Vec<String>>> {
-    let mut result = daemon
-        .exec(ExecCommand::new(vec![
-            "sqlite3",
-            "/var/makiatto/cluster.db",
-            "SELECT role, node_name, term, last_heartbeat, expires_at FROM cluster_leadership WHERE role = 'director';",
-        ]))
-        .await
-        .map_err(|e| miette::miette!("Failed to query leadership: {e}"))?;
-
-    let response_bytes = result.stdout_to_vec().await.unwrap();
-    let response = String::from_utf8_lossy(&response_bytes);
+    let response = util::query_database(daemon, "SELECT role, node_name, term, last_heartbeat, expires_at FROM cluster_leadership WHERE role = 'director';").await?;
 
     if response.trim().is_empty() {
         return Ok(None);

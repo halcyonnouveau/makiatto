@@ -117,8 +117,9 @@ async fn main() -> Result<()> {
              *    - Load machines config to get machine list and find nameservers
              *    - Connect to first available machine's Corrosion API or database
              *    - Insert/update domain in domains table
-             *    - Auto-generate required DNS records:
+             *    - Auto-generate required DNS records for the primary domain (eg quaso.engineering):
              *      * A records: Point to all active peer IPs (with geo_enabled=1)
+             *      * AAAA records: Point to all active peer IPs (with geo_enabled=1)
              *      * SOA record: Primary nameserver with standard values
              *      * NS records: One for each nameserver machine
              *      * CAA records: Let's Encrypt authorization

@@ -1,8 +1,7 @@
 #![cfg(test)]
-use miette::{IntoDiagnostic, Result};
-use testcontainers::core::ExecCommand;
+use miette::Result;
 
-use crate::container::{ContainerContext, TestContainer};
+use crate::container::{ContainerContext, TestContainer, util};
 
 #[tokio::test]
 async fn test_corrosion() -> Result<()> {
@@ -21,39 +20,16 @@ async fn test_corrosion() -> Result<()> {
     let d1 = daemon1_container.unwrap();
     let d2 = daemon2_container.unwrap();
 
-    let insert_sql = r#"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6) VALUES (\"test-peer\", \"test-pubkey-123\", \"10.0.0.99/32\", 12.345, 67.890, \"192.168.1.99\", NULL)"#;
-    let json_payload = format!("[\"{insert_sql}\"]");
-
-    let mut insert = d2
-        .exec(ExecCommand::new(vec![
-            "curl",
-            "-s",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            &json_payload,
-            "http://127.0.0.1:8181/v1/transactions",
-        ]))
-        .await
-        .into_diagnostic()?;
-
-    let _ = insert.stdout_to_vec().await.into_diagnostic()?;
+    let insert_sql = r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6) VALUES ('test-peer', 'test-pubkey-123', '10.0.0.99/32', 12.345, 67.890, '192.168.1.99', NULL)";
+    util::execute_transaction(&d2, insert_sql).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let mut query = d1
-        .exec(ExecCommand::new(vec![
-            "sqlite3",
-            "/var/makiatto/cluster.db",
-            "SELECT name, wg_public_key, ipv4 FROM peers WHERE name = 'test-peer';",
-        ]))
-        .await
-        .into_diagnostic()?;
-
-    let d1_stdout = query.stdout_to_vec().await.into_diagnostic()?;
-    let stdout = String::from_utf8_lossy(&d1_stdout);
+    let stdout = util::query_database(
+        &d1,
+        "SELECT name, wg_public_key, ipv4 FROM peers WHERE name = 'test-peer';",
+    )
+    .await?;
 
     assert!(!stdout.is_empty(), "No data returned from d1 query");
     assert!(stdout.contains("test-peer"));

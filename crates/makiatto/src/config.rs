@@ -29,9 +29,9 @@ pub struct Config {
     #[serde(default)]
     pub consensus: ConsensusConfig,
 
-    /// Certificate renewal configuration
+    /// ACME configuration
     #[serde(default)]
-    pub certificate_renewal: CertificateRenewalConfig,
+    pub acme: AcmeConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -176,7 +176,7 @@ fn default_lease_duration() -> u64 {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CertificateRenewalConfig {
+pub struct AcmeConfig {
     /// Enable automatic certificate renewal
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -202,7 +202,7 @@ pub struct CertificateRenewalConfig {
     pub acme_directory_url: String,
 }
 
-impl Default for CertificateRenewalConfig {
+impl Default for AcmeConfig {
     fn default() -> Self {
         Self {
             enabled: default_true(),

@@ -27,8 +27,8 @@ use url::Url;
 
 use crate::{
     config::Config,
-    corrosion::{self, DnsRecord},
-    web::certificate::CertificateManager,
+    corrosion::{self, schema::DnsRecord},
+    web::certificate::CertificateStore,
 };
 
 #[derive(thiserror::Error, Debug, miette::Diagnostic)]
@@ -422,7 +422,8 @@ pub async fn start(
         download_geolite(&config.dns.geolite_path).await?;
     }
 
-    let peers: Vec<DnsPeer> = corrosion::get_peers(&config)
+    let peers: Vec<DnsPeer> = corrosion::get_peers()
+        .await
         .unwrap_or_else(|_| Arc::from([]))
         .iter()
         .map(|p| DnsPeer {
@@ -432,22 +433,22 @@ pub async fn start(
         })
         .collect();
 
-    let records = corrosion::get_dns_records(&config).unwrap_or_default();
+    let records = corrosion::get_dns_records().await.unwrap_or_default();
     let reader = Reader::open_readfile(&*config.dns.geolite_path).into_diagnostic()?;
 
-    let cert_manager = {
-        let manager = CertificateManager::new(config.corrosion.db.path.clone());
-        if let Err(e) = manager.load_certificates().await {
+    let cert_store = {
+        let store = CertificateStore::new();
+        if let Err(e) = store.load_certificates().await {
             error!("Failed to load certificates for DNS: {e}");
             None
         } else {
             info!("Loaded certificates for DNS virtual hosts");
-            Some(manager)
+            Some(store)
         }
     };
 
-    let tls_config = if let Some(ref cert_manager) = cert_manager {
-        match cert_manager.build_tls_config().await {
+    let tls_config = if let Some(ref cert_store) = cert_store {
+        match cert_store.build_tls_config().await {
             Ok(tls_config) => {
                 let cert_resolver = tls_config.cert_resolver.clone();
 

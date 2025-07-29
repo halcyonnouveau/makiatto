@@ -1,22 +1,19 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use corro_agent::rusqlite::Connection;
 use miette::Result;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, interval};
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::constants::CORROSION_API_PORT;
-use crate::corrosion::schema::ClusterLeadership;
+use crate::corrosion::{self, schema::ClusterLeadership};
 
 const DIRECTOR_ROLE: &str = "director";
 
 #[derive(Debug, Clone)]
 pub struct DirectorElection {
     config: Arc<Config>,
-    db_path: camino::Utf8PathBuf,
     node_name: Arc<str>,
     state: Arc<RwLock<LeadershipState>>,
 }
@@ -31,12 +28,10 @@ struct LeadershipState {
 impl DirectorElection {
     #[must_use]
     pub fn new(config: Arc<Config>) -> Self {
-        let db_path = config.corrosion.db.path.clone();
         let node_name = config.node.name.clone();
 
         Self {
             config,
-            db_path,
             node_name,
             state: Arc::new(RwLock::new(LeadershipState {
                 is_leader: false,
@@ -166,26 +161,7 @@ impl DirectorElection {
             current_time,
         );
 
-        let json_payload = format!(
-            "[\"{}\"]",
-            sql.replace('"', "\\\"").replace('\n', " ").trim()
-        );
-
-        let client = reqwest::Client::new();
-        let response = client
-            .post(format!(
-                "http://127.0.0.1:{CORROSION_API_PORT}/v1/transactions"
-            ))
-            .header("Content-Type", "application/json")
-            .body(json_payload)
-            .send()
-            .await
-            .map_err(|e| miette::miette!("Failed to send leadership claim: {e}"))?;
-
-        if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(miette::miette!("Failed to claim leadership: {error_text}"));
-        }
+        corrosion::execute_transaction(&sql).await?;
 
         let leadership = self.get_current_leadership().await?;
 
@@ -227,42 +203,28 @@ impl DirectorElection {
             current_time, expires_at, DIRECTOR_ROLE, self.node_name, current_term
         );
 
-        let json_payload = format!(
-            "[\"{}\"]",
-            sql.replace('"', "\\\"").replace('\n', " ").trim()
-        );
-
-        let client = reqwest::Client::new();
-        let response = client
-            .post(format!(
-                "http://127.0.0.1:{CORROSION_API_PORT}/v1/transactions"
-            ))
-            .header("Content-Type", "application/json")
-            .body(json_payload)
-            .send()
-            .await
-            .map_err(|e| miette::miette!("Failed to update heartbeat: {e}"))?;
-
-        if response.status().is_success() {
-            debug!("Updated leadership heartbeat");
-        } else {
-            let error_text = response.text().await.unwrap_or_default();
-            warn!("Failed to update heartbeat: {error_text}");
-
-            // Check if we're still leader
-            let leadership = self.get_current_leadership().await?;
-            if let Some(leader) = leadership
-                && (leader.node_name != self.node_name || leader.term != current_term)
-            {
-                let mut state = self.state.write().await;
-                state.is_leader = false;
-                state.current_leader = Some(leader.node_name.clone());
-                state.current_term = leader.term;
-                warn!(
-                    "Lost leadership to '{}' (term {})",
-                    leader.node_name, leader.term
-                );
+        match corrosion::execute_transaction(&sql).await {
+            Ok(()) => {
+                debug!("Updated leadership heartbeat");
             }
+            Err(e) => {
+                warn!("Failed to update heartbeat: {e}");
+            }
+        }
+
+        // Check if we're still leader
+        let leadership = self.get_current_leadership().await?;
+        if let Some(leader) = leadership
+            && (leader.node_name != self.node_name || leader.term != current_term)
+        {
+            let mut state = self.state.write().await;
+            state.is_leader = false;
+            state.current_leader = Some(leader.node_name.clone());
+            state.current_term = leader.term;
+            warn!(
+                "Lost leadership to '{}' (term {})",
+                leader.node_name, leader.term
+            );
         }
 
         Ok(())
@@ -270,49 +232,26 @@ impl DirectorElection {
 
     /// Get current leadership from database
     async fn get_current_leadership(&self) -> Result<Option<ClusterLeadership>> {
-        let db_path = self.db_path.clone();
+        let pool = crate::corrosion::get_pool().await?;
 
-        tokio::task::spawn_blocking(move || -> Result<Option<ClusterLeadership>> {
-            if !db_path.exists() {
-                return Ok(None);
-            }
-
-            let conn = Connection::open(&db_path)
-                .map_err(|e| miette::miette!("Failed to open database: {e}"))?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT role, node_name, term, last_heartbeat, expires_at
-                     FROM cluster_leadership
-                     WHERE role = ?1",
-                )
-                .map_err(|e| miette::miette!("Failed to prepare query: {e}"))?;
-
-            let leadership = stmt
-                .query_row([DIRECTOR_ROLE], |row| {
-                    Ok(ClusterLeadership {
-                        role: row.get(0)?,
-                        node_name: row.get(1)?,
-                        term: row.get(2)?,
-                        last_heartbeat: row.get(3)?,
-                        expires_at: row.get(4)?,
-                    })
-                })
-                .map_err(|e| match e {
-                    corro_agent::rusqlite::Error::QueryReturnedNoRows => {
-                        miette::miette!("No leadership record found")
-                    }
-                    _ => miette::miette!("Failed to query leadership: {e}"),
-                });
-
-            match leadership {
-                Ok(leader) => Ok(Some(leader)),
-                Err(e) if e.to_string().contains("No leadership record found") => Ok(None),
-                Err(e) => Err(e),
-            }
-        })
+        let row = sqlx::query!(
+            "SELECT role, node_name, term, last_heartbeat, expires_at FROM cluster_leadership WHERE role = ?1",
+            DIRECTOR_ROLE
+        )
+        .fetch_optional(pool)
         .await
-        .map_err(|e| miette::miette!("Failed to spawn blocking task: {e}"))?
+        .map_err(|e| miette::miette!("Failed to query leadership: {e}"))?;
+
+        match row {
+            Some(row) => Ok(Some(ClusterLeadership {
+                role: row.role.into(),
+                node_name: row.node_name.into(),
+                term: row.term,
+                last_heartbeat: row.last_heartbeat,
+                expires_at: row.expires_at,
+            })),
+            None => Ok(None),
+        }
     }
 
     /// Step down from leadership
@@ -332,23 +271,7 @@ impl DirectorElection {
             DIRECTOR_ROLE, self.node_name, current_term
         );
 
-        let json_payload = format!(
-            "[\"{}\"]",
-            sql.replace('"', "\\\"").replace('\n', " ").trim()
-        );
-
-        let client = reqwest::Client::new();
-        let response = client
-            .post(format!(
-                "http://127.0.0.1:{CORROSION_API_PORT}/v1/transactions"
-            ))
-            .header("Content-Type", "application/json")
-            .body(json_payload)
-            .send()
-            .await
-            .map_err(|e| miette::miette!("Failed to step down: {e}"))?;
-
-        if response.status().is_success() {
+        if corrosion::execute_transaction(&sql).await.is_ok() {
             let mut state = self.state.write().await;
             state.is_leader = false;
             info!("Stepped down from leadership");

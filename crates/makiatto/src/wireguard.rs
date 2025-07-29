@@ -98,7 +98,10 @@ where
     ///
     /// # Errors
     /// Returns an error if the interface cannot be created or configured
-    pub fn new(config: &WireguardConfig, peers: Option<Arc<[corrosion::Peer]>>) -> Result<Self> {
+    pub fn new(
+        config: &WireguardConfig,
+        peers: Option<Arc<[corrosion::schema::Peer]>>,
+    ) -> Result<Self> {
         if is_container() {
             info!(
                 "Container environment detected - skipping WireGuard interface '{}' setup",
@@ -296,10 +299,18 @@ where
 ///
 /// # Errors
 /// Returns an error if the interface cannot be created or configured
-pub fn setup(
+pub async fn setup(
     config: &Config,
-    peers: Option<Arc<[corrosion::Peer]>>,
 ) -> Result<(WireguardManager, tokio::task::JoinHandle<Result<()>>)> {
+    // peers excluding ourself
+    let peers = crate::corrosion::get_peers().await.ok().as_ref().map(|p| {
+        p.iter()
+            .filter(|peer| peer.name != config.node.name)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into()
+    });
+
     let wg_interface = Wireguard::new(&config.wireguard, peers)?;
     let (tx, mut rx) = mpsc::unbounded_channel();
     let manager = WireguardManager { tx };

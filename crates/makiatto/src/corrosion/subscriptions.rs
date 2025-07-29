@@ -10,6 +10,7 @@ use tracing::{error, info, warn};
 use crate::cache::{CacheStore, SubscriptionState};
 use crate::config::Config;
 use crate::constants::{CORROSION_API_PORT, WIREGUARD_PORT};
+use crate::corrosion::consensus::DirectorElection;
 use crate::wireguard::WireguardManager;
 
 const MAX_BACKOFF_SECS: u64 = 86400; // 1 day
@@ -17,6 +18,7 @@ const MAX_BACKOFF_SECS: u64 = 86400; // 1 day
 pub struct SubscriptionWatcher {
     config: Arc<Config>,
     cache_store: CacheStore,
+    director_election: Arc<DirectorElection>,
     wireguard_manager: Option<WireguardManager>,
     dns_restart_tx: tokio::sync::mpsc::Sender<()>,
     axum_restart_tx: tokio::sync::mpsc::Sender<()>,
@@ -27,6 +29,7 @@ impl SubscriptionWatcher {
     pub fn new(
         config: Arc<Config>,
         cache_store: CacheStore,
+        director_election: Arc<DirectorElection>,
         wireguard_manager: Option<WireguardManager>,
         dns_restart_tx: tokio::sync::mpsc::Sender<()>,
         axum_restart_tx: tokio::sync::mpsc::Sender<()>,
@@ -34,6 +37,7 @@ impl SubscriptionWatcher {
         Self {
             config,
             cache_store,
+            director_election,
             wireguard_manager,
             dns_restart_tx,
             axum_restart_tx,
@@ -41,6 +45,7 @@ impl SubscriptionWatcher {
     }
 
     /// Start watching subscriptions
+    #[allow(clippy::too_many_lines)]
     pub async fn run(&self, mut tripwire: tripwire::Tripwire) {
         let peers_handle = tokio::spawn({
             let watcher = self.clone();
@@ -103,6 +108,25 @@ impl SubscriptionWatcher {
             }
         });
 
+        let domains_handle = tokio::spawn({
+            let watcher = self.clone();
+            let tripwire = tripwire.clone();
+            async move {
+                watcher
+                    .watch_table(
+                        tripwire,
+                        "Domains",
+                        "SELECT name FROM domains",
+                        "subscription_domains",
+                        |event| {
+                            let watcher = watcher.clone();
+                            Box::pin(async move { watcher.handle_domains_change(event).await })
+                        },
+                    )
+                    .await;
+            }
+        });
+
         tokio::select! {
             () = &mut tripwire => {
                 info!("Subscription watcher shutting down");
@@ -120,6 +144,11 @@ impl SubscriptionWatcher {
             res = certificates_handle => {
                 if let Err(e) = res {
                     error!("Certificates watcher task failed: {e}");
+                }
+            }
+            res = domains_handle => {
+                if let Err(e) = res {
+                    error!("Domains watcher task failed: {e}");
                 }
             }
         }
@@ -277,6 +306,15 @@ impl SubscriptionWatcher {
                 error!("Failed to signal DNS restart: {e}");
             }
 
+            // If this node is the director, regenerate nameserver records
+            if self.director_election.is_leader().await {
+                if let Err(e) = super::generate_nameserver_records().await {
+                    error!("Failed to generate nameserver records: {e}");
+                } else {
+                    info!("Director regenerated nameserver records due to peers change");
+                }
+            }
+
             if values.len() >= 4 {
                 let name = values[0].as_text().unwrap_or("");
                 let ipv4 = values[1].as_text().unwrap_or("");
@@ -362,6 +400,33 @@ impl SubscriptionWatcher {
             }
         }
     }
+
+    /// Handle changes to `domains` table
+    async fn handle_domains_change(&self, event: &QueryEvent) -> Result<()> {
+        if let QueryEvent::Change(change_type, row_id, values, _) = event {
+            let domain = if values.is_empty() {
+                "unknown"
+            } else {
+                values[0].as_text().unwrap_or("unknown")
+            };
+
+            info!("Domains change: {change_type:?} row {row_id} domain {domain}");
+
+            if let Err(e) = self.dns_restart_tx.try_send(()) {
+                error!("Failed to signal DNS restart: {e}");
+            }
+
+            if self.director_election.is_leader().await {
+                if let Err(e) = super::generate_nameserver_records().await {
+                    error!("Failed to generate nameserver records: {e}");
+                } else {
+                    info!("Director regenerated nameserver records due to domains change");
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Clone for SubscriptionWatcher {
@@ -372,6 +437,7 @@ impl Clone for SubscriptionWatcher {
             wireguard_manager: self.wireguard_manager.clone(),
             dns_restart_tx: self.dns_restart_tx.clone(),
             axum_restart_tx: self.axum_restart_tx.clone(),
+            director_election: self.director_election.clone(),
         }
     }
 }

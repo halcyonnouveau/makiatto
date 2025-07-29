@@ -17,7 +17,6 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use corro_agent::rusqlite;
 use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -29,9 +28,7 @@ use tower::{Service, ServiceExt};
 use tower_http::services::ServeDir;
 use tracing::{error, info, instrument, warn};
 
-use crate::{
-    config::Config, corrosion::schema::AcmeChallenge, web::certificate::CertificateManager,
-};
+use crate::{config::Config, corrosion::schema::AcmeChallenge, web::certificate::CertificateStore};
 
 #[derive(Clone)]
 struct WebState {
@@ -122,44 +119,35 @@ async fn handle_acme_challenge(
     let db_path = state.db_path.clone();
     let token_clone = token.clone();
 
-    let challenge_result = tokio::task::spawn_blocking(move || -> Result<Option<AcmeChallenge>> {
+    let challenge_result: Result<Option<AcmeChallenge>, miette::Report> = async move {
         if !db_path.exists() {
             return Ok(None);
         }
 
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| miette::miette!("Failed to open database: {e}"))?;
+        let pool = crate::corrosion::get_pool().await?;
 
-        let mut stmt = conn
-            .prepare("SELECT token, key_authorisation, created_at, expires_at FROM acme_challenges WHERE token = ?1")
-            .map_err(|e| miette::miette!("Failed to prepare query: {e}"))?;
+        let row = sqlx::query!(
+            "SELECT token, key_authorisation, created_at, expires_at FROM acme_challenges WHERE token = ?1",
+            token_clone
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query challenge: {e}"))?;
 
-        let challenge = stmt
-            .query_row([&token_clone], |row| {
-                Ok(AcmeChallenge {
-                    token: row.get(0)?,
-                    key_authorisation: row.get(1)?,
-                    created_at: row.get(2)?,
-                    expires_at: row.get(3)?,
-                })
-            })
-            .map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    miette::miette!("Challenge not found")
-                }
-                _ => miette::miette!("Failed to query challenge: {e}"),
-            });
-
-        match challenge {
-            Ok(challenge) => Ok(Some(challenge)),
-            Err(e) if e.to_string().contains("Challenge not found") => Ok(None),
-            Err(e) => Err(e),
+        match row {
+            Some(row) => Ok(Some(AcmeChallenge {
+                token: row.token.into(),
+                key_authorisation: row.key_authorisation.into(),
+                created_at: row.created_at,
+                expires_at: row.expires_at,
+            })),
+            None => Ok(None),
         }
-    }).await;
+    }.await;
 
     let duration = start_time.elapsed();
     let response = match challenge_result {
-        Ok(Ok(Some(challenge))) => {
+        Ok(Some(challenge)) => {
             #[allow(clippy::cast_possible_wrap)]
             let current_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -178,20 +166,15 @@ async fn handle_acme_challenge(
                 (StatusCode::OK, challenge.key_authorisation.to_string()).into_response()
             }
         }
-        Ok(Ok(None)) => {
+        Ok(None) => {
             span.record("found", false);
             info!("ACME challenge token '{token}' not found");
             (StatusCode::NOT_FOUND, "Challenge not found").into_response()
         }
-        Ok(Err(e)) => {
+        Err(e) => {
             span.record("error", e.to_string());
             error!("Failed to query ACME challenge: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
-        }
-        Err(e) => {
-            span.record("error", e.to_string());
-            error!("Failed to spawn blocking task: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
         }
     };
 
@@ -242,14 +225,13 @@ pub async fn start(
         .parse()
         .map_err(|e| miette::miette!("Invalid HTTPS address: {e}"))?;
 
-    let cert_manager = CertificateManager::new(config.corrosion.db.path.clone());
+    let cert_store = CertificateStore::new();
 
-    if let Err(e) = cert_manager.load_certificates().await {
+    if let Err(e) = cert_store.load_certificates().await {
         warn!("Failed to load certificates from database: {e}");
     }
 
-    let (https_server, https_active) = if let Ok(tls_config) = cert_manager.build_tls_config().await
-    {
+    let (https_server, https_active) = if let Ok(tls_config) = cert_store.build_tls_config().await {
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
         let (https_shutdown_tx, https_shutdown_rx) = tokio::sync::mpsc::channel(1);
         (
