@@ -16,14 +16,25 @@ CREATE TABLE IF NOT EXISTS peers (
     updated_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond'))
 );
 
+CREATE TABLE IF NOT EXISTS domains (
+    name TEXT NOT NULL PRIMARY KEY DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS domain_aliases (
+    alias TEXT NOT NULL PRIMARY KEY,
+    target TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS dns_records (
-    domain TEXT NOT NULL PRIMARY KEY,
-    name TEXT NOT NULL DEFAULT '',
-    record_type TEXT NOT NULL DEFAULT '',
-    base_value TEXT NOT NULL DEFAULT '',
+    domain TEXT NOT NULL,
+    name TEXT NOT NULL,
+    record_type TEXT NOT NULL,
+    value TEXT NOT NULL DEFAULT '',
+    source_domain TEXT NOT NULL DEFAULT '',
     ttl INTEGER NOT NULL DEFAULT 300,
-    priority INTEGER DEFAULT NULL,
-    geo_enabled INTEGER NOT NULL DEFAULT 0
+    priority INTEGER NOT NULL DEFAULT 0,
+    geo_enabled INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (domain, name, record_type)
 );
 
 CREATE TABLE IF NOT EXISTS certificates (
@@ -70,11 +81,25 @@ pub struct Peer {
 }
 
 #[derive(Debug, Clone)]
+pub struct Domain {
+    pub name: Arc<str>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DomainAlias {
+    pub alias: Arc<str>,
+    pub target: Arc<str>,
+}
+
+#[derive(Debug, Clone)]
 pub struct DnsRecord {
+    pub name: Arc<str>,
+    pub domain: Arc<str>,
+    pub source_domain: Arc<str>,
     pub record_type: Arc<str>,
-    pub base_value: Arc<str>,
+    pub value: Arc<str>,
     pub ttl: u32,
-    pub priority: Option<i32>,
+    pub priority: i32,
     pub geo_enabled: bool,
 }
 

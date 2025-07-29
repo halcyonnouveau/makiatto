@@ -80,7 +80,7 @@ pub fn get_dns_records(
         Connection::open(db_path).map_err(|e| miette::miette!("Failed to open database: {e}"))?;
 
     let mut stmt = conn
-        .prepare("SELECT domain, name, record_type, base_value, ttl, priority, geo_enabled FROM dns_records")
+        .prepare("SELECT domain, name, record_type, value, source_domain, ttl, priority, geo_enabled FROM dns_records")
         .map_err(|e| miette::miette!("Failed to prepare query: {e}"))?;
 
     let record_iter = stmt
@@ -88,22 +88,22 @@ pub fn get_dns_records(
             let domain: String = row.get(0)?;
             let name: String = row.get(1)?;
             let record_type: String = row.get(2)?;
-            let base_value: String = row.get(3)?;
-            let ttl: u32 = row.get(4)?;
-            let priority: Option<i32> = row.get(5)?;
-            let geo_enabled: i32 = row.get(6)?;
+            let value: String = row.get(3)?;
+            let source_domain: String = row.get(4)?;
+            let ttl: u32 = row.get(5)?;
+            let priority: i32 = row.get(6)?;
+            let geo_enabled: i32 = row.get(7)?;
 
-            let lookup_key = if name.is_empty() {
-                domain.clone()
-            } else {
-                format!("{name}.{domain}")
-            };
+            let lookup_key = domain.clone();
 
             Ok((
                 lookup_key,
                 DnsRecord {
+                    name: Arc::from(name),
+                    domain: Arc::from(domain),
+                    source_domain: Arc::from(source_domain),
                     record_type: Arc::from(record_type),
-                    base_value: Arc::from(base_value),
+                    value: Arc::from(value),
                     ttl,
                     priority,
                     geo_enabled: geo_enabled == 1,

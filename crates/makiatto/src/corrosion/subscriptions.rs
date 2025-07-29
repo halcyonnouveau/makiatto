@@ -69,7 +69,7 @@ impl SubscriptionWatcher {
                     .watch_table(
                         tripwire,
                         "DNS records",
-                        "SELECT domain, name, record_type, base_value FROM dns_records",
+                        "SELECT domain, name, record_type, value FROM dns_records",
                         "subscription_dns_records",
                         |event| {
                             let watcher = watcher.clone();
