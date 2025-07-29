@@ -2,7 +2,7 @@ FROM docker.io/rustlang/rust:nightly-slim AS builder
 
 WORKDIR /app
 RUN apt update && apt install -y \
-    libssl-dev pkg-config \
+    libssl-dev pkg-config sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./

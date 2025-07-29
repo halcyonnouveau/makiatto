@@ -1,262 +1,335 @@
-use std::collections::HashMap;
-use std::io::BufReader;
+pub mod acme;
+pub mod store;
+
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
-use base64::prelude::*;
-use corro_agent::rusqlite::{Connection, Error as SqliteError, types::Type as SqliteType};
-use rustls::crypto::ring::sign::any_supported_type;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::server::{ClientHello, ResolvesServerCert};
-use rustls::{ServerConfig, sign::CertifiedKey};
-use rustls_pemfile::{certs, private_key};
-use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+pub use acme::AcmeClient;
+use hickory_proto::runtime::TokioRuntimeProvider;
+use hickory_resolver::name_server::{GenericConnector, TokioConnectionProvider};
+use hickory_resolver::{Resolver, TokioResolver};
+use miette::Result;
+pub use store::CertificateStore;
+use tokio::time::interval;
+use tracing::{debug, error, info, warn};
 
-use crate::constants::CORROSION_API_PORT;
-use crate::corrosion::schema::Certificate;
+use crate::config::Config;
+use crate::corrosion::{self, consensus::DirectorElection, schema::Certificate};
 
-#[derive(Debug, Clone)]
+/// Orchestrates certificate lifecycle management
+#[derive(Debug)]
 pub struct CertificateManager {
-    certificates: Arc<RwLock<HashMap<String, Certificate>>>,
-    db_path: camino::Utf8PathBuf,
+    config: Arc<Config>,
+    director_election: Arc<DirectorElection>,
+    store: Arc<CertificateStore>,
+    acme_client: Arc<AcmeClient>,
+    resolver: Arc<Resolver<GenericConnector<TokioRuntimeProvider>>>,
 }
 
 impl CertificateManager {
-    #[must_use]
-    pub fn new(db_path: camino::Utf8PathBuf) -> Self {
-        Self {
-            certificates: Arc::new(RwLock::new(HashMap::new())),
-            db_path,
-        }
-    }
-
-    /// Load all certificates from the database
+    /// Create a new certificate manager
     ///
     /// # Errors
-    /// Returns an error if the database connection fails or the query fails
-    pub async fn load_certificates(&self) -> miette::Result<()> {
-        let db_path = self.db_path.clone();
+    /// Returns an error if the DNS resolver cannot be created
+    pub fn new(
+        config: Arc<Config>,
+        director_election: Arc<DirectorElection>,
+        store: Arc<CertificateStore>,
+    ) -> Result<Self> {
+        let acme_client = Arc::new(AcmeClient::new(config.clone()));
 
-        let certs = tokio::task::spawn_blocking(move || -> miette::Result<Vec<Certificate>> {
-            if !db_path.exists() {
-                info!("Database does not exist yet, skipping certificate loading");
-                return Ok(Vec::new());
-            }
-
-            let conn = Connection::open(&db_path)
-                .map_err(|e| miette::miette!("Failed to open database: {e}"))?;
-
-            let mut stmt = conn
-                .prepare("SELECT domain, certificate_pem, private_key_pem, expires_at, issuer FROM certificates")
-                .map_err(|e| miette::miette!("Failed to prepare query: {e}"))?;
-
-            let rows = stmt
-                .query_map([], |row| {
-                    let cert_b64: String = row.get(1)?;
-                    let key_b64: String = row.get(2)?;
-
-                    let certificate_pem = BASE64_STANDARD.decode(&cert_b64)
-                        .map_err(|e| SqliteError::FromSqlConversionFailure(1, SqliteType::Text, Box::new(e)))
-                        .and_then(|bytes| String::from_utf8(bytes)
-                            .map_err(|e| SqliteError::FromSqlConversionFailure(1, SqliteType::Text, Box::new(e))))?;
-
-                    let private_key_pem = BASE64_STANDARD.decode(&key_b64)
-                        .map_err(|e| SqliteError::FromSqlConversionFailure(2, SqliteType::Text, Box::new(e)))
-                        .and_then(|bytes| String::from_utf8(bytes)
-                            .map_err(|e| SqliteError::FromSqlConversionFailure(2, SqliteType::Text, Box::new(e))))?;
-
-                    Ok(Certificate {
-                        domain: row.get(0)?,
-                        certificate_pem: Arc::from(certificate_pem),
-                        private_key_pem: Arc::from(private_key_pem),
-                        expires_at: row.get(3)?,
-                        issuer: row.get(4)?,
-                    })
-                })
-                .map_err(|e| miette::miette!("Failed to query certificates: {e}"))?;
-
-            let mut certs = Vec::new();
-            for cert_result in rows {
-                match cert_result {
-                    Ok(cert) => {
-                        info!("Loaded certificate for domain: {}", cert.domain);
-                        certs.push(cert);
-                    }
-                    Err(e) => {
-                        error!("Failed to load certificate: {e}");
-                    }
-                }
-            }
-
-            info!("Loaded {} certificates from database", certs.len());
-            Ok(certs)
-        }).await
-        .map_err(|e| miette::miette!("Failed to spawn blocking task: {e}"))??;
-
-        let mut certificates = self.certificates.write().await;
-        certificates.clear();
-
-        for cert in certs {
-            certificates.insert(cert.domain.to_string(), cert);
-        }
-
-        Ok(())
-    }
-
-    pub async fn get_certificate(&self, domain: &str) -> Option<Certificate> {
-        self.certificates.read().await.get(domain).cloned()
-    }
-
-    /// Save a certificate to the database
-    ///
-    /// # Errors
-    /// Returns an error if the database transaction fails
-    pub async fn save_certificate(&self, cert: Certificate) -> miette::Result<()> {
-        let cert_pem_b64 = BASE64_STANDARD.encode(cert.certificate_pem.as_bytes());
-        let key_pem_b64 = BASE64_STANDARD.encode(cert.private_key_pem.as_bytes());
-
-        let sql = format!(
-            "INSERT OR REPLACE INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{}', '{}', '{}', {}, '{}')",
-            cert.domain.replace('\'', "''"),
-            cert_pem_b64,
-            key_pem_b64,
-            cert.expires_at,
-            cert.issuer.replace('\'', "''")
+        let resolver = Arc::new(
+            TokioResolver::builder(TokioConnectionProvider::default())
+                .map_err(|e| miette::miette!("Failed to create resolver: {e}"))?
+                .build(),
         );
 
-        let json_payload = format!("[\"{}\"]", sql.replace('"', "\\\""));
+        Ok(Self {
+            config,
+            director_election,
+            store,
+            acme_client,
+            resolver,
+        })
+    }
 
-        let client = reqwest::Client::new();
-        let response = client
-            .post(format!(
-                "http://127.0.0.1:{CORROSION_API_PORT}/v1/transactions",
-            ))
-            .header("Content-Type", "application/json")
-            .body(json_payload)
-            .send()
-            .await
-            .map_err(|e| miette::miette!("Failed to send transaction to Corrosion: {e}"))?;
+    /// Load certificates from database and generate nameserver records
+    ///
+    /// # Errors
+    /// Returns an error if operations fail
+    pub async fn load_certificates(&self) -> Result<()> {
+        self.store.load_certificates().await?;
 
-        if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(miette::miette!("Corrosion API error: {error_text}"));
+        // Generate nameserver DNS records automatically
+        if let Err(e) = corrosion::generate_nameserver_records().await {
+            error!("Failed to generate nameserver records: {e}");
         }
-
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| miette::miette!("Failed to read response: {e}"))?;
-
-        if !response_text.contains("\"rows_affected\"") || response_text.contains("\"error\"") {
-            return Err(miette::miette!("Corrosion API error: {response_text}"));
-        }
-
-        self.certificates
-            .write()
-            .await
-            .insert(cert.domain.to_string(), cert);
 
         Ok(())
     }
 
-    /// Build TLS configuration from loaded certificates with SNI support
+    /// Get a certificate by domain
+    pub async fn get_certificate(&self, domain: &str) -> Option<Certificate> {
+        self.store.get_certificate(domain).await
+    }
+
+    /// Save a certificate
     ///
     /// # Errors
-    /// Returns an error if no certificates are available or TLS config building fails
-    pub async fn build_tls_config(&self) -> miette::Result<ServerConfig> {
-        let certificates = self.certificates.read().await;
-
-        if certificates.is_empty() {
-            return Err(miette::miette!("No certificates available"));
-        }
-
-        // Build certified keys for all domains
-        let mut certified_keys = HashMap::new();
-        let mut default_cert = None;
-
-        for (domain, cert) in certificates.iter() {
-            let cert_chain = load_certs_from_pem(&cert.certificate_pem)
-                .map_err(|e| miette::miette!("Failed to parse PEM for {domain}: {e}"))?;
-
-            let key = load_key_from_pem(&cert.private_key_pem)
-                .map_err(|e| miette::miette!("Failed to create private key for {domain}: {e}"))?;
-
-            let signing_key = any_supported_type(&key)
-                .map_err(|e| miette::miette!("Failed to create signing key for {domain}: {e}"))?;
-
-            let certified_key = Arc::new(CertifiedKey::new(cert_chain, signing_key));
-
-            if default_cert.is_none() {
-                default_cert = Some(certified_key.clone());
-            }
-
-            certified_keys.insert(domain.clone(), certified_key);
-            info!("Registered certificate for domain: {}", domain);
-        }
-
-        let cert_resolver = SniCertResolver {
-            certs: certified_keys,
-            default_cert,
-        };
-
-        // Install default crypto provider if none is set
-        let _ = rustls::crypto::ring::default_provider().install_default();
-
-        let mut config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_cert_resolver(Arc::new(cert_resolver));
-
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-
-        Ok(config)
+    /// Returns an error if database operations fail
+    pub async fn save_certificate(&self, cert: Certificate) -> Result<()> {
+        self.store.save_certificate(cert).await
     }
-}
 
-fn load_certs_from_pem(pem: &str) -> miette::Result<Vec<CertificateDer<'static>>> {
-    let mut reader = BufReader::new(pem.as_bytes());
-    certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| miette::miette!("Failed to parse certificate PEM: {e}"))
-}
+    /// Build TLS configuration
+    ///
+    /// # Errors
+    /// Returns an error if TLS config cannot be built
+    pub async fn build_tls_config(&self) -> Result<rustls::ServerConfig> {
+        self.store.build_tls_config().await
+    }
 
-fn load_key_from_pem(pem: &str) -> miette::Result<PrivateKeyDer<'static>> {
-    let mut reader = BufReader::new(pem.as_bytes());
-    private_key(&mut reader)
-        .map_err(|e| miette::miette!("Failed to parse private key PEM: {e}"))?
-        .ok_or_else(|| miette::miette!("No private key found in PEM"))
-}
+    /// Get expiring certificates
+    ///
+    /// # Errors
+    /// Returns an error if operations fail
+    pub async fn get_expiring_certificates(&self, days_threshold: u64) -> Result<Vec<String>> {
+        self.store.get_expiring_certificates(days_threshold).await
+    }
 
-/// SNI certificate resolver that selects the appropriate certificate based on the requested hostname
-#[derive(Debug)]
-struct SniCertResolver {
-    certs: HashMap<String, Arc<CertifiedKey>>,
-    default_cert: Option<Arc<CertifiedKey>>,
-}
+    /// Check if certificate is expiring
+    ///
+    /// # Errors
+    /// Returns an error if operations fail
+    pub async fn is_certificate_expiring(&self, domain: &str, days_threshold: u64) -> Result<bool> {
+        self.store
+            .is_certificate_expiring(domain, days_threshold)
+            .await
+    }
 
-impl ResolvesServerCert for SniCertResolver {
-    fn resolve(&self, client_hello: ClientHello) -> Option<Arc<CertifiedKey>> {
-        if let Some(server_name) = client_hello.server_name() {
-            let name = match std::str::from_utf8(server_name.as_ref()) {
-                Ok(name) => name,
-                Err(e) => {
-                    debug!("Invalid UTF-8 in SNI hostname: {e}");
-                    return self.default_cert.clone();
+    /// Get certificate expiration info
+    pub async fn get_certificate_expiration_info(&self) -> Vec<(String, i64, bool)> {
+        self.store.get_certificate_expiration_info().await
+    }
+
+    /// Start the ACME renewal loop
+    pub async fn run(&self, mut tripwire: tripwire::Tripwire) {
+        if !self.config.acme.enabled {
+            info!("ACME certificate renewal is disabled");
+            return;
+        }
+
+        let mut check_interval = interval(Duration::from_secs(self.config.acme.check_interval));
+        check_interval.tick().await; // skip the first immediate tick
+
+        loop {
+            tokio::select! {
+                () = &mut tripwire => {
+                    info!("Certificate manager shutting down");
+                    break;
                 }
-            };
+                _ = check_interval.tick() => {
+                    if !self.director_election.is_leader().await {
+                        debug!("Not the director, skipping certificate check");
+                        continue;
+                    }
 
-            if let Some(cert) = self.certs.get(name) {
-                return Some(cert.clone());
-            }
-
-            // Try wildcard match (e.g., *.example.com matches sub.example.com)
-            if let Some(dot_pos) = name.find('.') {
-                let wildcard = format!("*{}", &name[dot_pos..]);
-                if let Some(cert) = self.certs.get(&wildcard) {
-                    return Some(cert.clone());
+                    info!("Running certificate check as director");
+                    if let Err(e) = self.check_and_renew_certificates().await {
+                        error!("Certificate renewal check failed: {e}");
+                    }
                 }
             }
         }
+    }
 
-        self.default_cert.clone()
+    /// Check all domains and renew certificates as needed (business logic)
+    async fn check_and_renew_certificates(&self) -> Result<()> {
+        let domains = self.get_candidate_domains().await?;
+        info!(
+            "Found {} candidate domains for certificate management",
+            domains.len()
+        );
+
+        let peer_ips = self.get_cluster_ips().await?;
+
+        for domain in domains {
+            if let Err(e) = self.process_domain(&domain, &peer_ips).await {
+                error!("Failed to process domain {domain}: {e}");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Process a single domain for certificate renewal (business logic)
+    async fn process_domain(&self, domain: &str, peer_ips: &[IpAddr]) -> Result<()> {
+        if domain.parse::<IpAddr>().is_ok() || domain == "localhost" {
+            debug!("Skipping {domain}: not eligible for certificates");
+            return Ok(());
+        }
+
+        if !self.validate_domain_ownership(domain, peer_ips).await? {
+            warn!("Domain {domain} does not resolve to our cluster, skipping");
+            return Ok(());
+        }
+
+        let needs_renewal = self
+            .store
+            .is_certificate_expiring(domain, self.config.acme.renewal_threshold.into())
+            .await?;
+        if !needs_renewal {
+            debug!("Domain {domain} certificate is still valid");
+            return Ok(());
+        }
+
+        info!("Domain {domain} needs certificate renewal");
+
+        if let Some((status, retry_count)) = self.get_renewal_status(domain).await? {
+            if status == "in_progress" {
+                warn!("Certificate renewal for {domain} is already in progress");
+                return Ok(());
+            }
+
+            if retry_count >= self.config.acme.max_retry_attempts {
+                warn!("Maximum retry attempts reached for {domain}, skipping");
+                return Ok(());
+            }
+        }
+
+        self.update_renewal_status(domain, "in_progress").await?;
+
+        match self.acme_client.order_certificate(domain).await {
+            Ok(cert) => {
+                info!("Successfully obtained certificate for {domain}");
+                self.store.save_certificate(cert).await?;
+                self.update_renewal_status(domain, "completed").await?;
+            }
+            Err(e) => {
+                error!("Failed to obtain certificate for {domain}: {e}");
+                self.update_renewal_status(domain, "failed").await?;
+                self.increment_retry_count(domain).await?;
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get all candidate domains from the database
+    async fn get_candidate_domains(&self) -> Result<Vec<String>> {
+        let pool = corrosion::get_pool().await?;
+
+        let rows = sqlx::query!(
+            "SELECT DISTINCT domain FROM (
+                SELECT domain FROM dns_records WHERE record_type IN ('A', 'AAAA', 'CNAME')
+                UNION
+                SELECT alias AS domain FROM domain_aliases
+            ) ORDER BY domain"
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query domains: {e}"))?;
+
+        let domains: Vec<String> = rows.into_iter().map(|row| row.domain).collect();
+        Ok(domains)
+    }
+
+    /// Get cluster IPs for domain validation
+    async fn get_cluster_ips(&self) -> Result<Vec<IpAddr>> {
+        let peers = corrosion::get_peers().await?;
+        let mut peer_ips = Vec::new();
+
+        // Add peer IPs
+        for peer in peers.iter() {
+            if let Ok(ip) = peer.ipv4.parse::<IpAddr>() {
+                peer_ips.push(ip);
+            }
+
+            if let Some(ipv6) = &peer.ipv6
+                && let Ok(ip) = ipv6.parse::<IpAddr>()
+            {
+                peer_ips.push(ip);
+            }
+        }
+
+        Ok(peer_ips)
+    }
+
+    /// Validate that a domain resolves to one of our IPs
+    async fn validate_domain_ownership(&self, domain: &str, peer_ips: &[IpAddr]) -> Result<bool> {
+        match self.resolver.lookup_ip(domain).await {
+            Ok(response) => {
+                let resolved_ips: Vec<IpAddr> = response.iter().collect();
+                debug!("Domain {domain} resolves to: {:?}", resolved_ips);
+
+                let valid = resolved_ips.iter().any(|ip| peer_ips.contains(ip));
+
+                if !valid {
+                    debug!("Domain {domain} does not resolve to cluster IPs");
+                    debug!("Peer IPs: {:?}", peer_ips);
+                }
+
+                Ok(valid)
+            }
+            Err(e) => {
+                warn!("Failed to resolve domain {domain}: {e}");
+                Ok(false)
+            }
+        }
+    }
+
+    /// Get renewal status from database
+    async fn get_renewal_status(&self, domain: &str) -> Result<Option<(String, u32)>> {
+        let pool = corrosion::get_pool().await?;
+
+        let row = sqlx::query!(
+            "SELECT renewal_status, retry_count FROM certificate_renewals WHERE domain = ?1",
+            domain
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query renewal status: {e}"))?;
+
+        match row {
+            Some(row) => Ok(Some((
+                row.renewal_status,
+                row.retry_count.try_into().unwrap_or(0),
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    /// Update renewal status in database
+    async fn update_renewal_status(&self, domain: &str, status: &str) -> Result<()> {
+        let now = CertificateStore::get_current_timestamp()?;
+
+        #[allow(clippy::cast_possible_wrap)]
+        let next_check = now + self.config.acme.check_interval as i64;
+
+        let sql = format!(
+            r"INSERT OR REPLACE INTO certificate_renewals
+            (domain, last_check, renewal_status, next_check, retry_count, last_renewal)
+            VALUES ('{domain}', {now}, '{status}', {next_check},
+                COALESCE((SELECT retry_count FROM certificate_renewals WHERE domain = '{domain}'), 0),
+                CASE WHEN '{status}' = 'completed' THEN {now} ELSE
+                    (SELECT last_renewal FROM certificate_renewals WHERE domain = '{domain}')
+                END
+            )",
+        );
+
+        corrosion::execute_transaction(&sql).await
+    }
+
+    /// Increment retry count for a domain
+    async fn increment_retry_count(&self, domain: &str) -> Result<()> {
+        let sql = format!(
+            r"UPDATE certificate_renewals
+            SET retry_count = retry_count + 1
+            WHERE domain = '{domain}'",
+        );
+
+        corrosion::execute_transaction(&sql).await
     }
 }

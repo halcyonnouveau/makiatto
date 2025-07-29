@@ -1,9 +1,8 @@
 #![cfg(test)]
 use makiatto_cli::{config::Profile, machine::InitMachine};
-use miette::{IntoDiagnostic, Result};
-use testcontainers::core::ExecCommand;
+use miette::Result;
 
-use crate::container::{ContainerContext, PortMap, TestContainer};
+use crate::container::{ContainerContext, PortMap, TestContainer, util};
 
 #[tokio::test]
 async fn test_provision_first() -> Result<()> {
@@ -64,19 +63,11 @@ async fn test_provision_second() -> Result<()> {
     // test peer data replicated to daemon container
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let mut query = daemon
-        .container
-        .expect("No daemon container")
-        .exec(ExecCommand::new(vec![
-            "sqlite3",
-            "/var/makiatto/cluster.db",
-            "SELECT name, wg_public_key, ipv4 FROM peers WHERE name = 'test-machine-init-second';",
-        ]))
-        .await
-        .into_diagnostic()?;
-
-    let d1_stdout = query.stdout_to_vec().await.into_diagnostic()?;
-    let stdout = String::from_utf8_lossy(&d1_stdout);
+    let stdout = util::query_database(
+        daemon.container.as_ref().expect("No daemon container"),
+        "SELECT name, wg_public_key, ipv4 FROM peers WHERE name = 'test-machine-init-second';",
+    )
+    .await?;
 
     assert!(!stdout.is_empty(), "No data returned from d1 query");
     assert!(stdout.contains("test-machine-init-second"));

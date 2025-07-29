@@ -4,9 +4,10 @@ use argh::FromArgs;
 use makiatto::{
     cache::CacheStore,
     config,
-    consensus::DirectorElection,
-    corrosion::{self, subscriptions::SubscriptionWatcher},
-    service, web, wireguard,
+    corrosion::{self, consensus::DirectorElection, subscriptions::SubscriptionWatcher},
+    service, web,
+    web::certificate::{CertificateManager, CertificateStore},
+    wireguard,
 };
 use miette::Result;
 use tokio::{
@@ -93,30 +94,6 @@ async fn main() -> Result<()> {
     let cache_store = CacheStore::new(&config.node.data_dir)?;
     let mut handles = vec![];
 
-    // peers excluding ourself
-    let peers = corrosion::get_peers(&config).ok().as_ref().map(|p| {
-        p.iter()
-            .filter(|peer| peer.name != config.node.name)
-            .cloned()
-            .collect::<Vec<_>>()
-            .into()
-    });
-
-    let wg_manager = if services.wireguard {
-        let (wg_mgr, wg_handle) = wireguard::setup(&config, peers)?;
-        let wg_task = tokio::spawn(async move {
-            match wg_handle.await {
-                Ok(Ok(())) => Ok("wireguard"),
-                Ok(Err(e)) => Err(format!("WireGuard failed: {e}")),
-                Err(e) => Err(format!("WireGuard task panicked: {e}")),
-            }
-        });
-        handles.push(wg_task);
-        Some(wg_mgr)
-    } else {
-        None
-    };
-
     if services.corrosion {
         info!("Starting Corrosion agent...");
         let cfg_corrosion = config.clone();
@@ -130,11 +107,38 @@ async fn main() -> Result<()> {
         handles.push(corrosion_handle);
     }
 
-    if services.corrosion {
+    let wg_manager = if services.wireguard {
+        let (wg_mgr, wg_handle) = wireguard::setup(&config).await?;
+        let wg_task = tokio::spawn(async move {
+            match wg_handle.await {
+                Ok(Ok(())) => Ok("wireguard"),
+                Ok(Err(e)) => Err(format!("WireGuard failed: {e}")),
+                Err(e) => Err(format!("WireGuard task panicked: {e}")),
+            }
+        });
+        handles.push(wg_task);
+        Some(wg_mgr)
+    } else {
+        None
+    };
+
+    if services.corrosion && config.consensus.enabled {
+        info!("Starting director election...");
+        let director_election = Arc::new(DirectorElection::new(config.clone()));
+
+        let consensus_tripwire = tripwire.clone();
+        let director_clone = director_election.clone();
+        let consensus_handle = tokio::spawn(async move {
+            director_clone.run(consensus_tripwire).await;
+            Ok("consensus")
+        });
+        handles.push(consensus_handle);
+
         info!("Starting subscription watcher...");
         let subscription_watcher = SubscriptionWatcher::new(
             config.clone(),
             cache_store.clone(),
+            director_election.clone(),
             wg_manager,
             dns_restart_tx,
             axum_restart_tx,
@@ -146,18 +150,18 @@ async fn main() -> Result<()> {
             Ok("subscriptions")
         });
         handles.push(subscription_handle);
-    }
 
-    if services.corrosion && config.consensus.enabled {
-        info!("Starting director election...");
-        let director_election = DirectorElection::new(config.clone());
+        // Start certificate manager for ACME renewal
+        info!("Starting certificate manager...");
+        let cert_store = Arc::new(CertificateStore::new());
+        let cert_manager = CertificateManager::new(config.clone(), director_election, cert_store)?;
 
-        let consensus_tripwire = tripwire.clone();
-        let consensus_handle = tokio::spawn(async move {
-            director_election.run(consensus_tripwire).await;
-            Ok("consensus")
+        let cert_tripwire = tripwire.clone();
+        let cert_handle = tokio::spawn(async move {
+            cert_manager.run(cert_tripwire).await;
+            Ok("certificate_manager")
         });
-        handles.push(consensus_handle);
+        handles.push(cert_handle);
     }
 
     let (dns_manager, dns_handle) = if services.dns && config.node.is_nameserver {

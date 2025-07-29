@@ -1,7 +1,7 @@
 #![cfg(test)]
 use miette::{IntoDiagnostic, Result};
 
-use crate::container::{ContainerContext, TestContainer, create_cert, execute_commands};
+use crate::container::{ContainerContext, TestContainer, util};
 
 #[tokio::test]
 async fn test_virtual_hosting() -> Result<()> {
@@ -22,7 +22,7 @@ async fn test_virtual_hosting() -> Result<()> {
         "echo '<h1>Example.com Homepage</h1>' | sudo tee /var/makiatto/sites/example.com/index.html",
     ];
 
-    execute_commands(&daemon, &commands).await?;
+    util::execute_commands(&daemon, &commands).await?;
 
     let example_com_response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{}", ports.http))
@@ -59,7 +59,7 @@ async fn test_static_file_serving() -> Result<()> {
         "sudo chown -R makiatto:makiatto /var/makiatto/sites",
     ];
 
-    execute_commands(&daemon, &commands).await?;
+    util::execute_commands(&daemon, &commands).await?;
 
     let html_response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{}", ports.http))
@@ -166,7 +166,7 @@ async fn test_https_single_certificate() -> Result<()> {
 
     let daemon = daemon_container.unwrap();
 
-    create_cert(&daemon, "localhost", "cert.pem", "key.pem").await?;
+    util::generate_tls_certificate(&daemon, "localhost", "cert.pem", "key.pem").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -175,7 +175,7 @@ async fn test_https_single_certificate() -> Result<()> {
         "echo '<h1>HTTPS Test Page</h1>' | sudo tee /var/makiatto/sites/localhost/index.html",
     ];
 
-    execute_commands(&daemon, &setup_commands).await?;
+    util::execute_commands(&daemon, &setup_commands).await?;
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
@@ -208,8 +208,8 @@ async fn test_https_sni_multiple_certificates() -> Result<()> {
 
     let daemon = daemon_container.unwrap();
 
-    create_cert(&daemon, "example.com", "example.crt", "example.key").await?;
-    create_cert(&daemon, "test.com", "test.crt", "test.key").await?;
+    util::generate_tls_certificate(&daemon, "example.com", "example.crt", "example.key").await?;
+    util::generate_tls_certificate(&daemon, "test.com", "test.crt", "test.key").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -220,7 +220,7 @@ async fn test_https_sni_multiple_certificates() -> Result<()> {
         "echo '<h1>Test.com HTTPS</h1>' | sudo tee /var/makiatto/sites/test.com/index.html",
     ];
 
-    execute_commands(&daemon, &setup_commands).await?;
+    util::execute_commands(&daemon, &setup_commands).await?;
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
@@ -264,7 +264,7 @@ async fn test_http_to_https_redirect() -> Result<()> {
 
     let daemon = daemon_container.unwrap();
 
-    create_cert(&daemon, "localhost", "cert.pem", "key.pem").await?;
+    util::generate_tls_certificate(&daemon, "localhost", "cert.pem", "key.pem").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 

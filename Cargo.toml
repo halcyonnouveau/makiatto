@@ -35,8 +35,12 @@ corro-agent = { git = "https://github.com/beanpuppy/corrosion" }
 corro-types = { git = "https://github.com/beanpuppy/corrosion" }
 tripwire = { git = "https://github.com/beanpuppy/corrosion" }
 
+# Database
+sqlx = { git = "https://github.com/launchbadge/sqlx", features = ["runtime-tokio", "sqlite"] }
+
 # DNS
 hickory-proto = "0.25"
+hickory-resolver = "0.25"
 hickory-server = { version = "0.25", features = [
     "tls-ring",
     "https-ring",
@@ -49,7 +53,7 @@ axum = "0.8"
 defguard_wireguard_rs = "0.7"
 hyper = "1.6"
 hyper-util = "0.1"
-instant-acme = "0.7"
+instant-acme = "0.8"
 rustls = "0.23"
 rustls-pemfile = "2.2"
 tokio-rustls = "0.26"

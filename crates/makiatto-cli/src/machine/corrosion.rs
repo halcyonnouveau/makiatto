@@ -25,7 +25,7 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
         .map_or_else(|| "NULL".to_string(), |s| format!("\\\"{s}\\\""));
 
     let sql = format!(
-        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address) VALUES (\\\"{}\\\", {}, {}, \\\"{}\\\", {}, \\\"{}\\\", \\\"{}\\\")",
+        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver) VALUES (\\\"{}\\\", {}, {}, \\\"{}\\\", {}, \\\"{}\\\", \\\"{}\\\", \\\"{}\\\")",
         machine.name,
         latitude,
         longitude,
@@ -33,6 +33,7 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
         ipv6_value,
         machine.wg_public_key,
         machine.wg_address,
+        u8::from(machine.is_nameserver)
     );
 
     let json_payload = format!("[\"{sql}\"]");

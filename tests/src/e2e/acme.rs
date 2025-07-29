@@ -1,61 +1,10 @@
 #![cfg(test)]
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use miette::{IntoDiagnostic, Result};
-use testcontainers::{ContainerAsync, GenericImage, core::ExecCommand};
+use testcontainers::{ContainerAsync, GenericImage};
 
-use crate::container::{ContainerContext, TestContainer};
-
-/// Helper function to insert an ACME challenge via Corrosion API
-async fn insert_acme_challenge(
-    daemon: &Arc<ContainerAsync<GenericImage>>,
-    token: &str,
-    key_authorisation: &str,
-    expires_in_seconds: i64,
-) -> Result<()> {
-    #[allow(clippy::cast_possible_wrap)]
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-
-    let expires_at = current_time + expires_in_seconds;
-
-    let sql = format!(
-        "INSERT INTO acme_challenges (token, key_authorisation, created_at, expires_at) VALUES ('{token}', '{key_authorisation}', {current_time}, {expires_at})",
-    );
-
-    let json_payload = serde_json::to_string(&[sql]).unwrap();
-
-    let mut result = daemon
-        .exec(ExecCommand::new(vec![
-            "curl",
-            "-s",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            &json_payload,
-            "http://127.0.0.1:8181/v1/transactions",
-        ]))
-        .await
-        .map_err(|e| miette::miette!("Failed to insert ACME challenge: {e}"))?;
-
-    let response_bytes = result.stdout_to_vec().await.unwrap();
-    let response = String::from_utf8_lossy(&response_bytes);
-    if !response.contains("\"rows_affected\"") || response.contains("\"error\"") {
-        return Err(miette::miette!(
-            "ACME challenge insertion failed: {}",
-            response
-        ));
-    }
-
-    Ok(())
-}
+use crate::container::{ContainerContext, TestContainer, util};
 
 /// Helper function to remove an ACME challenge via Corrosion API
 async fn remove_acme_challenge(
@@ -63,33 +12,23 @@ async fn remove_acme_challenge(
     token: &str,
 ) -> Result<()> {
     let sql = format!("DELETE FROM acme_challenges WHERE token = '{token}'");
-    let json_payload = serde_json::to_string(&[sql]).unwrap();
+    util::execute_transaction(daemon, &sql).await
+}
 
-    let mut result = daemon
-        .exec(ExecCommand::new(vec![
-            "curl",
-            "-s",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            &json_payload,
-            "http://127.0.0.1:8181/v1/transactions",
-        ]))
-        .await
-        .map_err(|e| miette::miette!("Failed to remove ACME challenge: {e}"))?;
+/// Insert an ACME challenge via Corrosion API
+pub async fn insert_acme_challenge(
+    daemon: &Arc<ContainerAsync<GenericImage>>,
+    token: &str,
+    key_authorisation: &str,
+    expires_in_seconds: i64,
+) -> Result<()> {
+    let current_time = util::current_timestamp();
+    let expires_at = current_time + expires_in_seconds;
 
-    let response_bytes = result.stdout_to_vec().await.unwrap();
-    let response = String::from_utf8_lossy(&response_bytes);
-    if !response.contains("\"rows_affected\"") || response.contains("\"error\"") {
-        return Err(miette::miette!(
-            "ACME challenge removal failed: {}",
-            response
-        ));
-    }
-
-    Ok(())
+    let sql = format!(
+        "INSERT INTO acme_challenges (token, key_authorisation, created_at, expires_at) VALUES ('{token}', '{key_authorisation}', {current_time}, {expires_at})"
+    );
+    util::execute_transaction(daemon, &sql).await
 }
 
 #[tokio::test]

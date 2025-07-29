@@ -385,155 +385,278 @@ impl Drop for PortMap {
     }
 }
 
-/// Helper function to execute a list of commands with logging
-pub async fn execute_commands(
-    daemon: &Arc<ContainerAsync<GenericImage>>,
-    commands: &[&str],
-) -> Result<()> {
-    for cmd in commands {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+pub mod util {
+    use super::*;
+
+    /// Helper function to execute a command in a docker container
+    pub async fn execute_command(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        cmd: &str,
+    ) -> Result<(String, String)> {
         let mut result = daemon
             .exec(ExecCommand::new(vec!["sh", "-c", cmd]))
             .await
             .map_err(|e| miette!("Failed to execute command '{cmd}': {e}"))?;
 
-        eprintln!("Command: {cmd}");
-        eprintln!(
-            "Stdout: {}",
-            String::from_utf8_lossy(
-                &result
-                    .stdout_to_vec()
-                    .await
-                    .map_err(|e| miette!("Failed to get stdout: {e}"))?
-            )
-        );
-        eprintln!(
-            "Stderr: {}",
-            String::from_utf8_lossy(
-                &result
-                    .stderr_to_vec()
-                    .await
-                    .map_err(|e| miette!("Failed to get stderr: {e}"))?
-            )
-        );
+        let stdout = result
+            .stdout_to_vec()
+            .await
+            .map_err(|e| miette!("Failed to get stdout: {e}"))?;
+
+        let stderr = result
+            .stderr_to_vec()
+            .await
+            .map_err(|e| miette!("Failed to get stderr: {e}"))?;
+
+        let stdout_str = String::from_utf8_lossy(&stdout).to_string();
+        let stderr_str = String::from_utf8_lossy(&stderr).to_string();
+
+        Ok((stdout_str, stderr_str))
     }
-    Ok(())
-}
 
-/// Helper function to generate and insert a certificate for a domain
-pub async fn create_cert(
-    daemon: &Arc<ContainerAsync<GenericImage>>,
-    domain: &str,
-    cert_filename: &str,
-    key_filename: &str,
-) -> Result<()> {
-    daemon
-        .exec(ExecCommand::new(vec!["sudo", "mkdir", "-p", "/tmp/certs"]))
-        .await
-        .map_err(|e| miette!("Failed to create cert directory: {e}"))?;
-
-    let openssl_cmd = format!(
-        "sudo openssl req -x509 -newkey rsa:2048 -keyout /tmp/certs/{key_filename} -out /tmp/certs/{cert_filename} -days 1 -nodes -subj '/CN={domain}'",
-    );
-
-    let mut result = daemon
-        .exec(ExecCommand::new(vec!["sh", "-c", &openssl_cmd]))
-        .await
-        .map_err(|e| miette!("Failed to execute openssl command: {e}"))?;
-
-    let stderr = result.stderr_to_vec().await.unwrap_or_default();
-    if !stderr.is_empty() {
-        let stderr_str = String::from_utf8_lossy(&stderr);
-        if stderr_str.contains("error") || stderr_str.contains("Error") {
-            return Err(miette::miette!("OpenSSL command failed: {}", stderr_str));
+    /// Helper function to execute a list of commands
+    pub async fn execute_commands(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        commands: &[&str],
+    ) -> Result<()> {
+        for cmd in commands {
+            let _ = execute_command(daemon, cmd).await?;
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
+        Ok(())
     }
 
-    // Verify certificate files exist
-    let cert_check = daemon
-        .exec(ExecCommand::new(vec![
-            "test",
-            "-f",
-            &format!("/tmp/certs/{cert_filename}"),
-        ]))
-        .await;
-    let key_check = daemon
-        .exec(ExecCommand::new(vec![
-            "test",
-            "-f",
-            &format!("/tmp/certs/{key_filename}"),
-        ]))
-        .await;
+    /// Helper function to generate and insert a certificate for a domain
+    pub async fn generate_tls_certificate(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        domain: &str,
+        cert_filename: &str,
+        key_filename: &str,
+    ) -> Result<()> {
+        daemon
+            .exec(ExecCommand::new(vec!["sudo", "mkdir", "-p", "/tmp/certs"]))
+            .await
+            .map_err(|e| miette!("Failed to create cert directory: {e}"))?;
 
-    if cert_check.is_err() || key_check.is_err() {
-        return Err(miette::miette!(
-            "Certificate files were not created properly"
-        ));
+        let openssl_cmd = format!(
+            "sudo openssl req -x509 -newkey rsa:2048 -keyout /tmp/certs/{key_filename} -out /tmp/certs/{cert_filename} -days 1 -nodes -subj '/CN={domain}'",
+        );
+
+        let mut result = daemon
+            .exec(ExecCommand::new(vec!["sh", "-c", &openssl_cmd]))
+            .await
+            .map_err(|e| miette!("Failed to execute openssl command: {e}"))?;
+
+        let stderr = result.stderr_to_vec().await.unwrap_or_default();
+        if !stderr.is_empty() {
+            let stderr_str = String::from_utf8_lossy(&stderr);
+            if stderr_str.contains("error") || stderr_str.contains("Error") {
+                return Err(miette::miette!("OpenSSL command failed: {}", stderr_str));
+            }
+        }
+
+        // Verify certificate files exist
+        let cert_check = daemon
+            .exec(ExecCommand::new(vec![
+                "test",
+                "-f",
+                &format!("/tmp/certs/{cert_filename}"),
+            ]))
+            .await;
+        let key_check = daemon
+            .exec(ExecCommand::new(vec![
+                "test",
+                "-f",
+                &format!("/tmp/certs/{key_filename}"),
+            ]))
+            .await;
+
+        if cert_check.is_err() || key_check.is_err() {
+            return Err(miette::miette!(
+                "Certificate files were not created properly"
+            ));
+        }
+
+        // Read certificate and key files
+        let mut cert_result = daemon
+            .exec(ExecCommand::new(vec![
+                "cat",
+                &format!("/tmp/certs/{cert_filename}"),
+            ]))
+            .await
+            .map_err(|e| miette!("Failed to read cert: {e}"))?;
+
+        let mut key_result = daemon
+            .exec(ExecCommand::new(vec![
+                "cat",
+                &format!("/tmp/certs/{key_filename}"),
+            ]))
+            .await
+            .map_err(|e| miette!("Failed to read key: {e}"))?;
+
+        let cert_bytes = cert_result.stdout_to_vec().await.unwrap();
+        let key_bytes = key_result.stdout_to_vec().await.unwrap();
+        let cert_pem = String::from_utf8_lossy(&cert_bytes).trim().to_string();
+        let key_pem = String::from_utf8_lossy(&key_bytes).trim().to_string();
+
+        // Validate certificate format
+        if !cert_pem.starts_with("-----BEGIN CERTIFICATE-----") {
+            return Err(miette::miette!("Invalid certificate format"));
+        }
+        if !key_pem.starts_with("-----BEGIN PRIVATE KEY-----")
+            && !key_pem.starts_with("-----BEGIN RSA PRIVATE KEY-----")
+        {
+            return Err(miette::miette!("Invalid private key format"));
+        }
+
+        let cert_b64 = BASE64_STANDARD.encode(cert_pem.as_bytes());
+        let key_b64 = BASE64_STANDARD.encode(key_pem.as_bytes());
+
+        // Insert certificate into database
+        let cert_sql = format!(
+            "INSERT INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{domain}', '{cert_b64}', '{key_b64}', {}, 'test')",
+            jiff::Timestamp::now().as_second() + 86400
+        );
+
+        let json_payload = serde_json::to_string(&[cert_sql]).unwrap();
+
+        let mut insert_result = daemon
+            .exec(ExecCommand::new(vec![
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                &json_payload,
+                "http://127.0.0.1:8181/v1/transactions",
+            ]))
+            .await
+            .map_err(|e| miette!("Failed to insert certificate: {e}"))?;
+
+        let insert_bytes = insert_result.stdout_to_vec().await.unwrap();
+        let response = String::from_utf8_lossy(&insert_bytes);
+        if !response.contains("\"rows_affected\"") || response.contains("\"error\"") {
+            return Err(miette!("Certificate insertion failed: {}", response));
+        }
+
+        Ok(())
     }
 
-    // Read certificate and key files
-    let mut cert_result = daemon
-        .exec(ExecCommand::new(vec![
-            "cat",
-            &format!("/tmp/certs/{cert_filename}"),
-        ]))
-        .await
-        .map_err(|e| miette!("Failed to read cert: {e}"))?;
+    /// Execute a Corrosion transaction (SQL insert/update/delete)
+    pub async fn execute_transaction(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        sql: &str,
+    ) -> Result<()> {
+        let json_payload = format!("[\"{sql}\"]");
 
-    let mut key_result = daemon
-        .exec(ExecCommand::new(vec![
-            "cat",
-            &format!("/tmp/certs/{key_filename}"),
-        ]))
-        .await
-        .map_err(|e| miette!("Failed to read key: {e}"))?;
+        let mut result = daemon
+            .exec(ExecCommand::new(vec![
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                &json_payload,
+                "http://127.0.0.1:8181/v1/transactions",
+            ]))
+            .await
+            .map_err(|e| miette!("Failed to execute transaction: {e}"))?;
 
-    let cert_bytes = cert_result.stdout_to_vec().await.unwrap();
-    let key_bytes = key_result.stdout_to_vec().await.unwrap();
-    let cert_pem = String::from_utf8_lossy(&cert_bytes).trim().to_string();
-    let key_pem = String::from_utf8_lossy(&key_bytes).trim().to_string();
+        let response_bytes = result.stdout_to_vec().await.unwrap();
+        let response = String::from_utf8_lossy(&response_bytes);
+        if !response.contains("\"rows_affected\"") || response.contains("\"error\"") {
+            return Err(miette!("Transaction failed: {}", response));
+        }
 
-    // Validate certificate format
-    if !cert_pem.starts_with("-----BEGIN CERTIFICATE-----") {
-        return Err(miette::miette!("Invalid certificate format"));
-    }
-    if !key_pem.starts_with("-----BEGIN PRIVATE KEY-----")
-        && !key_pem.starts_with("-----BEGIN RSA PRIVATE KEY-----")
-    {
-        return Err(miette::miette!("Invalid private key format"));
-    }
-
-    let cert_b64 = BASE64_STANDARD.encode(cert_pem.as_bytes());
-    let key_b64 = BASE64_STANDARD.encode(key_pem.as_bytes());
-
-    // Insert certificate into database
-    let cert_sql = format!(
-        "INSERT INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{domain}', '{cert_b64}', '{key_b64}', {}, 'test')",
-        jiff::Timestamp::now().as_second() + 86400
-    );
-
-    let json_payload = serde_json::to_string(&[cert_sql]).unwrap();
-
-    let mut insert_result = daemon
-        .exec(ExecCommand::new(vec![
-            "curl",
-            "-s",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            &json_payload,
-            "http://127.0.0.1:8181/v1/transactions",
-        ]))
-        .await
-        .map_err(|e| miette!("Failed to insert certificate: {e}"))?;
-
-    let insert_bytes = insert_result.stdout_to_vec().await.unwrap();
-    let response = String::from_utf8_lossy(&insert_bytes);
-    if !response.contains("\"rows_affected\"") || response.contains("\"error\"") {
-        return Err(miette!("Certificate insertion failed: {}", response));
+        Ok(())
     }
 
-    Ok(())
+    /// Execute a `SQLite` query against the cluster database
+    pub async fn query_database(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        sql: &str,
+    ) -> Result<String> {
+        let mut result = daemon
+            .exec(ExecCommand::new(vec![
+                "sqlite3",
+                "/var/makiatto/cluster.db",
+                sql,
+            ]))
+            .await
+            .map_err(|e| miette!("Failed to query database: {e}"))?;
+
+        let response_bytes = result.stdout_to_vec().await.unwrap();
+        Ok(String::from_utf8_lossy(&response_bytes).to_string())
+    }
+
+    /// Get current timestamp as seconds since UNIX epoch
+    #[allow(clippy::cast_possible_wrap)]
+    pub fn current_timestamp() -> i64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
+
+    /// Insert a DNS record via Corrosion API
+    pub async fn insert_dns_record(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        domain: &str,
+        record_type: &str,
+        value: &str,
+    ) -> Result<()> {
+        let name = domain.split('.').next().unwrap_or(domain);
+        let sql = format!(
+            r"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES ('{domain}', '{name}', '{record_type}', '{value}', '{domain}', 300, 0, 0)"
+        );
+        execute_transaction(daemon, &sql).await
+    }
+
+    /// Insert a certificate via Corrosion API
+    pub async fn insert_certificate_record(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        domain: &str,
+        expires_in_days: i64,
+    ) -> Result<()> {
+        let current_time = current_timestamp();
+        let expires_at = current_time + (expires_in_days * 86400);
+
+        let certificate_pem = format!(
+            "-----BEGIN CERTIFICATE-----\\ntest_cert_for_{domain}\\n-----END CERTIFICATE-----"
+        );
+        let private_key_pem = format!(
+            "-----BEGIN PRIVATE KEY-----\\ntest_key_for_{domain}\\n-----END PRIVATE KEY-----"
+        );
+
+        let sql = format!(
+            "INSERT INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{domain}', '{certificate_pem}', '{private_key_pem}', {expires_at}, 'test_ca')"
+        );
+        execute_transaction(daemon, &sql).await
+    }
+
+    /// Insert certificate renewal status via Corrosion API
+    pub async fn insert_renewal_status(
+        daemon: &Arc<ContainerAsync<GenericImage>>,
+        domain: &str,
+        status: &str,
+        retry_count: u32,
+    ) -> Result<()> {
+        let current_time = current_timestamp();
+
+        let sql = format!(
+            "INSERT INTO certificate_renewals (domain, last_check, renewal_status, next_check, retry_count, last_renewal) VALUES ('{}', {}, '{}', {}, {}, {})",
+            domain,
+            current_time,
+            status,
+            current_time + 3600,
+            retry_count,
+            current_time
+        );
+        execute_transaction(daemon, &sql).await
+    }
 }
