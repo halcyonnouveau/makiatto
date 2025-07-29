@@ -42,8 +42,21 @@ pub struct Domain {
 pub struct DnsRecord {
     #[serde(rename = "type")]
     pub record_type: Arc<str>,
+    #[serde(default = "default_record_name")]
     pub name: Arc<str>,
     pub value: Arc<str>,
+    #[serde(default = "default_ttl")]
+    pub ttl: u32,
+    #[serde(default)]
+    pub priority: Option<i32>,
+}
+
+fn default_record_name() -> Arc<str> {
+    "@".into()
+}
+
+fn default_ttl() -> u32 {
+    300
 }
 
 impl Profile {

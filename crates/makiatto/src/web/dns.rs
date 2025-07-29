@@ -229,9 +229,9 @@ impl Handler {
                     return Some(Self::generate_record(
                         &request.name,
                         &record.record_type,
-                        &record.base_value,
+                        &record.value,
                         record.ttl,
-                        record.priority,
+                        Some(record.priority),
                     ));
                 }
 
@@ -243,7 +243,7 @@ impl Handler {
                         Some(ipv6) => ipv6,
                         None => return None,
                     },
-                    _ => &record.base_value,
+                    _ => &record.value,
                 };
 
                 Some(Self::generate_record(
@@ -251,7 +251,7 @@ impl Handler {
                     &record.record_type,
                     value,
                     record.ttl,
-                    record.priority,
+                    Some(record.priority),
                 ))
             })
             .collect())

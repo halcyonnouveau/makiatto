@@ -23,7 +23,7 @@ async fn test_replication() -> Result<()> {
     let d1 = daemon1_container.unwrap();
     let d2 = daemon2_container.unwrap();
 
-    let insert_sql = r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"example.com\", \"test\", \"A\", \"192.168.1.100\", 300, NULL, 0)"#;
+    let insert_sql = r#"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES (\"test.example.com\", \"test\", \"A\", \"192.168.1.100\", \"example.com\", 300, 0, 0)"#;
     let json_payload = format!("[\"{insert_sql}\"]");
 
     let mut insert = d2
@@ -49,7 +49,7 @@ async fn test_replication() -> Result<()> {
         .exec(ExecCommand::new(vec![
             "sqlite3",
             "/var/makiatto/cluster.db",
-            "SELECT domain, name, record_type, base_value FROM dns_records WHERE domain = 'example.com';",
+            "SELECT domain, name, record_type, value FROM dns_records WHERE domain = 'test.example.com';",
         ]))
         .await
         .into_diagnostic()?;
@@ -163,7 +163,7 @@ async fn test_dns_geolocation() -> Result<()> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let dns_record_sql = r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"example.com\", \"geo\", \"A\", \"192.168.1.100\", 300, NULL, 1)"#;
+    let dns_record_sql = r#"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES (\"geo.example.com\", \"geo\", \"A\", \"192.168.1.100\", \"example.com\", 300, 0, 1)"#;
     let json_payload = format!("[\"{dns_record_sql}\"]");
 
     let mut insert_dns = daemon
@@ -205,7 +205,7 @@ async fn test_dns_geolocation() -> Result<()> {
         .exec(ExecCommand::new(vec![
             "sqlite3",
             "/var/makiatto/cluster.db",
-            "SELECT domain, name, record_type, geo_enabled FROM dns_records WHERE domain = 'example.com';",
+            "SELECT domain, name, record_type, geo_enabled FROM dns_records WHERE domain = 'geo.example.com';",
         ]))
         .await
         .into_diagnostic()?;
@@ -213,7 +213,7 @@ async fn test_dns_geolocation() -> Result<()> {
     let dns_stdout = query_dns.stdout_to_vec().await.into_diagnostic()?;
     let dns_output = String::from_utf8_lossy(&dns_stdout);
 
-    assert!(dns_output.contains("example.com|geo|A|1"));
+    assert!(dns_output.contains("geo.example.com|geo|A|1"));
 
     let dig_output = std::process::Command::new("dig")
         .args([
@@ -262,7 +262,7 @@ async fn test_over_tls_with_certificates() -> Result<()> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let dns_record_sql = r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"example.com\", \"test\", \"A\", \"192.168.1.100\", 300, NULL, 0)"#;
+    let dns_record_sql = r#"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES (\"test.example.com\", \"test\", \"A\", \"192.168.1.100\", \"example.com\", 300, 0, 0)"#;
     let json_payload = format!("[\"{dns_record_sql}\"]");
 
     let mut insert_dns = daemon
@@ -336,8 +336,8 @@ async fn test_multi_domain_sni() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     let dns_records_sql = [
-        r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"example.com\", \"api\", \"A\", \"192.168.1.10\", 300, NULL, 0)"#,
-        r#"INSERT INTO dns_records (domain, name, record_type, base_value, ttl, priority, geo_enabled) VALUES (\"test.com\", \"api\", \"A\", \"192.168.1.20\", 300, NULL, 0)"#,
+        r#"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES (\"api.example.com\", \"api\", \"A\", \"192.168.1.10\", \"example.com\", 300, 0, 0)"#,
+        r#"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES (\"api.test.com\", \"api\", \"A\", \"192.168.1.20\", \"test.com\", 300, 0, 0)"#,
     ];
 
     let json_payload = format!(
