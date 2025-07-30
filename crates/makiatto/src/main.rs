@@ -101,19 +101,6 @@ async fn main() -> Result<()> {
     let cache_store = CacheStore::new(&config.node.data_dir)?;
     let mut handles = vec![];
 
-    if services.corrosion {
-        info!("Starting Corrosion agent...");
-        let cfg_corrosion = config.clone();
-        let tw_corrosion = tripwire.clone();
-        let corrosion_handle = tokio::spawn(async move {
-            match corrosion::run(cfg_corrosion, tw_corrosion).await {
-                Ok(()) => Ok("corrosion"),
-                Err(e) => Err(format!("Corrosion agent failed: {e}")),
-            }
-        });
-        handles.push(corrosion_handle);
-    }
-
     let wg_manager = if services.wireguard {
         let (wg_mgr, wg_handle) = wireguard::setup(&config).await?;
         let wg_task = tokio::spawn(async move {
@@ -128,6 +115,19 @@ async fn main() -> Result<()> {
     } else {
         None
     };
+
+    if services.corrosion {
+        info!("Starting Corrosion agent...");
+        let cfg_corrosion = config.clone();
+        let tw_corrosion = tripwire.clone();
+        let corrosion_handle = tokio::spawn(async move {
+            match corrosion::run(cfg_corrosion, tw_corrosion).await {
+                Ok(()) => Ok("corrosion"),
+                Err(e) => Err(format!("Corrosion agent failed: {e}")),
+            }
+        });
+        handles.push(corrosion_handle);
+    }
 
     if services.corrosion && config.consensus.enabled {
         info!("Starting director election...");
