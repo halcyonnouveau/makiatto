@@ -302,14 +302,43 @@ where
 pub async fn setup(
     config: &Config,
 ) -> Result<(WireguardManager, tokio::task::JoinHandle<Result<()>>)> {
-    // peers excluding ourself
-    let peers = crate::corrosion::get_peers().await.ok().as_ref().map(|p| {
-        p.iter()
-            .filter(|peer| peer.name != config.node.name)
-            .cloned()
-            .collect::<Vec<_>>()
-            .into()
-    });
+    // try to get other peers from database
+    let peers = {
+        match sqlx::SqlitePool::connect(&format!("sqlite:{}", config.corrosion.db.path)).await {
+            Ok(pool) => {
+                let rows_result = sqlx::query!(
+                    "SELECT name, wg_public_key, wg_address, ipv4, ipv6, latitude, longitude, is_nameserver, fs_port
+                    FROM peers
+                        WHERE name != ?",
+                    config.node.name
+                )
+                .fetch_all(&pool)
+                .await;
+
+                match rows_result {
+                    Ok(rows) => {
+                        let peers: Vec<corrosion::schema::Peer> = rows
+                            .into_iter()
+                            .map(|row| corrosion::schema::Peer {
+                                name: Arc::from(row.name),
+                                ipv4: Arc::from(row.ipv4),
+                                ipv6: row.ipv6.map(Arc::from),
+                                wg_public_key: Arc::from(row.wg_public_key),
+                                wg_address: Arc::from(row.wg_address),
+                                latitude: row.latitude,
+                                longitude: row.longitude,
+                                is_nameserver: row.is_nameserver != 0,
+                                fs_port: row.fs_port,
+                            })
+                            .collect();
+                        Some(peers.into())
+                    }
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
+        }
+    };
 
     let wg_interface = Wireguard::new(&config.wireguard, peers)?;
     let (tx, mut rx) = mpsc::unbounded_channel();

@@ -324,13 +324,13 @@ fn setup_systemd_service(ssh: &SshSession) -> Result<()> {
 }
 
 fn start_makiatto_service(ssh: &SshSession) -> Result<()> {
+    ui::status("Starting makiatto service...");
+
     ui::action("Reloading systemd daemon");
     ssh.exec("sudo systemctl daemon-reload")?;
 
     ui::action("Enabling service on boot");
     ssh.exec("sudo systemctl enable makiatto")?;
-
-    ui::status("Starting makiatto service...");
     ssh.exec("sudo systemctl restart makiatto")?;
     std::thread::sleep(std::time::Duration::from_secs(2));
 
