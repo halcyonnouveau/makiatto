@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -23,17 +24,22 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use miette::Result;
 use opentelemetry::{KeyValue, global};
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use tokio_rustls::TlsAcceptor;
 use tower::{Service, ServiceExt};
 use tower_http::services::ServeDir;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
-use crate::{config::Config, corrosion::schema::AcmeChallenge, web::certificate::CertificateStore};
+use crate::{
+    config::Config,
+    corrosion::{self, schema::AcmeChallenge},
+    web::certificate::CertificateStore,
+};
 
 #[derive(Clone)]
 struct WebState {
     static_dir: Arc<PathBuf>,
-    db_path: camino::Utf8PathBuf,
+    cname_map: Arc<RwLock<HashMap<String, String>>>,
 }
 
 #[instrument(
@@ -60,11 +66,18 @@ async fn handle_request(
     span.record("uri", &uri);
 
     let domain = hostname.split(':').next().unwrap_or(hostname);
-    let domain_path = state.static_dir.join(domain);
+
+    // Resolve domain alias if exists
+    let resolved_domain = {
+        let cache = state.cname_map.read().await;
+        resolve_cname(&cache, domain)
+    };
+
+    let domain_path = state.static_dir.join(&resolved_domain);
 
     if !domain_path.exists() {
-        span.record("error", format!("Domain '{domain}' not found"));
-        warn!("Domain '{domain}' not found for {method} {uri}");
+        span.record("error", format!("Domain '{resolved_domain}' not found"));
+        warn!("Domain '{resolved_domain}' not found for {method} {uri} (requested: {domain})");
 
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -105,26 +118,21 @@ async fn handle_request(
 
 #[instrument(
     name = "acme_challenge",
-    skip(state),
+    skip(_state),
     fields(token, found, expired, error, slow)
 )]
 async fn handle_acme_challenge(
-    State(state): State<WebState>,
+    State(_state): State<WebState>,
     ExtractPath(token): ExtractPath<String>,
 ) -> impl IntoResponse {
     let start_time = std::time::Instant::now();
     let span = tracing::Span::current();
     span.record("token", &token);
 
-    let db_path = state.db_path.clone();
     let token_clone = token.clone();
 
     let challenge_result: Result<Option<AcmeChallenge>, miette::Report> = async move {
-        if !db_path.exists() {
-            return Ok(None);
-        }
-
-        let pool = crate::corrosion::get_pool().await?;
+        let pool = corrosion::get_pool().await?;
 
         let row = sqlx::query!(
             "SELECT token, key_authorisation, created_at, expires_at FROM acme_challenges WHERE token = ?1",
@@ -198,9 +206,26 @@ pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
 ) -> Result<()> {
+    let cname_cache = Arc::new(RwLock::new(HashMap::new()));
+
+    // Load initial domain aliases
+    {
+        let pool = corrosion::get_pool().await?;
+        let rows = sqlx::query!("SELECT alias, target FROM domain_aliases")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| miette::miette!("Failed to query domain aliases: {e}"))?;
+
+        let mut cache = cname_cache.write().await;
+        for row in rows {
+            cache.insert(row.alias, row.target);
+        }
+        info!("Loaded {} domain aliases into cache", cache.len());
+    }
+
     let state = WebState {
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
-        db_path: config.corrosion.db.path.clone(),
+        cname_map: cname_cache.clone(),
     };
 
     let app = Router::new()
@@ -470,6 +495,27 @@ async fn https_redirect(headers: HeaderMap, uri: Uri) -> Redirect {
             .map_or("/", axum::http::uri::PathAndQuery::as_str)
     );
     Redirect::permanent(&https_uri)
+}
+
+/// Resolve a domain through alias chains
+fn resolve_cname(cache: &HashMap<String, String>, domain: &str) -> String {
+    let mut current = domain;
+    let mut seen = std::collections::HashSet::new();
+
+    // Follow alias chain with loop detection
+    while let Some(target) = cache.get(current) {
+        if !seen.insert(current) {
+            warn!("Alias loop detected for domain: {domain}");
+            return domain.to_string();
+        }
+        current = target;
+    }
+
+    if current != domain {
+        debug!("Resolved alias: {domain} -> {current}");
+    }
+
+    current.to_string()
 }
 
 async fn https_server(

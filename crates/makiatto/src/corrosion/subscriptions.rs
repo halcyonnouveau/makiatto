@@ -127,6 +127,28 @@ impl SubscriptionWatcher {
             }
         });
 
+        let domain_aliases_handle = tokio::spawn({
+            let watcher = self.clone();
+            let tripwire = tripwire.clone();
+            async move {
+                watcher
+                    .watch_table(
+                        tripwire,
+                        "Domain aliases",
+                        "SELECT alias, target FROM domain_aliases",
+                        "subscription_domain_aliases",
+                        |event| {
+                            let watcher = watcher.clone();
+                            Box::pin(async move {
+                                watcher.handle_domain_aliases_change(event);
+                                Ok(())
+                            })
+                        },
+                    )
+                    .await;
+            }
+        });
+
         tokio::select! {
             () = &mut tripwire => {
                 info!("Subscription watcher shutting down");
@@ -149,6 +171,11 @@ impl SubscriptionWatcher {
             res = domains_handle => {
                 if let Err(e) = res {
                     error!("Domains watcher task failed: {e}");
+                }
+            }
+            res = domain_aliases_handle => {
+                if let Err(e) = res {
+                    error!("Domain aliases watcher task failed: {e}");
                 }
             }
         }
@@ -426,6 +453,26 @@ impl SubscriptionWatcher {
         }
 
         Ok(())
+    }
+
+    /// Handle changes to `domain_aliases` table
+    fn handle_domain_aliases_change(&self, event: &QueryEvent) {
+        if let QueryEvent::Change(change_type, row_id, values, _) = event {
+            let (alias, target) = if values.len() >= 2 {
+                (
+                    values[0].as_text().unwrap_or("unknown"),
+                    values[1].as_text().unwrap_or("unknown"),
+                )
+            } else {
+                ("unknown", "unknown")
+            };
+
+            info!("Domain alias change: {change_type:?} row {row_id} alias {alias} -> {target}");
+
+            if let Err(e) = self.axum_restart_tx.try_send(()) {
+                error!("Failed to signal web server reload: {e}");
+            }
+        }
     }
 }
 

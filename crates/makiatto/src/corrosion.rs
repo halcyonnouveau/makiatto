@@ -53,7 +53,7 @@ pub async fn get_pool() -> Result<&'static SqlitePool> {
         }
 
         if attempt < 10 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     }
 
