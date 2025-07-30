@@ -267,6 +267,10 @@ fn create_daemon_config(
     ui::action("Setting directory ownership");
     ssh.exec("sudo chown -R makiatto:makiatto /var/makiatto")?;
 
+    ui::action("Setting setgid bit for consistent group ownership");
+    ssh.exec("sudo chmod g+s /var/makiatto")?;
+    ssh.exec("sudo chmod g+s /var/makiatto/sites")?;
+
     ui::action("Writing configuration file");
     let write_config_cmd = formatdoc! {r"
         sudo tee /etc/makiatto.toml > /dev/null << 'EOF'

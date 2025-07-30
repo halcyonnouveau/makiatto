@@ -7,11 +7,14 @@ use miette::Result;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
 
-use crate::cache::{CacheStore, SubscriptionState};
-use crate::config::Config;
-use crate::constants::{CORROSION_API_PORT, WIREGUARD_PORT};
-use crate::corrosion::consensus::DirectorElection;
-use crate::wireguard::WireguardManager;
+use crate::{
+    cache::{CacheStore, SubscriptionState},
+    config::Config,
+    constants::{CORROSION_API_PORT, WIREGUARD_PORT},
+    corrosion::consensus::DirectorElection,
+    fs,
+    wireguard::WireguardManager,
+};
 
 const MAX_BACKOFF_SECS: u64 = 86400; // 1 day
 
@@ -149,6 +152,28 @@ impl SubscriptionWatcher {
             }
         });
 
+        let files_handle = tokio::spawn({
+            let watcher = self.clone();
+            let tripwire = tripwire.clone();
+            async move {
+                watcher
+                    .watch_table(
+                        tripwire,
+                        "Files",
+                        "SELECT domain, path, content_hash, size, modified_at FROM files",
+                        "subscription_files",
+                        |event| {
+                            let watcher = watcher.clone();
+                            Box::pin(async move {
+                                watcher.handle_files_change(event).await;
+                                Ok(())
+                            })
+                        },
+                    )
+                    .await;
+            }
+        });
+
         tokio::select! {
             () = &mut tripwire => {
                 info!("Subscription watcher shutting down");
@@ -176,6 +201,11 @@ impl SubscriptionWatcher {
             res = domain_aliases_handle => {
                 if let Err(e) = res {
                     error!("Domain aliases watcher task failed: {e}");
+                }
+            }
+            res = files_handle => {
+                if let Err(e) = res {
+                    error!("Files watcher task failed: {e}");
                 }
             }
         }
@@ -471,6 +501,56 @@ impl SubscriptionWatcher {
 
             if let Err(e) = self.axum_restart_tx.try_send(()) {
                 error!("Failed to signal web server reload: {e}");
+            }
+        }
+    }
+
+    /// Handle changes to `files` table
+    async fn handle_files_change(&self, event: &QueryEvent) {
+        if let QueryEvent::Change(change_type, row_id, values, _) = event {
+            let (domain, path, content_hash) = if values.len() >= 3 {
+                (
+                    values[0].as_text().unwrap_or("unknown"),
+                    values[1].as_text().unwrap_or("unknown"),
+                    values[2].as_text().unwrap_or("unknown"),
+                )
+            } else {
+                ("unknown", "unknown", "unknown")
+            };
+
+            info!(
+                "File change: {change_type:?} row {row_id} {domain}{path} (hash: {content_hash})"
+            );
+
+            let config = self.config.clone();
+            let domain = domain.to_string();
+            let path = path.to_string();
+            let content_hash = content_hash.to_string();
+            let change_type = *change_type;
+
+            match change_type {
+                ChangeType::Insert | ChangeType::Update => {
+                    match fs::watcher::fetch_domain_file(&config, &content_hash, &domain, &path)
+                        .await
+                    {
+                        Ok(()) => {
+                            info!("Successfully fetched file {content_hash} for {domain}{path}");
+                        }
+                        Err(e) => {
+                            error!("Error fetching file {content_hash} for {domain}{path}: {e}");
+                        }
+                    }
+                }
+                ChangeType::Delete => {
+                    match fs::watcher::delete_domain_file(&config, &domain, &path).await {
+                        Ok(()) => {
+                            info!("File deleted from database: {domain}{path}");
+                        }
+                        Err(e) => {
+                            error!("Failed to delete domain file {domain}{path}: {e}");
+                        }
+                    }
+                }
             }
         }
     }

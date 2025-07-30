@@ -5,7 +5,7 @@ use makiatto::{
     cache::CacheStore,
     config,
     corrosion::{self, consensus::DirectorElection, subscriptions::SubscriptionWatcher},
-    service, web,
+    fs, service, web,
     web::certificate::{CertificateManager, CertificateStore},
     wireguard,
 };
@@ -14,7 +14,7 @@ use tokio::{
     signal::unix::{SignalKind, signal},
     sync::mpsc,
 };
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(FromArgs)]
 #[allow(clippy::struct_excessive_bools)]
@@ -36,7 +36,11 @@ struct Args {
     #[argh(switch)]
     no_corrosion: bool,
 
-    /// only run specific services (comma-separated: wireguard,dns,axum,corrosion)
+    /// disable file sync services
+    #[argh(switch)]
+    no_fs: bool,
+
+    /// only run specific services (comma-separated: wireguard,dns,axum,corrosion,fs)
     #[argh(option)]
     only: Option<String>,
 }
@@ -47,6 +51,7 @@ struct ServiceFlags {
     dns: bool,
     axum: bool,
     corrosion: bool,
+    fs: bool,
 }
 
 impl ServiceFlags {
@@ -58,6 +63,7 @@ impl ServiceFlags {
                 dns: services.contains("dns"),
                 axum: services.contains("axum"),
                 corrosion: services.contains("corrosion"),
+                fs: services.contains("fs"),
             }
         } else {
             Self {
@@ -65,6 +71,7 @@ impl ServiceFlags {
                 dns: !args.no_dns,
                 axum: !args.no_axum,
                 corrosion: !args.no_corrosion,
+                fs: !args.no_fs,
             }
         }
     }
@@ -84,8 +91,8 @@ async fn main() -> Result<()> {
     let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
     info!("Loaded config for node '{}'", config.node.name);
     info!(
-        "Services enabled: wireguard={}, dns={}, web={}, corrosion={}",
-        services.wireguard, services.dns, services.axum, services.corrosion
+        "Services enabled: wireguard={}, dns={}, web={}, corrosion={}, fs={}",
+        services.wireguard, services.dns, services.axum, services.corrosion, services.fs
     );
 
     let (dns_restart_tx, dns_restart_rx) = mpsc::channel(100);
@@ -229,7 +236,56 @@ async fn main() -> Result<()> {
         handles.push(axum_restart_handle);
     }
 
-    // TODO: Spawn other services (file sync)
+    // start file sync services
+    if services.fs && config.fs.enabled {
+        info!("Starting file sync services...");
+
+        // Run startup reconciliation to ensure filesystem matches database
+        info!("Running startup filesystem reconciliation...");
+        if let Err(e) = fs::reconcile::run_once(config.clone()).await {
+            error!("Startup reconciliation failed: {e}");
+            return Err(e);
+        }
+
+        let file_sync_config = config.clone();
+        let (fs_shutdown_tx, fs_shutdown_rx) = mpsc::channel(1);
+        let file_sync_handle = tokio::spawn(async move {
+            match fs::start(file_sync_config, fs_shutdown_rx).await {
+                Ok(()) => Ok("fs_http"),
+                Err(e) => Err(format!("File sync HTTP server failed: {e}")),
+            }
+        });
+        handles.push(file_sync_handle);
+
+        let file_watcher_config = config.clone();
+        let (fw_shutdown_tx, fw_shutdown_rx) = mpsc::channel(1);
+        let file_watcher_handle = tokio::spawn(async move {
+            match fs::watcher::start(file_watcher_config, fw_shutdown_rx).await {
+                Ok(()) => Ok("fs_watcher"),
+                Err(e) => Err(format!("File watcher failed: {e}")),
+            }
+        });
+        handles.push(file_watcher_handle);
+
+        let reconcile_config = config.clone();
+        let (reconcile_shutdown_tx, reconcile_shutdown_rx) = mpsc::channel(1);
+        let reconcile_handle = tokio::spawn(async move {
+            match fs::reconcile::start(reconcile_config, reconcile_shutdown_rx).await {
+                Ok(()) => Ok("fs_reconcile"),
+                Err(e) => Err(format!("Filesystem reconciliation failed: {e}")),
+            }
+        });
+        handles.push(reconcile_handle);
+
+        let file_sync_shutdowns = vec![fs_shutdown_tx, fw_shutdown_tx, reconcile_shutdown_tx];
+        let shutdown_handle = tripwire.clone();
+        tokio::spawn(async move {
+            shutdown_handle.await;
+            for tx in file_sync_shutdowns {
+                let _ = tx.send(()).await;
+            }
+        });
+    }
 
     let mut sigterm = signal(SignalKind::terminate())
         .map_err(|e| miette::miette!("Failed to setup SIGTERM handler: {e}"))?;

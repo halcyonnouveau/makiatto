@@ -206,16 +206,18 @@ impl ContainerContext {
             .with_exposed_port(80.tcp())
             .with_exposed_port(443.tcp())
             .with_exposed_port(8787.udp())
+            .with_exposed_port(8282.tcp())
             .with_wait_for(WaitFor::Nothing)
             .with_container_name(format!("{}-wawa-daemon", container.id))
             .with_mapped_port(container.ports.ssh, 22.tcp())
             .with_mapped_port(container.ports.dns, 53.tcp())
             .with_mapped_port(container.ports.dns, 53.udp())
-            .with_mapped_port(container.ports.dns_secure, 853.tcp())
-            .with_mapped_port(container.ports.dns_secure, 853.udp())
+            .with_mapped_port(container.ports.dnss, 853.tcp())
+            .with_mapped_port(container.ports.dnss, 853.udp())
             .with_mapped_port(container.ports.http, 80.tcp())
             .with_mapped_port(container.ports.https, 443.tcp())
             .with_mapped_port(container.ports.corrosion, 8787.udp())
+            .with_mapped_port(container.ports.fs, 8282.tcp())
             .with_network("wawa")
             .with_mount(Mount::bind_mount(
                 self.root.join("target/tests/geolite").display().to_string(),
@@ -321,10 +323,11 @@ impl TestContainer {
 pub struct PortMap {
     pub ssh: u16,
     pub dns: u16,
-    pub dns_secure: u16,
+    pub dnss: u16,
     pub corrosion: u16,
     pub http: u16,
     pub https: u16,
+    pub fs: u16,
 }
 
 impl PortMap {
@@ -332,10 +335,11 @@ impl PortMap {
         Ok(Self {
             ssh: Self::get_unused_port()?,
             dns: Self::get_unused_port()?,
-            dns_secure: Self::get_unused_port()?,
+            dnss: Self::get_unused_port()?,
             corrosion: Self::get_unused_port()?,
             http: Self::get_unused_port()?,
             https: Self::get_unused_port()?,
+            fs: Self::get_unused_port()?,
         })
     }
 
@@ -371,10 +375,11 @@ impl PortMap {
         if let Ok(mut registry) = get_port_registry().lock() {
             registry.remove(&self.ssh);
             registry.remove(&self.dns);
-            registry.remove(&self.dns_secure);
+            registry.remove(&self.dnss);
             registry.remove(&self.corrosion);
             registry.remove(&self.http);
             registry.remove(&self.https);
+            registry.remove(&self.fs);
         }
     }
 }

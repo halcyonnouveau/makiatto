@@ -101,9 +101,9 @@ async fn test_dns_geolocation() -> Result<()> {
     let daemon = daemon_container.unwrap();
 
     let insert_peers_sql = [
-        r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6) VALUES ('peer-nyc', 'pubkey-nyc-123', '10.0.0.10/32', 40.7128, -74.0060, '192.168.1.10', NULL)",
-        r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6) VALUES ('peer-london', 'pubkey-london-456', '10.0.0.20/32', 51.5074, -0.1278, '192.168.1.20', NULL)",
-        r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6) VALUES ('peer-tokyo', 'pubkey-tokyo-789', '10.0.0.30/32', 35.6762, 139.6503, '192.168.1.30', NULL)",
+        r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('peer-nyc', 'pubkey-nyc-123', '10.0.0.10', 40.7128, -74.0060, '192.168.1.10', NULL, 8282)",
+        r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('peer-london', 'pubkey-london-456', '10.0.0.20', 51.5074, -0.1278, '192.168.1.20', NULL, 8282)",
+        r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('peer-tokyo', 'pubkey-tokyo-789', '10.0.0.30', 35.6762, 139.6503, '192.168.1.30', NULL, 8282)",
     ];
 
     for sql in insert_peers_sql {

@@ -4,4 +4,5 @@ mod certificate;
 mod consensus;
 mod corrosion;
 mod dns;
+mod fs;
 mod provision;

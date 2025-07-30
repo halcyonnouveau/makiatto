@@ -15,6 +15,9 @@ pub struct Peer {
     pub latitude: f64,
     pub longitude: f64,
     pub is_nameserver: bool,
+    // this is purely for tests
+    // and should pretty much never not be 8282
+    pub fs_port: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +77,15 @@ pub struct AcmeChallenge {
     pub key_authorisation: Arc<str>,
     pub created_at: i64,
     pub expires_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct File {
+    pub domain: Arc<str>,
+    pub path: Arc<str>,
+    pub content_hash: Arc<str>,
+    pub size: i64,
+    pub modified_at: i64,
 }
 
 pub(crate) fn setup_migrations(data_dir: &camino::Utf8PathBuf) -> Result<Vec<camino::Utf8PathBuf>> {

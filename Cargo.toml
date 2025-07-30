@@ -27,6 +27,7 @@ toml = "0.8"
 
 # Cryptography
 base64 = "0.22"
+blake3 = "1.8"
 crc32fast = "1.5"
 x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 
@@ -36,15 +37,17 @@ corro-types = { git = "https://github.com/beanpuppy/corrosion" }
 tripwire = { git = "https://github.com/beanpuppy/corrosion" }
 
 # Database
-sqlx = { git = "https://github.com/launchbadge/sqlx", features = ["runtime-tokio", "sqlite"] }
+sqlx = { git = "https://github.com/launchbadge/sqlx", features = [
+    "runtime-tokio",
+    "sqlite",
+] }
 
 # DNS
 hickory-proto = "0.25"
 hickory-resolver = "0.25"
 hickory-server = { version = "0.25", features = [
-    "tls-ring",
-    "https-ring",
-    "quic-ring",
+    "tls-aws-lc-rs",
+    "quic-aws-lc-rs",
 ] }
 maxminddb = "0.26"
 
@@ -105,6 +108,9 @@ panic = "abort"
 debug = 1
 incremental = true
 codegen-units = 256
+
+[profile.test.package.backtrace]
+opt-level = 2
 
 [workspace.lints.rust]
 missing_copy_implementations = "warn"
