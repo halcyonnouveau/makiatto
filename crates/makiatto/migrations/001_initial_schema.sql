@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS peers (
     latitude REAL NOT NULL DEFAULT 0.0,
     longitude REAL NOT NULL DEFAULT 0.0,
     is_nameserver INTEGER NOT NULL DEFAULT 0,
+    fs_port INTEGER NOT NULL DEFAULT 8282,
     created_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond')),
     updated_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond'))
 );
@@ -62,4 +63,13 @@ CREATE TABLE IF NOT EXISTS acme_challenges (
     key_authorisation TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL DEFAULT 0,
     expires_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS files (
+    domain TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    modified_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (domain, path)
 );

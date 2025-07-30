@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
 use miette::Result;
-use rustls::crypto::ring::sign::any_supported_type;
+use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::{ServerConfig, sign::CertifiedKey};
@@ -13,7 +12,10 @@ use rustls_pemfile::{certs, private_key};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 
-use crate::corrosion::{self, schema::Certificate};
+use crate::{
+    corrosion::{self, schema::Certificate},
+    util,
+};
 
 #[derive(Debug, Clone)]
 pub struct CertificateStore {
@@ -124,25 +126,12 @@ impl CertificateStore {
         Ok(())
     }
 
-    /// Get current timestamp in seconds since UNIX epoch
-    ///
-    /// # Errors
-    /// Returns an error if system time is invalid
-    pub fn get_current_timestamp() -> Result<i64> {
-        #[allow(clippy::cast_possible_wrap)]
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| miette::miette!("Failed to get current time: {e}"))?
-            .as_secs() as i64;
-        Ok(timestamp)
-    }
-
     /// Check if a certificate exists and is expiring within the threshold
     ///
     /// # Errors
     /// Returns an error if system time cannot be retrieved
     pub async fn is_certificate_expiring(&self, domain: &str, days_threshold: u64) -> Result<bool> {
-        let current_time = Self::get_current_timestamp()?;
+        let current_time = util::get_current_timestamp()?;
 
         #[allow(clippy::cast_possible_wrap)]
         let threshold_time = current_time + (days_threshold * 24 * 60 * 60) as i64;
@@ -161,7 +150,7 @@ impl CertificateStore {
     /// # Errors
     /// Returns an error if system time cannot be retrieved
     pub async fn get_expiring_certificates(&self, days_threshold: u64) -> Result<Vec<String>> {
-        let current_time = Self::get_current_timestamp()?;
+        let current_time = util::get_current_timestamp()?;
 
         #[allow(clippy::cast_possible_wrap)]
         let threshold_time = current_time + (days_threshold * 24 * 60 * 60) as i64;
@@ -180,7 +169,7 @@ impl CertificateStore {
 
     /// Get certificate expiration information for all certificates
     pub async fn get_certificate_expiration_info(&self) -> Vec<(String, i64, bool)> {
-        let Ok(current_time) = Self::get_current_timestamp() else {
+        let Ok(current_time) = util::get_current_timestamp() else {
             return vec![];
         };
 
@@ -236,7 +225,7 @@ impl CertificateStore {
         };
 
         // Install default crypto provider if none is set
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let mut config = ServerConfig::builder()
             .with_no_client_auth()

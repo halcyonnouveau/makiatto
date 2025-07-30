@@ -32,6 +32,10 @@ pub struct Config {
     /// ACME configuration
     #[serde(default)]
     pub acme: AcmeConfig,
+
+    /// File sync configuration
+    #[serde(default)]
+    pub fs: FileSyncConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -193,7 +197,7 @@ pub struct AcmeConfig {
     #[serde(default = "default_max_retry_attempts")]
     pub max_retry_attempts: u32,
 
-    /// ACME account email (optional but recommended)
+    /// ACME account email
     #[serde(default)]
     pub acme_email: String,
 
@@ -230,6 +234,43 @@ fn default_max_retry_attempts() -> u32 {
 fn default_acme_directory_url() -> String {
     // Use staging by default for safety
     "https://acme-staging-v02.api.letsencrypt.org/directory".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FileSyncConfig {
+    /// Enable file synchronization
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Content storage directory
+    #[serde(default = "default_storage_dir")]
+    pub storage_dir: Arc<Utf8PathBuf>,
+
+    /// File sync HTTP server address
+    pub addr: Option<Arc<str>>,
+
+    /// Filesystem reconciliation interval in hours
+    #[serde(default = "default_reconcile_interval")]
+    pub reconcile_interval: u64,
+}
+
+impl Default for FileSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            storage_dir: default_storage_dir(),
+            addr: None,
+            reconcile_interval: default_reconcile_interval(),
+        }
+    }
+}
+
+fn default_storage_dir() -> Arc<Utf8PathBuf> {
+    Arc::new(Utf8PathBuf::from("/var/makiatto/storage"))
+}
+
+fn default_reconcile_interval() -> u64 {
+    1
 }
 
 impl Config {

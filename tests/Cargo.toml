@@ -9,6 +9,7 @@ makiatto = { path = "../crates/makiatto" }
 makiatto-cli = { path = "../crates/makiatto-cli" }
 
 base64 = { workspace = true }
+blake3 = { workspace = true }
 ctor = { workspace = true }
 jiff = { workspace = true }
 miette = { workspace = true }

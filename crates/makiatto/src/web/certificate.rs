@@ -14,8 +14,11 @@ pub use store::CertificateStore;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
-use crate::config::Config;
-use crate::corrosion::{self, consensus::DirectorElection, schema::Certificate};
+use crate::{
+    config::Config,
+    corrosion::{self, consensus::DirectorElection, schema::Certificate},
+    util,
+};
 
 /// Orchestrates certificate lifecycle management
 #[derive(Debug)]
@@ -303,7 +306,7 @@ impl CertificateManager {
 
     /// Update renewal status in database
     async fn update_renewal_status(&self, domain: &str, status: &str) -> Result<()> {
-        let now = CertificateStore::get_current_timestamp()?;
+        let now = util::get_current_timestamp()?;
 
         #[allow(clippy::cast_possible_wrap)]
         let next_check = now + self.config.acme.check_interval as i64;

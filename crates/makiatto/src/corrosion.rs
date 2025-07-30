@@ -70,7 +70,7 @@ pub async fn get_peers() -> Result<Arc<[Peer]>> {
     let pool = get_pool().await?;
 
     let rows = sqlx::query!(
-        "SELECT name, wg_public_key, wg_address, ipv4, ipv6, latitude, longitude, is_nameserver FROM peers"
+        "SELECT name, wg_public_key, wg_address, ipv4, ipv6, latitude, longitude, is_nameserver, fs_port FROM peers"
     )
     .fetch_all(pool)
     .await
@@ -87,6 +87,7 @@ pub async fn get_peers() -> Result<Arc<[Peer]>> {
             latitude: row.latitude,
             longitude: row.longitude,
             is_nameserver: row.is_nameserver != 0,
+            fs_port: row.fs_port,
         })
         .collect();
 

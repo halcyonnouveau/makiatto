@@ -45,3 +45,6 @@ lease_duration = 6
 enabled = true
 check_interval = 3600
 renewal_threshold_days = 30
+
+[fs]
+addr = "0.0.0.0:8282"

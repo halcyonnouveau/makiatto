@@ -13,7 +13,7 @@ RUN chmod +x /usr/local/bin/makiatto && chown makiatto:makiatto /usr/local/bin/m
 RUN echo 'net.ipv4.ip_unprivileged_port_start=0' > /etc/sysctl.d/50-unprivileged-ports.conf
 RUN setcap 'cap_net_bind_service=+ep' /usr/local/bin/makiatto
 
-EXPOSE 22 53 80 443 8181 8787
+EXPOSE 22 53 80 443 8181 8787 8282
 VOLUME ["/etc/makiatto", "/var/makiatto"]
 
 CMD ["/bin/bash", "-c", "/usr/sbin/sshd && exec su -s /bin/bash makiatto -c 'exec /usr/local/bin/makiatto'"]
