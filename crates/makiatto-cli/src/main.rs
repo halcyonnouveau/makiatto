@@ -4,7 +4,7 @@ use argh::FromArgs;
 use makiatto_cli::{
     config::{Config, Profile},
     machine::{self, AddMachine, InitMachine},
-    ui,
+    sync, ui,
 };
 use miette::Result;
 
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
         },
         Command::Sync(_) => {
             let config = Config::load(cli.config_path)?;
-            machine::sync_project(&profile, &config)?;
+            sync::sync_project(&profile, &config)?;
             Ok(())
         }
         Command::Status(_) => {
