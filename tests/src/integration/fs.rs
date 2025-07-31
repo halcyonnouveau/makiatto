@@ -68,6 +68,7 @@ pub async fn create_large_test_file(
         "yes 'This is a test pattern for large file sync in makiatto CDN!' | head -c {size_mb}M > '{full_path}'",
     );
     util::execute_command(daemon, &create_cmd).await?;
+    util::execute_command(daemon, "sudo chown -R makiatto:makiatto /var/makiatto").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -386,7 +387,6 @@ async fn test_large_file_sync() -> Result<()> {
     // Create a 150MB file (above streaming threshold of 100MB)
     create_large_test_file(&d1, "example.com", "/large-video.bin", 150).await?;
 
-    // Give extra time for large file processing and sync
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     // Verify both files exist and have same size

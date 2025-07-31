@@ -106,34 +106,8 @@ async fn main() -> Result<()> {
             }
         },
         Command::Sync(_) => {
-            let _ = Config::load(cli.config_path);
-            /*
-             * Update LocalConfig Structure
-             *    - Add ttl field to DnsRecord struct (optional, defaults to 300)
-             *    - Add priority field to DnsRecord struct (optional, for MX records)
-             *
-             * Implement Sync Command Logic
-             *    - Load ./makiatto.toml using LocalConfig::load()
-             *    - Load machines config to get machine list and find nameservers
-             *    - Connect to first available machine's Corrosion API or database
-             *    - Insert/update domain in domains table
-             *    - Auto-generate required DNS records for the primary domain (eg quaso.engineering):
-             *      * A records: Point to all active peer IPs (with geo_enabled=1)
-             *      * AAAA records: Point to all active peer IPs (with geo_enabled=1)
-             *      * SOA record: Primary nameserver with standard values
-             *      * NS records: One for each nameserver machine
-             *      * CAA records: Let's Encrypt authorization
-             *    - Insert custom records from config records array
-             *
-             * Database Operations
-             *    - Set appropriate geo_enabled flags (1 for A/AAAA records, 0 for others)
-             *
-             * Error Handling
-             *    - Validate domain format
-             *    - Handle database connection errors
-             *    - Check if machines exist in peers table
-             *    - Provide clear error messages for missing configs
-             */
+            let config = Config::load(cli.config_path)?;
+            machine::sync_project(&profile, &config)?;
             Ok(())
         }
         Command::Status(_) => {

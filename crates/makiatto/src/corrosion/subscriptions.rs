@@ -5,7 +5,11 @@ use corro_types::pubsub::ChangeType;
 use futures_util::StreamExt;
 use miette::Result;
 use tokio::time::{Duration, sleep};
-use tracing::{error, info, warn};
+use tokio_util::{
+    codec::{FramedRead, LinesCodec},
+    io::StreamReader,
+};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     cache::{CacheStore, SubscriptionState},
@@ -123,7 +127,10 @@ impl SubscriptionWatcher {
                         "subscription_domains",
                         |event| {
                             let watcher = watcher.clone();
-                            Box::pin(async move { watcher.handle_domains_change(event).await })
+                            Box::pin(async move {
+                                watcher.handle_domains_change(event);
+                                Ok(())
+                            })
                         },
                     )
                     .await;
@@ -174,6 +181,35 @@ impl SubscriptionWatcher {
             }
         });
 
+        let cache_persist_handle = tokio::spawn({
+            let cache_store = self.cache_store.clone();
+            let mut tripwire = tripwire.clone();
+            async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                interval.tick().await;
+
+                loop {
+                    tokio::select! {
+                        () = &mut tripwire => {
+                            info!("Cache persistence task shutting down");
+                            // Final persist on shutdown
+                            if let Err(e) = cache_store.persist().await {
+                                error!("Failed to persist cache on shutdown: {e}");
+                            }
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            if let Err(e) = cache_store.persist().await {
+                                error!("Failed to persist cache: {e}");
+                            } else {
+                                debug!("Cache persisted successfully");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         tokio::select! {
             () = &mut tripwire => {
                 info!("Subscription watcher shutting down");
@@ -206,6 +242,11 @@ impl SubscriptionWatcher {
             res = files_handle => {
                 if let Err(e) = res {
                     error!("Files watcher task failed: {e}");
+                }
+            }
+            res = cache_persist_handle => {
+                if let Err(e) = res {
+                    error!("Cache persistence task failed: {e}");
                 }
             }
         }
@@ -251,7 +292,13 @@ impl SubscriptionWatcher {
         F: Fn(&QueryEvent) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>,
     {
         let api_base = format!("http://127.0.0.1:{CORROSION_API_PORT}/v1/subscriptions");
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .tcp_keepalive(Duration::from_secs(60))
+            .http2_keep_alive_interval(Duration::from_secs(30))
+            .http2_keep_alive_timeout(Duration::from_secs(10))
+            .http2_keep_alive_while_idle(true)
+            .build()
+            .map_err(|e| miette::miette!("Failed to create HTTP client: {e}"))?;
 
         let mut state = self
             .cache_store
@@ -262,96 +309,96 @@ impl SubscriptionWatcher {
                 last_change_id: 0,
             });
 
-        let (url, is_new) = if let Some(query_id) = &state.query_id {
-            let from = if state.last_change_id > 0 {
-                format!("?from={}", state.last_change_id)
+        loop {
+            // Determine URL and request type
+            let (url, is_new) = if let Some(query_id) = &state.query_id {
+                let from = if state.last_change_id > 0 {
+                    format!("?from={}", state.last_change_id)
+                } else {
+                    String::new()
+                };
+                (format!("{api_base}/{query_id}{from}"), false)
             } else {
-                String::new()
+                (api_base.clone(), true)
             };
-            (format!("{api_base}/{query_id}{from}"), false)
-        } else {
-            (api_base, true)
-        };
 
-        info!(
-            "Subscribing to query: {state_key} (new: {is_new}, from: {})",
-            state.last_change_id
-        );
+            info!(
+                "Subscribing to query: {state_key} (new: {is_new}, from: {})",
+                state.last_change_id
+            );
 
-        let response = if is_new {
-            client
-                .post(&url)
-                .header("content-type", "application/json")
-                .body(format!("\"{query}\""))
-                .send()
-                .await
-                .map_err(|e| miette::miette!("Failed to create subscription: {e}"))?
-        } else {
-            client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|e| miette::miette!("Failed to reconnect to subscription: {e}"))?
-        };
+            // Make the request
+            let response = if is_new {
+                client
+                    .post(&url)
+                    .header("content-type", "application/json")
+                    .body(format!("\"{query}\""))
+                    .send()
+                    .await
+                    .map_err(|e| miette::miette!("Failed to create subscription: {e}"))?
+            } else {
+                client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|e| miette::miette!("Failed to reconnect to subscription: {e}"))?
+            };
 
-        if is_new
-            && let Some(query_id_str) = response.headers().get("corro-query-id")
-            && let Ok(query_id_str) = query_id_str.to_str()
-        {
-            state.query_id = Some(query_id_str.to_string());
-            info!("New subscription created with ID: {query_id_str}");
+            // Handle new subscription ID
+            if is_new
+                && let Some(query_id_str) = response.headers().get("corro-query-id")
+                && let Ok(query_id_str) = query_id_str.to_str()
+            {
+                state.query_id = Some(query_id_str.to_string());
+                info!("New subscription created with ID: {query_id_str}");
 
-            self.cache_store
-                .set_subscription(state_key, state.clone())
-                .await?;
-        }
+                self.cache_store
+                    .set_subscription(state_key, state.clone())
+                    .await;
+            }
 
-        let mut stream = response.bytes_stream();
-        let mut buffer = Vec::new();
-        let mut last_persist = std::time::Instant::now();
+            let reader = StreamReader::new(
+                response
+                    .bytes_stream()
+                    .map(|result| result.map_err(std::io::Error::other)),
+            );
 
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk
-                .map_err(|e| miette::miette!("Failed to read subscription response chunk: {e}"))?;
+            let codec = LinesCodec::new();
+            let mut framed_stream = FramedRead::new(reader, codec);
 
-            buffer.extend_from_slice(&chunk);
+            while let Some(line_result) = framed_stream.next().await {
+                let line = line_result
+                    .map_err(|e| miette::miette!("Failed to read subscription line: {e}"))?;
 
-            while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-                let line = buffer.drain(..=pos).collect::<Vec<_>>();
-                let line_str = String::from_utf8_lossy(&line);
-                let line_str = line_str.trim();
-
-                if line_str.is_empty() {
+                let line = line.trim();
+                if line.is_empty() {
                     continue;
                 }
 
-                match serde_json::from_str::<QueryEvent>(line_str) {
+                match serde_json::from_str::<QueryEvent>(line) {
                     Ok(event) => {
                         if let QueryEvent::Change(_, _, _, change_id) = &event {
                             state.last_change_id = change_id.0;
-
-                            // persist state periodically (every 10 seconds)
-                            if last_persist.elapsed() > Duration::from_secs(10) {
-                                self.cache_store
-                                    .set_subscription(state_key, state.clone())
-                                    .await?;
-                                last_persist = std::time::Instant::now();
-                            }
                         }
 
-                        handler(&event).await?;
+                        if let Err(e) = handler(&event).await {
+                            error!("Handler error for subscription event: {e}");
+                        }
                     }
                     Err(e) => {
                         error!("Failed to parse subscription event: {e}");
-                        error!("Raw line: {line_str}");
+                        error!("Raw line: {line}");
                     }
                 }
             }
+
+            // Stream ended cleanly, save state and reconnect
+            self.cache_store
+                .set_subscription(state_key, state.clone())
+                .await;
+
+            info!("Subscription stream ended, reconnecting to {state_key}...");
         }
-
-        self.cache_store.set_subscription(state_key, state).await?;
-
-        Ok(())
     }
 
     /// Handle changes to peers table
@@ -361,15 +408,6 @@ impl SubscriptionWatcher {
 
             if let Err(e) = self.dns_restart_tx.try_send(()) {
                 error!("Failed to signal DNS restart: {e}");
-            }
-
-            // If this node is the director, regenerate nameserver records
-            if self.director_election.is_leader().await {
-                if let Err(e) = super::generate_nameserver_records().await {
-                    error!("Failed to generate nameserver records: {e}");
-                } else {
-                    info!("Director regenerated nameserver records due to peers change");
-                }
             }
 
             if values.len() >= 4 {
@@ -459,7 +497,7 @@ impl SubscriptionWatcher {
     }
 
     /// Handle changes to `domains` table
-    async fn handle_domains_change(&self, event: &QueryEvent) -> Result<()> {
+    fn handle_domains_change(&self, event: &QueryEvent) {
         if let QueryEvent::Change(change_type, row_id, values, _) = event {
             let domain = if values.is_empty() {
                 "unknown"
@@ -472,17 +510,7 @@ impl SubscriptionWatcher {
             if let Err(e) = self.dns_restart_tx.try_send(()) {
                 error!("Failed to signal DNS restart: {e}");
             }
-
-            if self.director_election.is_leader().await {
-                if let Err(e) = super::generate_nameserver_records().await {
-                    error!("Failed to generate nameserver records: {e}");
-                } else {
-                    info!("Director regenerated nameserver records due to domains change");
-                }
-            }
         }
-
-        Ok(())
     }
 
     /// Handle changes to `domain_aliases` table

@@ -9,9 +9,10 @@ use x25519_dalek::{PublicKey, StaticSecret};
 mod corrosion;
 mod geolocation;
 mod provision;
+pub mod sync;
 
 use crate::{
-    config::{Machine, Profile},
+    config::{Config, Machine, Profile},
     ssh::{self, SshSession},
     ui,
 };
@@ -289,6 +290,46 @@ pub fn add_machine(request: &AddMachine, profile: &mut Profile) -> Result<()> {
     profile.add_machine(machine);
     ui::status("Machine added successfully");
 
+    Ok(())
+}
+
+/// Sync project files and DNS configuration to the CDN
+///
+/// # Errors
+/// Returns an error if sync operations fail
+pub fn sync_project(profile: &Profile, config: &Config) -> Result<()> {
+    if profile.machines.is_empty() {
+        return Err(miette!(
+            "No machines configured. Use `machine init` to add one first"
+        ));
+    }
+
+    if config.domains.is_empty() {
+        return Err(miette!("No domains configured in makiatto.toml"));
+    }
+
+    let sync_machine = profile
+        .machines
+        .iter()
+        .find(|m| m.is_nameserver)
+        .unwrap_or(&profile.machines[0]);
+
+    ui::header(&format!("Syncing to machine '{}'", sync_machine.name));
+
+    ui::status(&format!("Connecting to {}", sync_machine.ssh_target));
+    let ssh = SshSession::new(&sync_machine.ssh_target, None)?;
+
+    for domain in config.domains.iter() {
+        ui::header(&format!("Processing domain: {}", domain.name));
+
+        // Sync files via rsync
+        sync::sync_domain_files(&ssh, domain, sync_machine)?;
+
+        // Update database records
+        sync::sync_domain_records(&ssh, domain, &profile.machines)?;
+    }
+
+    ui::status("Sync completed successfully");
     Ok(())
 }
 

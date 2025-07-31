@@ -109,7 +109,10 @@ pub async fn get_dns_records() -> Result<std::collections::HashMap<String, Vec<D
     .await
     .map_err(|e| miette::miette!("Failed to query DNS records: {e}"))?;
 
+    info!("Retrieved {} DNS record entries from database", rows.len());
+
     let mut records_map = std::collections::HashMap::new();
+
     for row in rows {
         let lookup_key = row.domain.clone();
         let record = DnsRecord {
@@ -127,11 +130,6 @@ pub async fn get_dns_records() -> Result<std::collections::HashMap<String, Vec<D
             .or_insert_with(Vec::new)
             .push(record);
     }
-
-    info!(
-        "Retrieved {} DNS record entries from database",
-        records_map.len()
-    );
     Ok(records_map)
 }
 
@@ -151,94 +149,6 @@ pub async fn get_domains() -> Result<Vec<String>> {
 
     info!("Retrieved {} domains from database", domains.len());
     Ok(domains)
-}
-
-/// Automatically generate nameserver DNS records for all nameserver peers and domains
-///
-/// This creates A and AAAA records for <peer.name>.ns.<domain> for each nameserver peer
-/// and domain combination, allowing automatic NS record generation.
-///
-/// # Errors
-/// Returns an error if database operations fail
-pub async fn generate_nameserver_records() -> Result<()> {
-    let pool = get_pool().await?;
-
-    // Get all nameserver peers
-    let nameserver_peers: Vec<_> = get_peers()
-        .await?
-        .iter()
-        .filter(|peer| peer.is_nameserver)
-        .cloned()
-        .collect();
-
-    if nameserver_peers.is_empty() {
-        info!("No nameserver peers found, skipping nameserver record generation");
-        return Ok(());
-    }
-
-    // Get all domains
-    let domains = get_domains().await?;
-
-    if domains.is_empty() {
-        info!("No domains found, skipping nameserver record generation");
-        return Ok(());
-    }
-
-    info!(
-        "Generating nameserver records for {} nameserver peers and {} domains",
-        nameserver_peers.len(),
-        domains.len()
-    );
-
-    // Generate records for each nameserver peer + domain combination
-    for peer in &nameserver_peers {
-        for domain in &domains {
-            let ns_hostname = format!("{}.ns.{}", peer.name, domain);
-
-            // Create A record for IPv4
-            let ipv4_value = peer.ipv4.as_ref();
-            sqlx::query!(
-                "INSERT OR REPLACE INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled)
-                 VALUES (?, ?, 'A', ?, ?, 300, 0, 0)",
-                domain,
-                ns_hostname,
-                ipv4_value,
-                domain
-            )
-            .execute(pool)
-            .await
-            .map_err(|e| miette::miette!("Failed to insert A record for {}: {e}", ns_hostname))?;
-
-            // Create AAAA record for IPv6 (if available)
-            if let Some(ipv6) = &peer.ipv6 {
-                let ipv6_value = ipv6.as_ref();
-                sqlx::query!(
-                    "INSERT OR REPLACE INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled)
-                     VALUES (?, ?, 'AAAA', ?, ?, 300, 0, 0)",
-                    domain,
-                    ns_hostname,
-                    ipv6_value,
-                    domain
-                )
-                .execute(pool)
-                .await
-                .map_err(|e| miette::miette!("Failed to insert AAAA record for {}: {e}", ns_hostname))?;
-
-                info!(
-                    "Generated A and AAAA nameserver records for {}",
-                    ns_hostname
-                );
-            } else {
-                info!("Generated A nameserver record for {}", ns_hostname);
-            }
-        }
-    }
-
-    info!(
-        "Successfully generated nameserver records for {} nameserver peers",
-        nameserver_peers.len()
-    );
-    Ok(())
 }
 
 /// Execute a SQL transaction via Corrosion API

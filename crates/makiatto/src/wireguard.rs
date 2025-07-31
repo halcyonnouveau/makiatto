@@ -88,6 +88,7 @@ type Wireguard = WireguardGeneric<Userspace>;
 
 struct WireguardGeneric<T> {
     api: WGApi<T>,
+    config: WireguardConfig,
 }
 
 impl<T> WireguardGeneric<T>
@@ -109,7 +110,10 @@ where
             );
             let wgapi = WGApi::<T>::new(config.interface.to_string())
                 .map_err(|e| miette!("Failed to create WireGuard API: {e}"))?;
-            return Ok(Self { api: wgapi });
+            return Ok(Self {
+                api: wgapi,
+                config: config.to_owned(),
+            });
         }
 
         info!("Setting up WireGuard interface '{}'", config.interface);
@@ -162,7 +166,10 @@ where
             config.interface
         );
 
-        let wireguard = Self { api: wgapi };
+        let wireguard = Self {
+            api: wgapi,
+            config: config.to_owned(),
+        };
 
         if let Some(corrosion_peers) = peers
             && !corrosion_peers.is_empty()
@@ -198,6 +205,10 @@ where
             return Ok(());
         }
 
+        if self.config.public_key.as_str() == public_key {
+            return Ok(());
+        }
+
         let peer_key =
             Key::from_str(public_key).map_err(|e| miette!("Invalid peer public key: {e}"))?;
 
@@ -228,6 +239,10 @@ where
     pub fn remove_peer(&self, public_key: &str) -> Result<()> {
         if is_container() {
             info!("Container environment detected - skipping peer removal");
+            return Ok(());
+        }
+
+        if self.config.public_key.as_str() == public_key {
             return Ok(());
         }
 

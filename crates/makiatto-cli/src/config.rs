@@ -34,7 +34,9 @@ pub struct Domain {
     pub name: Arc<str>,
     pub path: PathBuf,
     /// CNAME records to the canonical domain
+    #[serde(default)]
     pub aliases: Arc<[Arc<str>]>,
+    #[serde(default)]
     pub records: Arc<[DnsRecord]>,
 }
 

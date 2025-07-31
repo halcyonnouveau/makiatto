@@ -34,7 +34,7 @@ jobs:
           cargo nextest run --workspace --exclude integration-tests --retries 2
 
   integration-tests:
-    name: Integration tests
+    name: Integration/e2e tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
           mkdir -p target/tests
           docker run --rm -v $PWD/target/tests:/output makiatto-builder:latest sh -c "cp /makiatto /output/"
           sudo chown -R $USER:$USER target/
-      - name: Run integration tests
+      - name: Run integration/e2e tests
         run: cargo nextest run --package integration-tests --retries 3
 
   clippy:
