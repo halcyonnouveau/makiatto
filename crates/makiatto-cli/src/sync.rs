@@ -3,27 +3,72 @@ use std::{collections::HashSet, time::SystemTime};
 use miette::{Result, miette};
 
 use crate::{
-    config::{DnsRecord, Domain, Machine},
+    config::{Config, DnsRecord, Domain, Machine, Profile},
     machine::corrosion,
     ssh::SshSession,
     ui,
 };
 
-/// Sync domain files via rsync
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct DnsRecordKey {
+    name: String,
+    record_type: String,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct DnsRecordData {
+    value: String,
+    ttl: u32,
+    priority: i32,
+    geo_enabled: bool,
+}
+
+/// Sync project files and DNS configuration to the CDN
 ///
 /// # Errors
-/// Returns an error if rsync command fails or SSH operations fail
-pub fn sync_domain_files(ssh: &SshSession, domain: &Domain, _machine: &Machine) -> Result<()> {
+/// Returns an error if sync operations fail
+pub fn sync_project(profile: &Profile, config: &Config) -> Result<()> {
+    if profile.machines.is_empty() {
+        return Err(miette!(
+            "No machines configured. Use `machine init` to add one first"
+        ));
+    }
+
+    if config.domains.is_empty() {
+        return Err(miette!("No domains configured in makiatto.toml"));
+    }
+
+    let sync_machine = profile
+        .machines
+        .iter()
+        .find(|m| m.is_nameserver)
+        .unwrap_or(&profile.machines[0]);
+
+    ui::header(&format!("Syncing to machine '{}'", sync_machine.name));
+
+    ui::status(&format!("Connecting to {}", sync_machine.ssh_target));
+    let ssh = SshSession::new(&sync_machine.ssh_target, None)?;
+
+    for domain in config.domains.iter() {
+        ui::header(&format!("Processing domain: {}", domain.name));
+        sync_domain_files(&ssh, domain)?;
+        sync_domain_records(&ssh, domain, &profile.machines)?;
+    }
+
+    ui::status("Sync completed successfully");
+    Ok(())
+}
+
+fn sync_domain_files(ssh: &SshSession, domain: &Domain) -> Result<()> {
     ui::status("Syncing files...");
 
     let target_dir = format!("/var/makiatto/sites/{}", domain.name);
     ssh.exec(&format!("sudo mkdir -p {target_dir}"))?;
 
-    // Build rsync command - SSH key authentication only
-    let source = domain.path.to_string_lossy();
-    let rsync_target = format!("{}@{}:{}/", ssh.user, ssh.host, target_dir);
-
     let spinner = ui::spinner("Running rsync...");
+
+    let source = domain.path.to_string_lossy();
+    let target = format!("{}@{}:{}/", ssh.user, ssh.host, target_dir);
 
     let mut rsync_cmd = std::process::Command::new("rsync");
     rsync_cmd
@@ -35,7 +80,7 @@ pub fn sync_domain_files(ssh: &SshSession, domain: &Domain, _machine: &Machine) 
         .arg("--rsync-path")
         .arg("sudo rsync")
         .arg(format!("{}/", source.trim_end_matches('/')))
-        .arg(&rsync_target);
+        .arg(&target);
 
     let output = rsync_cmd
         .output()
@@ -48,16 +93,13 @@ pub fn sync_domain_files(ssh: &SshSession, domain: &Domain, _machine: &Machine) 
 
     spinner.finish_with_message("✓ rsync completed");
 
+    ui::action("Setting permissions");
     ssh.exec(&format!("sudo chown -R makiatto:makiatto {target_dir}"))?;
 
     Ok(())
 }
 
-/// Sync domain records to the database
-///
-/// # Errors
-/// Returns an error if database operations fail or SSH operations fail
-pub fn sync_domain_records(ssh: &SshSession, domain: &Domain, machines: &[Machine]) -> Result<()> {
+fn sync_domain_records(ssh: &SshSession, domain: &Domain, machines: &[Machine]) -> Result<()> {
     ui::status("Updating DNS records...");
 
     let domain_sql = format!(
@@ -75,31 +117,16 @@ pub fn sync_domain_records(ssh: &SshSession, domain: &Domain, machines: &[Machin
     }
 
     let existing_records = get_existing_dns_records(ssh, &domain.name)?;
-    let mut desired_records = Vec::new();
 
-    collect_auto_dns_records(&domain.name, machines, &mut desired_records)?;
-    collect_custom_dns_records(&domain.name, &domain.records, &mut desired_records);
+    let mut desired_records = Vec::new();
+    generate_dns_records(&domain.name, machines, &mut desired_records)?;
+    collect_dns_records(&domain.name, &domain.records, &mut desired_records);
 
     apply_dns_diff(ssh, &domain.name, &existing_records, &desired_records)?;
 
     Ok(())
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct DnsRecordKey {
-    name: String,
-    record_type: String,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct DnsRecordData {
-    value: String,
-    ttl: u32,
-    priority: i32,
-    geo_enabled: bool,
-}
-
-/// Get existing DNS records from the database
 fn get_existing_dns_records(
     ssh: &SshSession,
     domain: &str,
@@ -107,7 +134,7 @@ fn get_existing_dns_records(
     let sql = format!(
         "SELECT name, record_type, value, ttl, priority, geo_enabled FROM dns_records WHERE domain = '{domain}'"
     );
-    let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
+    let cmd = format!("sudo sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
 
     let output = ssh.exec(&cmd)?;
     let mut records = Vec::new();
@@ -140,9 +167,8 @@ fn get_existing_dns_records(
     Ok(records)
 }
 
-/// Collect auto-generated DNS records
 #[allow(clippy::too_many_lines)]
-fn collect_auto_dns_records(
+fn generate_dns_records(
     domain: &str,
     machines: &[Machine],
     records: &mut Vec<(DnsRecordKey, DnsRecordData)>,
@@ -284,8 +310,7 @@ fn collect_auto_dns_records(
     Ok(())
 }
 
-/// Collect custom DNS records from config
-fn collect_custom_dns_records(
+fn collect_dns_records(
     domain: &str,
     config_records: &[DnsRecord],
     records: &mut Vec<(DnsRecordKey, DnsRecordData)>,
@@ -314,7 +339,6 @@ fn collect_custom_dns_records(
     }
 }
 
-/// Apply DNS diff to the database
 fn apply_dns_diff(
     ssh: &SshSession,
     domain: &str,
@@ -341,7 +365,6 @@ fn apply_dns_diff(
 
     let mut sqls = Vec::new();
 
-    // Add deletion statements
     for (key, _) in &to_delete {
         ui::action(&format!(
             "Removing DNS record: {} {}",
@@ -354,7 +377,6 @@ fn apply_dns_diff(
         sqls.push(sql);
     }
 
-    // Add insertion statements
     for (key, data) in &to_add {
         ui::action(&format!(
             "Adding DNS record: {} {} -> {}",

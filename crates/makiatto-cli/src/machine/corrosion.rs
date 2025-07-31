@@ -16,6 +16,9 @@ pub struct Peer {
 }
 
 /// Insert a new peer into the database via SSH
+///
+/// # Errors
+/// Returns an error if the SSH command fails or if the database operation fails
 pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
     let latitude = machine.latitude.unwrap_or(0.0);
     let longitude = machine.longitude.unwrap_or(0.0);
@@ -42,6 +45,9 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
 }
 
 /// Query all peers from the database
+///
+/// # Errors
+/// Returns an error if the SSH command fails, database query fails, or if the data format is invalid
 pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
     let sql = "SELECT name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers;";
     let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
@@ -89,6 +95,9 @@ pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
 }
 
 /// Query a peer by name from the database
+///
+/// # Errors
+/// Returns an error if the SSH command fails, database query fails, or if the data format is invalid
 pub fn query_peer(ssh: &SshSession, name: &str) -> Result<Option<Peer>> {
     let sql = format!(
         "SELECT wg_public_key, wg_address, ipv4, ipv6, latitude, longitude FROM peers WHERE name = '{name}'",
