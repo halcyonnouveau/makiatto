@@ -64,11 +64,6 @@ impl CertificateManager {
     pub async fn load_certificates(&self) -> Result<()> {
         self.store.load_certificates().await?;
 
-        // Generate nameserver DNS records automatically
-        if let Err(e) = corrosion::generate_nameserver_records().await {
-            error!("Failed to generate nameserver records: {e}");
-        }
-
         Ok(())
     }
 

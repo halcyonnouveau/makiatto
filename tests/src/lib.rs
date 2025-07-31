@@ -1,5 +1,6 @@
 mod container;
 mod e2e;
+mod integration;
 
 use std::sync::Once;
 

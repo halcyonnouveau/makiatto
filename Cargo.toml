@@ -14,7 +14,7 @@ indicatif = "0.18"
 futures = "0.3"
 futures-util = "0.3"
 tokio = { version = "1.46", features = ["full"] }
-tokio-cron-scheduler = { version = "0.14", features = ["signal"] }
+tokio-util = "0.7"
 
 # Error handling
 miette = { version = "7.6", features = ["fancy"] }

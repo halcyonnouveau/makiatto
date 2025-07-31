@@ -11,8 +11,10 @@ use crate::ui;
 #[derive(Clone)]
 pub struct SshSession {
     pub session: Session,
-    user: String,
-    password: Option<String>,
+    pub user: String,
+    pub host: String,
+    pub port: u16,
+    pub password: Option<String>,
     is_container: bool,
 }
 
@@ -23,7 +25,6 @@ impl SshSession {
     /// Returns an error if connection fails or authentication fails
     pub fn new(ssh_target: &str, key_path: Option<&PathBuf>) -> Result<Self> {
         let (user, host, port) = parse_ssh_target(ssh_target)?;
-        let mut password = None;
 
         let tcp = TcpStream::connect((host.as_str(), port))
             .map_err(|e| miette!("Failed to connect to {host}:{port}: {e}"))?;
@@ -70,30 +71,28 @@ impl SshSession {
             }
 
             if !authenticated {
-                let user_password = ui::password(&format!("[ssh] password for {user}"))?;
-
-                session
-                    .userauth_password(&user, &user_password)
-                    .map_err(|e| miette!("SSH password authentication failed: {}", e))?;
-
-                password = Some(user_password);
+                return Err(miette!(
+                    "SSH authentication failed. Please ensure you have a valid SSH key configured"
+                ));
             }
         }
 
         let mut ssh = Self {
             session,
             user,
-            password: password.clone(),
+            host,
+            port,
+            password: None,
             is_container: false,
         };
 
-        if password.is_none() {
-            ssh.password = ssh.test_sudo()?;
-        }
+        ssh.password = ssh.test_sudo()?;
 
-        ssh.is_container = ssh
-            .execute_command_raw("[ -f /run/.containerenv ] || [ -f /.dockerenv ]", None)
-            .is_ok();
+        if cfg!(debug_assertions) {
+            ssh.is_container = ssh
+                .execute_command_raw("[ -f /run/.containerenv ] || [ -f /.dockerenv ]", None)
+                .is_ok();
+        }
 
         Ok(ssh)
     }

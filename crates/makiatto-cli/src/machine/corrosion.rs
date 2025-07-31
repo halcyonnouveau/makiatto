@@ -22,10 +22,10 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
     let ipv6_value = machine
         .ipv6
         .as_ref()
-        .map_or_else(|| "NULL".to_string(), |s| format!("\\\"{s}\\\""));
+        .map_or_else(|| "NULL".to_string(), |s| format!("'{s}'"));
 
     let sql = format!(
-        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver) VALUES (\\\"{}\\\", {}, {}, \\\"{}\\\", {}, \\\"{}\\\", \\\"{}\\\", \\\"{}\\\")",
+        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver) VALUES ('{}', {}, {}, '{}', {}, '{}', '{}', {})",
         machine.name,
         latitude,
         longitude,
@@ -36,19 +36,7 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
         u8::from(machine.is_nameserver)
     );
 
-    let json_payload = format!("[\"{sql}\"]");
-
-    let cmd = format!(
-        "curl -s -X POST -H 'Content-Type: application/json' -d '{json_payload}' http://127.0.0.1:8181/v1/transactions"
-    );
-
-    let response = ssh
-        .exec(&cmd)
-        .map_err(|e| miette!("Failed to insert peer: {e}"))?;
-
-    if !response.contains("\"rows_affected\"") || response.contains("\"error\"") {
-        return Err(miette!("Corrosion API error: {response}"));
-    }
+    execute_transactions(ssh, &[sql])?;
 
     Ok(())
 }
@@ -142,4 +130,40 @@ pub fn query_peer(ssh: &SshSession, name: &str) -> Result<Option<Peer>> {
     };
 
     Ok(Some(peer))
+}
+
+/// Execute multiple SQL transactions via Corrosion API
+///
+/// # Errors
+/// Returns an error if the HTTP request fails or the API returns an error
+pub fn execute_transactions(ssh: &SshSession, sqls: &[String]) -> Result<()> {
+    if sqls.is_empty() {
+        return Ok(());
+    }
+
+    let escaped_sqls: Vec<String> = sqls
+        .iter()
+        .map(|sql| {
+            sql.replace('"', "\\\"")
+                .replace('\n', " ")
+                .trim()
+                .to_string()
+        })
+        .collect();
+
+    let json_payload = format!("[\\\"{}\\\"]", escaped_sqls.join("\\\", \\\""));
+
+    let cmd = format!(
+        "curl -s -X POST -H 'Content-Type: application/json' -d \"{json_payload}\" http://127.0.0.1:8181/v1/transactions",
+    );
+
+    let response = ssh
+        .exec(&cmd)
+        .map_err(|e| miette!("Failed to execute transactions: {}", e))?;
+
+    if response.contains("\"error\"") || !response.contains("\"rows_affected\"") {
+        return Err(miette!("Corrosion API error: {}", response));
+    }
+
+    Ok(())
 }

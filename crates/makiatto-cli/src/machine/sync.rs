@@ -1,0 +1,387 @@
+use std::{collections::HashSet, time::SystemTime};
+
+use miette::{Result, miette};
+
+use crate::{
+    config::{DnsRecord, Domain, Machine},
+    machine::corrosion,
+    ssh::SshSession,
+    ui,
+};
+
+/// Sync domain files via rsync
+///
+/// # Errors
+/// Returns an error if rsync command fails or SSH operations fail
+pub fn sync_domain_files(ssh: &SshSession, domain: &Domain, _machine: &Machine) -> Result<()> {
+    ui::status("Syncing files...");
+
+    let target_dir = format!("/var/makiatto/sites/{}", domain.name);
+    ssh.exec(&format!("sudo mkdir -p {target_dir}"))?;
+
+    // Build rsync command - SSH key authentication only
+    let source = domain.path.to_string_lossy();
+    let rsync_target = format!("{}@{}:{}/", ssh.user, ssh.host, target_dir);
+
+    let spinner = ui::spinner("Running rsync...");
+
+    let mut rsync_cmd = std::process::Command::new("rsync");
+    rsync_cmd
+        .arg("-avz")
+        .arg("--delete")
+        .arg("--progress")
+        .arg("-e")
+        .arg(format!("ssh -p {} -o StrictHostKeyChecking=no", ssh.port))
+        .arg("--rsync-path")
+        .arg("sudo rsync")
+        .arg(format!("{}/", source.trim_end_matches('/')))
+        .arg(&rsync_target);
+
+    let output = rsync_cmd
+        .output()
+        .map_err(|e| miette!("Failed to execute rsync: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(miette!("rsync failed: {stderr}"));
+    }
+
+    spinner.finish_with_message("✓ rsync completed");
+
+    ssh.exec(&format!("sudo chown -R makiatto:makiatto {target_dir}"))?;
+
+    Ok(())
+}
+
+/// Sync domain records to the database
+///
+/// # Errors
+/// Returns an error if database operations fail or SSH operations fail
+pub fn sync_domain_records(ssh: &SshSession, domain: &Domain, machines: &[Machine]) -> Result<()> {
+    ui::status("Updating DNS records...");
+
+    let domain_sql = format!(
+        "INSERT OR IGNORE INTO domains (name) VALUES ('{}')",
+        domain.name
+    );
+    corrosion::execute_transactions(ssh, &[domain_sql])?;
+
+    for alias in domain.aliases.iter() {
+        let alias_sql = format!(
+            "INSERT OR REPLACE INTO domain_aliases (alias, target) VALUES ('{}', '{}')",
+            alias, domain.name
+        );
+        corrosion::execute_transactions(ssh, &[alias_sql])?;
+    }
+
+    let existing_records = get_existing_dns_records(ssh, &domain.name)?;
+    let mut desired_records = Vec::new();
+
+    collect_auto_dns_records(&domain.name, machines, &mut desired_records)?;
+    collect_custom_dns_records(&domain.name, &domain.records, &mut desired_records);
+
+    apply_dns_diff(ssh, &domain.name, &existing_records, &desired_records)?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct DnsRecordKey {
+    name: String,
+    record_type: String,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct DnsRecordData {
+    value: String,
+    ttl: u32,
+    priority: i32,
+    geo_enabled: bool,
+}
+
+/// Get existing DNS records from the database
+fn get_existing_dns_records(
+    ssh: &SshSession,
+    domain: &str,
+) -> Result<Vec<(DnsRecordKey, DnsRecordData)>> {
+    let sql = format!(
+        "SELECT name, record_type, value, ttl, priority, geo_enabled FROM dns_records WHERE domain = '{domain}'"
+    );
+    let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
+
+    let output = ssh.exec(&cmd)?;
+    let mut records = Vec::new();
+
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() != 6 {
+            continue;
+        }
+
+        let key = DnsRecordKey {
+            name: parts[0].to_string(),
+            record_type: parts[1].to_string(),
+        };
+
+        let data = DnsRecordData {
+            value: parts[2].to_string(),
+            ttl: parts[3].parse().unwrap_or(300),
+            priority: parts[4].parse().unwrap_or(0),
+            geo_enabled: parts[5] == "1",
+        };
+
+        records.push((key, data));
+    }
+
+    Ok(records)
+}
+
+/// Collect auto-generated DNS records
+#[allow(clippy::too_many_lines)]
+fn collect_auto_dns_records(
+    domain: &str,
+    machines: &[Machine],
+    records: &mut Vec<(DnsRecordKey, DnsRecordData)>,
+) -> Result<()> {
+    let mut nameservers: Vec<_> = machines.iter().filter(|m| m.is_nameserver).collect();
+    nameservers.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if nameservers.is_empty() {
+        return Err(miette!(
+            "No nameservers configured. At least one machine must be a nameserver"
+        ));
+    }
+
+    // A and AAAA records for the domain (geo-enabled)
+    for machine in machines {
+        records.push((
+            DnsRecordKey {
+                name: domain.to_string(),
+                record_type: "A".to_string(),
+            },
+            DnsRecordData {
+                value: machine.ipv4.to_string(),
+                ttl: 300,
+                priority: 0,
+                geo_enabled: true,
+            },
+        ));
+
+        if let Some(ipv6) = &machine.ipv6 {
+            records.push((
+                DnsRecordKey {
+                    name: domain.to_string(),
+                    record_type: "AAAA".to_string(),
+                },
+                DnsRecordData {
+                    value: ipv6.to_string(),
+                    ttl: 300,
+                    priority: 0,
+                    geo_enabled: true,
+                },
+            ));
+        }
+    }
+
+    // Generate NS records for each nameserver
+    for nameserver in &nameservers {
+        let ns_hostname = format!("{}.ns.{}", nameserver.name, domain);
+
+        records.push((
+            DnsRecordKey {
+                name: domain.to_string(),
+                record_type: "NS".to_string(),
+            },
+            DnsRecordData {
+                value: ns_hostname.clone(),
+                ttl: 300,
+                priority: 0,
+                geo_enabled: false,
+            },
+        ));
+
+        // Create A record for the nameserver hostname
+        records.push((
+            DnsRecordKey {
+                name: ns_hostname.clone(),
+                record_type: "A".to_string(),
+            },
+            DnsRecordData {
+                value: nameserver.ipv4.to_string(),
+                ttl: 300,
+                priority: 0,
+                geo_enabled: false,
+            },
+        ));
+
+        // Create AAAA record for the nameserver hostname (if IPv6 available)
+        if let Some(ipv6) = &nameserver.ipv6
+            && !ipv6.is_empty()
+        {
+            records.push((
+                DnsRecordKey {
+                    name: ns_hostname,
+                    record_type: "AAAA".to_string(),
+                },
+                DnsRecordData {
+                    value: ipv6.to_string(),
+                    ttl: 300,
+                    priority: 0,
+                    geo_enabled: false,
+                },
+            ));
+        }
+    }
+
+    // Generate SOA record (using first nameserver as primary)
+    if let Some(primary_ns) = nameservers.first() {
+        let serial = {
+            let now = SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let date = now / 86400; // Days since epoch
+            format!("{date}00")
+        };
+
+        let soa_value = format!(
+            "{}.ns.{} admin.{} {} 86400 10800 3600000 3600",
+            primary_ns.name, domain, domain, serial
+        );
+
+        records.push((
+            DnsRecordKey {
+                name: domain.to_string(),
+                record_type: "SOA".to_string(),
+            },
+            DnsRecordData {
+                value: soa_value,
+                ttl: 300,
+                priority: 0,
+                geo_enabled: false,
+            },
+        ));
+    }
+
+    // CAA record
+    records.push((
+        DnsRecordKey {
+            name: domain.to_string(),
+            record_type: "CAA".to_string(),
+        },
+        DnsRecordData {
+            value: "0 issue letsencrypt.org".to_string(),
+            ttl: 300,
+            priority: 0,
+            geo_enabled: false,
+        },
+    ));
+
+    Ok(())
+}
+
+/// Collect custom DNS records from config
+fn collect_custom_dns_records(
+    domain: &str,
+    config_records: &[DnsRecord],
+    records: &mut Vec<(DnsRecordKey, DnsRecordData)>,
+) {
+    for record in config_records {
+        let record_name = if record.name.as_str() == "@" {
+            domain.to_string()
+        } else if record.name.contains('.') {
+            record.name.to_string()
+        } else {
+            format!("{}.{}", record.name, domain)
+        };
+
+        records.push((
+            DnsRecordKey {
+                name: record_name,
+                record_type: record.record_type.to_string(),
+            },
+            DnsRecordData {
+                value: record.value.to_string(),
+                ttl: record.ttl,
+                priority: record.priority.unwrap_or(0),
+                geo_enabled: false,
+            },
+        ));
+    }
+}
+
+/// Apply DNS diff to the database
+fn apply_dns_diff(
+    ssh: &SshSession,
+    domain: &str,
+    existing: &[(DnsRecordKey, DnsRecordData)],
+    desired: &[(DnsRecordKey, DnsRecordData)],
+) -> Result<()> {
+    let existing_set: HashSet<_> = existing.iter().collect();
+    let desired_set: HashSet<_> = desired.iter().collect();
+
+    let to_delete: Vec<_> = existing
+        .iter()
+        .filter(|r| !desired_set.contains(r))
+        .collect();
+
+    let to_add: Vec<_> = desired
+        .iter()
+        .filter(|r| !existing_set.contains(r))
+        .collect();
+
+    if to_delete.is_empty() && to_add.is_empty() {
+        ui::info("No DNS records changed");
+        return Ok(());
+    }
+
+    let mut sqls = Vec::new();
+
+    // Add deletion statements
+    for (key, _) in &to_delete {
+        ui::action(&format!(
+            "Removing DNS record: {} {}",
+            key.name, key.record_type
+        ));
+        let sql = format!(
+            "DELETE FROM dns_records WHERE domain = '{}' AND name = '{}' AND record_type = '{}'",
+            domain, key.name, key.record_type
+        );
+        sqls.push(sql);
+    }
+
+    // Add insertion statements
+    for (key, data) in &to_add {
+        ui::action(&format!(
+            "Adding DNS record: {} {} -> {}",
+            key.name, key.record_type, data.value
+        ));
+        let sql = format!(
+            "INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) \
+             VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, {})",
+            domain,
+            key.name,
+            key.record_type,
+            data.value,
+            domain,
+            data.ttl,
+            data.priority,
+            i32::from(data.geo_enabled)
+        );
+        sqls.push(sql);
+    }
+
+    corrosion::execute_transactions(ssh, &sqls)?;
+
+    ui::info(&format!(
+        "DNS diff applied: {} added, {} removed",
+        to_add.len(),
+        to_delete.len()
+    ));
+
+    Ok(())
+}

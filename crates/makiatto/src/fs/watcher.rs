@@ -785,10 +785,14 @@ async fn stream_download_and_verify(
 ) -> Result<()> {
     let storage_path = storage_dir.join(expected_hash);
 
-    // Don't re-download if already exists
+    // don't re-download if already exists
     if tokio::fs::try_exists(&storage_path).await.unwrap_or(false) {
         return Ok(());
     }
+
+    fs::create_dir_all(storage_dir)
+        .await
+        .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
 
     let mut stream = response.bytes_stream();
     let mut hasher = Hasher::new();
@@ -810,7 +814,7 @@ async fn stream_download_and_verify(
     let actual_hash = format!("{}", hasher.finalize());
 
     if actual_hash != expected_hash {
-        // Clean up failed download
+        // clean up failed download
         let _ = tokio::fs::remove_file(&storage_path).await;
         return Err(miette::miette!(
             "Hash mismatch: expected {expected_hash}, got {actual_hash}"

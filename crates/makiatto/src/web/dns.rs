@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     str::FromStr,
     sync::Arc,
@@ -60,6 +60,7 @@ pub struct DnsRequest {
 pub struct Handler {
     peers: Arc<[DnsPeer]>,
     records: HashMap<String, Vec<DnsRecord>>,
+    records_by_name: HashMap<String, Vec<DnsRecord>>,
     reader: Reader<Vec<u8>>,
 }
 
@@ -70,9 +71,23 @@ impl Handler {
         records: HashMap<String, Vec<DnsRecord>>,
         reader: Reader<Vec<u8>>,
     ) -> Self {
+        // Build an index by record name for efficient lookups
+        // This allows queries like "kafka.ns.domain.com" to find A records
+        // that are stored under a different domain (e.g., "domain.com")
+        let mut records_by_name: HashMap<String, Vec<DnsRecord>> = HashMap::new();
+        for records_list in records.values() {
+            for record in records_list {
+                records_by_name
+                    .entry(record.name.to_string())
+                    .or_default()
+                    .push(record.clone());
+            }
+        }
+
         Self {
             peers,
             records,
+            records_by_name,
             reader,
         }
     }
@@ -208,7 +223,35 @@ impl Handler {
         };
 
         let lookup_name = request.name.to_string().trim_end_matches('.').to_string();
-        let records = self.records.get(&lookup_name).cloned().unwrap_or_default();
+
+        let mut all_records = Vec::new();
+
+        // records from domain-based lookup
+        if let Some(domain_records) = self.records.get(&lookup_name) {
+            all_records.extend(domain_records.iter());
+        }
+
+        // records from name-based lookup
+        if let Some(name_records) = self.records_by_name.get(&lookup_name) {
+            all_records.extend(name_records.iter());
+        }
+
+        let mut unique_records = HashSet::new();
+        let records: Vec<DnsRecord> = all_records
+            .into_iter()
+            .filter_map(|record| {
+                let key = (
+                    record.name.as_ref(),
+                    record.record_type.as_ref(),
+                    record.value.as_ref(),
+                );
+                if unique_records.insert(key) {
+                    Some(record.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         if records.is_empty() {
             return Ok(vec![]);
@@ -240,8 +283,8 @@ impl Handler {
                 let value = match record.record_type.as_str() {
                     "A" => &peer.ipv4,
                     "AAAA" => match &peer.ipv6 {
-                        Some(ipv6) => ipv6,
-                        None => return None,
+                        Some(ipv6) if !ipv6.is_empty() => ipv6,
+                        Some(_) | None => return None,
                     },
                     _ => &record.value,
                 };
@@ -382,6 +425,12 @@ impl RequestHandler for Handler {
 
 pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
     info!("Downloading GeoLite2 database...");
+
+    let parent = path.parent().unwrap();
+    tokio::fs::create_dir_all(parent)
+        .await
+        .map_err(|e| miette::miette!("Couldn't create GeoLite dir: {e}"))?;
+
     let client = reqwest::Client::new();
 
     let response = client
@@ -499,6 +548,20 @@ pub async fn start(
         info!("DNS over TLS (DoT) and DNS over QUIC (DoQ) enabled on port 853");
     }
 
+    let geolite_path = config.dns.geolite_path.clone();
+    let geolite_task = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(21 * 24 * 60 * 60));
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+            info!("Redownloading GeoLite database (scheduled update)");
+            if let Err(e) = download_geolite(&geolite_path).await {
+                error!("Failed to redownload GeoLite database: {e}");
+            }
+        }
+    });
+
     info!("DNS server started");
 
     tokio::select! {
@@ -507,6 +570,9 @@ pub async fn start(
         }
         _ = shutdown_rx.recv() => {
             info!("DNS server received shutdown signal");
+        }
+        _ = geolite_task => {
+            error!("Geolite task received shutdown signal");
         }
     }
 
