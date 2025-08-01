@@ -167,6 +167,7 @@ pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Resul
         longitude,
         ipv4: Arc::from(ipv4),
         ipv6: ipv6.map(Arc::from),
+        sync_target: profile.machines.is_empty(),
     };
 
     let session = provision::install_makiatto(
@@ -284,6 +285,7 @@ pub fn add_machine(request: &AddMachine, profile: &mut Profile) -> Result<()> {
         longitude,
         ipv4: Arc::from(ipv4.to_owned()),
         ipv6: ipv6.map(Arc::from),
+        sync_target: profile.machines.is_empty(),
     };
 
     profile.add_machine(machine);
@@ -380,6 +382,7 @@ mod tests {
                     longitude: None,
                     ipv4: Arc::from("1.1.1.1"),
                     ipv6: None,
+                    sync_target: false,
                 },
                 Machine {
                     name: Arc::from("node2"),
@@ -391,6 +394,7 @@ mod tests {
                     longitude: None,
                     ipv4: Arc::from("2.2.2.2"),
                     ipv6: None,
+                    sync_target: false,
                 },
             ],
         };
@@ -419,6 +423,7 @@ mod tests {
                     (i + 3) % 255
                 )),
                 ipv6: None,
+                sync_target: false,
             });
         }
 

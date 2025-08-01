@@ -315,6 +315,7 @@ impl TestContainer {
             longitude: Some(69.1337),
             ipv4: Arc::from("127.0.0.1"),
             ipv6: None,
+            sync_target: true,
         }
     }
 }

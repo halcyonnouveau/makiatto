@@ -20,6 +20,7 @@ pub struct Machine {
     pub longitude: Option<f64>,
     pub ipv4: Arc<str>,
     pub ipv6: Option<Arc<str>>,
+    pub sync_target: bool,
 }
 
 /// Project configuration stored in ./makiatto.toml
@@ -178,6 +179,7 @@ mod tests {
             longitude: Some(-74.0060),
             ipv4: Arc::from("1.2.3.4"),
             ipv6: Some(Arc::from("2001:db8::1")),
+            sync_target: true,
         };
 
         let machine2 = Machine {
@@ -190,6 +192,7 @@ mod tests {
             longitude: Some(-0.1278),
             ipv4: Arc::from("5.6.7.8"),
             ipv6: None,
+            sync_target: false,
         };
 
         config.add_machine(machine1.clone());

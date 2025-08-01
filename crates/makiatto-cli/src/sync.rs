@@ -51,7 +51,7 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
     let sync_machine = profile
         .machines
         .iter()
-        .find(|m| m.is_nameserver)
+        .find(|m| m.is_nameserver && m.sync_target)
         .unwrap_or(&profile.machines[0]);
 
     ui::header(&format!("Syncing to machine '{}'", sync_machine.name));
