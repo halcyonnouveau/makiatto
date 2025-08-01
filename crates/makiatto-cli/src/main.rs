@@ -4,7 +4,8 @@ use argh::FromArgs;
 use makiatto_cli::{
     config::{Config, Profile},
     machine::{self, AddMachine, InitMachine},
-    sync, ui,
+    sync::{self, SyncCommand},
+    ui,
 };
 use miette::Result;
 
@@ -58,11 +59,6 @@ enum MachineAction {
 #[argh(subcommand, name = "list")]
 struct ListMachines {}
 
-/// sync the project to the cdn
-#[derive(FromArgs)]
-#[argh(subcommand, name = "sync")]
-struct SyncCommand {}
-
 /// show cluster status
 #[derive(FromArgs)]
 #[argh(subcommand, name = "status")]
@@ -105,9 +101,9 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
-        Command::Sync(_) => {
+        Command::Sync(command) => {
             let config = Config::load(cli.config_path)?;
-            sync::sync_project(&profile, &config)?;
+            sync::sync_project(&command, &profile, &config)?;
             Ok(())
         }
         Command::Status(_) => {
