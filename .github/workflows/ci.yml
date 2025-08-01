@@ -55,6 +55,8 @@ jobs:
           mkdir -p target/tests
           docker run --rm -v $PWD/target/tests:/output makiatto-builder:latest sh -c "cp /makiatto /output/"
           sudo chown -R $USER:$USER target/
+      - name: Fix SSH key permissions
+        run: chmod 600 tests/fixtures/.ssh/id_ed25519
       - name: Run integration/e2e tests
         run: cargo nextest run --package integration-tests --retries 4
 
