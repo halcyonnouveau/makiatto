@@ -24,7 +24,7 @@ pub fn install_makiatto(
     create_makiatto_user(&ssh)?;
     install_makiatto_binary(&ssh, binary_path)?;
     setup_system_permissions(&ssh)?;
-    ensure_sqlite3_installed(&ssh)?;
+    ensure_installed(&ssh)?;
     create_daemon_config(&ssh, profile, machine, wg_private_key)?;
 
     if ssh.is_container() {
@@ -115,39 +115,52 @@ fn setup_system_permissions(ssh: &SshSession) -> Result<()> {
     Ok(())
 }
 
-fn ensure_sqlite3_installed(ssh: &SshSession) -> Result<()> {
-    if ssh.exec("which sqlite3").is_ok() {
-        return Ok(());
-    }
-
-    ui::status("Installing SQLite3...");
-
-    let install_commands = [
-        // Debian/Ubuntu (apt)
-        "sudo apt update && sudo apt install -y sqlite3",
-        // RHEL/CentOS/Fedora (yum/dnf)
-        "sudo dnf install -y sqlite || sudo yum install -y sqlite",
-        // Alpine Linux (apk)
-        "sudo apk add sqlite",
-        // Arch Linux (pacman)
-        "sudo pacman -S --noconfirm sqlite",
-        // openSUSE (zypper)
-        "sudo zypper install -y sqlite3",
-        // Gentoo (emerge)
-        "sudo emerge dev-db/sqlite",
-        // FreeBSD (pkg)
-        "sudo pkg install -y sqlite3",
-    ];
-
-    for cmd in &install_commands {
-        if ssh.exec(cmd).is_ok() && ssh.exec("which sqlite3").is_ok() {
+fn ensure_installed(ssh: &SshSession) -> Result<()> {
+    let install = |binary: &str, commands: &[&str]| -> Result<()> {
+        if ssh.exec(&format!("which {binary}")).is_ok() {
             return Ok(());
         }
-    }
 
-    Err(miette::miette!(
-        "Failed to install SQLite3. Please install it manually on the target system."
-    ))
+        ui::status(&format!("Installing {binary}..."));
+
+        for cmd in commands {
+            if ssh.exec(cmd).is_ok() && ssh.exec(&format!("which {binary}")).is_ok() {
+                return Ok(());
+            }
+        }
+
+        Err(miette::miette!(
+            "Failed to install {binary}. Please install it manually on the target system.",
+        ))
+    };
+
+    install(
+        "sqlite3",
+        &[
+            "sudo apt update && sudo apt install -y sqlite3",
+            "sudo dnf install -y sqlite || sudo yum install -y sqlite",
+            "sudo apk add sqlite",
+            "sudo pacman -S --noconfirm sqlite",
+            "sudo zypper install -y sqlite3",
+            "sudo emerge dev-db/sqlite",
+            "sudo pkg install -y sqlite3",
+        ],
+    )?;
+
+    install(
+        "rsync",
+        &[
+            "sudo apt update && sudo apt install -y rsync",
+            "sudo dnf install -y rsync || sudo yum install -y rsync",
+            "sudo apk add rsync",
+            "sudo pacman -S --noconfirm rsync",
+            "sudo zypper install -y rsync",
+            "sudo emerge net-misc/rsync",
+            "sudo pkg install -y rsync",
+        ],
+    )?;
+
+    Ok(())
 }
 
 fn setup_dns_configuration(ssh: &SshSession, machine: &Machine) -> Result<()> {

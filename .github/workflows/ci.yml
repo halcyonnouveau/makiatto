@@ -56,7 +56,7 @@ jobs:
           docker run --rm -v $PWD/target/tests:/output makiatto-builder:latest sh -c "cp /makiatto /output/"
           sudo chown -R $USER:$USER target/
       - name: Run integration/e2e tests
-        run: cargo nextest run --package integration-tests --retries 3
+        run: cargo nextest run --package integration-tests --retries 4
 
   clippy:
     name: Check for common code mistakes

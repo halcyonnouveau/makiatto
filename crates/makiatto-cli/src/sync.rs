@@ -1,5 +1,6 @@
-use std::{collections::HashSet, time::SystemTime};
+use std::{collections::HashSet, path::PathBuf, time::SystemTime};
 
+use argh::FromArgs;
 use miette::{Result, miette};
 
 use crate::{
@@ -8,6 +9,15 @@ use crate::{
     ssh::SshSession,
     ui,
 };
+
+/// sync the project to the cdn
+#[derive(FromArgs)]
+#[argh(subcommand, name = "sync")]
+pub struct SyncCommand {
+    /// path to SSH private key (optional)
+    #[argh(option, long = "ssh-priv-key")]
+    pub key_path: Option<PathBuf>,
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct DnsRecordKey {
@@ -27,7 +37,7 @@ struct DnsRecordData {
 ///
 /// # Errors
 /// Returns an error if sync operations fail
-pub fn sync_project(profile: &Profile, config: &Config) -> Result<()> {
+pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -> Result<()> {
     if profile.machines.is_empty() {
         return Err(miette!(
             "No machines configured. Use `machine init` to add one first"
@@ -47,11 +57,11 @@ pub fn sync_project(profile: &Profile, config: &Config) -> Result<()> {
     ui::header(&format!("Syncing to machine '{}'", sync_machine.name));
 
     ui::status(&format!("Connecting to {}", sync_machine.ssh_target));
-    let ssh = SshSession::new(&sync_machine.ssh_target, None)?;
+    let ssh = SshSession::new(&sync_machine.ssh_target, command.key_path.as_ref())?;
 
     for domain in config.domains.iter() {
         ui::header(&format!("Processing domain: {}", domain.name));
-        sync_domain_files(&ssh, domain)?;
+        sync_domain_files(&ssh, domain, command.key_path.as_ref())?;
         sync_domain_records(&ssh, domain, &profile.machines)?;
     }
 
@@ -59,7 +69,7 @@ pub fn sync_project(profile: &Profile, config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn sync_domain_files(ssh: &SshSession, domain: &Domain) -> Result<()> {
+fn sync_domain_files(ssh: &SshSession, domain: &Domain, key_path: Option<&PathBuf>) -> Result<()> {
     ui::status("Syncing files...");
 
     let target_dir = format!("/var/makiatto/sites/{}", domain.name);
@@ -70,13 +80,27 @@ fn sync_domain_files(ssh: &SshSession, domain: &Domain) -> Result<()> {
     let source = domain.path.to_string_lossy();
     let target = format!("{}@{}:{}/", ssh.user, ssh.host, target_dir);
 
+    // build SSH args with key path if provided
+    let ssh_args = if let Some(key_path) = key_path {
+        format!(
+            "ssh -i {} -p {} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+            key_path.display(),
+            ssh.port
+        )
+    } else {
+        format!(
+            "ssh -p {} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+            ssh.port
+        )
+    };
+
     let mut rsync_cmd = std::process::Command::new("rsync");
     rsync_cmd
         .arg("-avz")
         .arg("--delete")
         .arg("--progress")
         .arg("-e")
-        .arg(format!("ssh -p {} -o StrictHostKeyChecking=no", ssh.port))
+        .arg(&ssh_args)
         .arg("--rsync-path")
         .arg("sudo rsync")
         .arg(format!("{}/", source.trim_end_matches('/')))
@@ -183,33 +207,44 @@ fn generate_dns_records(
     }
 
     // A and AAAA records for the domain (geo-enabled)
-    for machine in machines {
-        records.push((
-            DnsRecordKey {
-                name: domain.to_string(),
-                record_type: "A".to_string(),
-            },
-            DnsRecordData {
-                value: machine.ipv4.to_string(),
-                ttl: 300,
-                priority: 0,
-                geo_enabled: true,
-            },
-        ));
+    let mut ipv4_addresses: HashSet<String> = HashSet::new();
+    let mut ipv6_addresses: HashSet<String> = HashSet::new();
 
-        if let Some(ipv6) = &machine.ipv6 {
+    for machine in machines {
+        let ipv4 = machine.ipv4.to_string();
+        if ipv4_addresses.insert(ipv4.clone()) {
             records.push((
                 DnsRecordKey {
                     name: domain.to_string(),
-                    record_type: "AAAA".to_string(),
+                    record_type: "A".to_string(),
                 },
                 DnsRecordData {
-                    value: ipv6.to_string(),
+                    value: ipv4,
                     ttl: 300,
                     priority: 0,
                     geo_enabled: true,
                 },
             ));
+        }
+
+        if let Some(ipv6) = &machine.ipv6
+            && !ipv6.is_empty()
+        {
+            let ipv6_str = ipv6.to_string();
+            if ipv6_addresses.insert(ipv6_str.clone()) {
+                records.push((
+                    DnsRecordKey {
+                        name: domain.to_string(),
+                        record_type: "AAAA".to_string(),
+                    },
+                    DnsRecordData {
+                        value: ipv6_str,
+                        ttl: 300,
+                        priority: 0,
+                        geo_enabled: true,
+                    },
+                ));
+            }
         }
     }
 

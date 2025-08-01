@@ -1,7 +1,7 @@
 FROM docker.io/ubuntu:24.04
 
 RUN apt update && apt install -y \
-    openssh-server sudo iproute2 wireguard ca-certificates libcap2-bin curl sqlite3 resolvconf \
+    openssh-server sudo iproute2 wireguard ca-certificates libcap2-bin curl sqlite3 resolvconf rsync \
     && rm -rf /var/lib/apt/lists/*
 
 RUN touch /run/.containerenv
