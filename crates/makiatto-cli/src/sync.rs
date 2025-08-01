@@ -80,7 +80,6 @@ fn sync_domain_files(ssh: &SshSession, domain: &Domain, key_path: Option<&PathBu
     let source = domain.path.to_string_lossy();
     let target = format!("{}@{}:{}/", ssh.user, ssh.host, target_dir);
 
-    // build SSH args with key path if provided
     let ssh_args = if let Some(key_path) = key_path {
         format!(
             "ssh -i {} -p {} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
@@ -94,6 +93,12 @@ fn sync_domain_files(ssh: &SshSession, domain: &Domain, key_path: Option<&PathBu
         )
     };
 
+    let rsync_path = if let Some(password) = &ssh.password {
+        &format!("echo '{password}' | sudo -S rsync")
+    } else {
+        "sudo rsync"
+    };
+
     let mut rsync_cmd = std::process::Command::new("rsync");
     rsync_cmd
         .arg("-avz")
@@ -102,7 +107,7 @@ fn sync_domain_files(ssh: &SshSession, domain: &Domain, key_path: Option<&PathBu
         .arg("-e")
         .arg(&ssh_args)
         .arg("--rsync-path")
-        .arg("sudo rsync")
+        .arg(rsync_path)
         .arg(format!("{}/", source.trim_end_matches('/')))
         .arg(&target);
 
