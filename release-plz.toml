@@ -1,3 +1,6 @@
+[workspace]
+git_tag_name = "v{{ version }}"
+
 [changelog]
 commit_parsers = [
     { message = "^feat", group = "added" },
@@ -10,6 +13,12 @@ commit_parsers = [
     { message = "^chore|^build|^ci|^style|^test", skip = true },
     { message = "^.*", group = "other" },
 ]
+
+[[package]]
+name = "makiatto"
+changelog_path = "crates/makiatto/CHANGELOG.md"
+publish = false
+git_release_enable = false
 
 [[package]]
 name = "makiatto-cli"

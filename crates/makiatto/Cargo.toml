@@ -1,6 +1,6 @@
 [package]
 name = "makiatto"
-version = "0.0.1"
+version = { workspace = true }
 edition = "2024"
 description = "A lightweight CDN for distributing content across multiple servers"
 license = "MIT OR Apache-2.0"
