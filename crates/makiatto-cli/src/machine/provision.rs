@@ -85,9 +85,39 @@ fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) -> R
             ssh.exec(cmd)?;
         }
     } else {
-        return Err(miette::miette!(
-            "TODO: download binary from github releases"
-        ));
+        let arch_output = ssh.exec("uname -m")?;
+
+        let target = match arch_output.trim() {
+            "x86_64" => "x86_64-unknown-linux-gnu",
+            "aarch64" => "aarch64-unknown-linux-gnu",
+            "armv7l" => "armv7-unknown-linux-gnueabihf",
+            arch => return Err(miette::miette!("Unsupported architecture: {}", arch)),
+        };
+
+        let version = env!("CARGO_PKG_VERSION");
+        ui::action(&format!("Downloading makiatto v{version} from GitHub..."));
+
+        let download_url = format!(
+            "https://github.com/halcyonnouveau/makiatto/releases/download/v{version}/makiatto-{target}.tar.gz",
+        );
+
+        let download_cmd = format!("curl -L -o /tmp/makiatto.tar.gz '{download_url}'");
+
+        ssh.exec(&download_cmd)?;
+
+        ui::action("Extracting and installing binary...");
+        let commands = vec![
+            "cd /tmp && tar -xzf makiatto.tar.gz",
+            "sudo mkdir -p /usr/local/bin",
+            "sudo mv /tmp/makiatto /usr/local/bin/makiatto",
+            "sudo chmod +x /usr/local/bin/makiatto",
+            "sudo chown makiatto:makiatto /usr/local/bin/makiatto",
+            "rm -f /tmp/makiatto.tar.gz",
+        ];
+
+        for cmd in commands {
+            ssh.exec(cmd)?;
+        }
     }
 
     Ok(())

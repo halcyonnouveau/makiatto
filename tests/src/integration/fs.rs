@@ -63,14 +63,34 @@ pub async fn create_large_test_file(
         path.trim_start_matches('/')
     );
 
-    // Create file with repeating pattern
     let create_cmd = format!(
-        "yes 'This is a test pattern for large file sync in makiatto CDN!' | head -c {size_mb}M > '{full_path}'",
+        "yes 'This is a test pattern for large file sync in makiatto CDN!' | head -c {size_mb}M > '{full_path}' && sync",
     );
     util::execute_command(daemon, &create_cmd).await?;
     util::execute_command(daemon, "sudo chown -R makiatto:makiatto /var/makiatto").await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // Wait longer and verify file creation completed
+    let expected_size = size_mb * 1024 * 1024;
+    let mut retries = 0;
+    loop {
+        let (size_output, _) = util::execute_command(
+            daemon,
+            &format!("stat -c%s '{full_path}' 2>/dev/null || echo 0"),
+        )
+        .await?;
+        let actual_size = size_output.trim().parse::<u64>().unwrap_or(0);
+
+        if actual_size == expected_size {
+            break;
+        }
+
+        retries += 1;
+        if retries > 20 {
+            return Err(miette::miette!("File creation timed out after 10 seconds"));
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
 
     Ok(())
 }
@@ -387,9 +407,8 @@ async fn test_large_file_sync() -> Result<()> {
     // Create a 150MB file (above streaming threshold of 100MB)
     create_large_test_file(&d1, "example.com", "/large-video.bin", 150).await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
-    // Verify both files exist and have same size
     let (size1, _) = util::execute_command(
         &d1,
         "stat -c%s /var/makiatto/sites/example.com/large-video.bin 2>/dev/null || echo 0",
@@ -403,15 +422,17 @@ async fn test_large_file_sync() -> Result<()> {
     .await?;
 
     let expected_size = 150 * 1024 * 1024; // 150MB in bytes
+    let actual_size1 = size1.trim().parse::<u64>().unwrap_or(0);
+    let actual_size2 = size2.trim().parse::<u64>().unwrap_or(0);
 
     assert!(
-        size1.trim().parse::<u64>().unwrap_or(0) == expected_size,
-        "Large file should exist on daemon1 with correct size"
+        actual_size1 == expected_size,
+        "Large file should exist on daemon1 with correct size. Expected: {expected_size}, Actual: {actual_size1}, Raw output: '{size1}'"
     );
 
     assert!(
-        size2.trim().parse::<u64>().unwrap_or(0) == expected_size,
-        "Large file should have synced to daemon2 with correct size"
+        actual_size2 == expected_size,
+        "Large file should have synced to daemon2 with correct size. Expected: {expected_size}, Actual: {actual_size2}, Raw output: '{size2}'"
     );
 
     // Verify content matches by comparing first few bytes

@@ -2,6 +2,9 @@
 members = ["crates/*", "tests"]
 resolver = "2"
 
+[workspace.package]
+version = "0.0.2"
+
 [workspace.dependencies]
 # CLI
 argh = "0.1"

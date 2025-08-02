@@ -1,6 +1,6 @@
 [package]
 name = "makiatto-cli"
-version = "0.0.2"
+version = { workspace = true }
 edition = "2024"
 description = "CLI tool for managing Makiatto CDN deployments"
 license = "MIT OR Apache-2.0"
