@@ -33,7 +33,6 @@ pub fn show_nameserver_setup(profile: &Profile, config: &Config) -> Result<()> {
 
     ui::text("Follow these steps to configure your custom nameservers:\n");
 
-    // Step 1: Glue Records
     ui::header("Step 1: Add glue records to your domain registrar\n");
     ui::text(
         "Glue records tell the internet where to find your nameservers when they're subdomains of your own domain.",
@@ -65,7 +64,6 @@ pub fn show_nameserver_setup(profile: &Profile, config: &Config) -> Result<()> {
         println!();
     }
 
-    // Step 2: Nameserver Configuration
     ui::header("Step 2: Set your domain to use your custom nameservers\n");
     ui::text(
         "After adding glue records, you must also tell your registrar to use your custom nameservers instead of their defaults.",
@@ -85,7 +83,6 @@ pub fn show_nameserver_setup(profile: &Profile, config: &Config) -> Result<()> {
         println!();
     }
 
-    // Step 3: Testing and Notes
     ui::header("Step 3: Testing and verification");
     ui::text("After configuration, test your setup with:\n");
     for domain in config.domains.iter() {
