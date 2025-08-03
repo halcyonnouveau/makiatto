@@ -12,7 +12,7 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::spawn_blocking,
 };
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     config::{Config, WireguardConfig},
@@ -30,6 +30,7 @@ pub enum WireguardCommand {
     },
     RemovePeer {
         public_key: String,
+        address: String,
         response: oneshot::Sender<Result<()>>,
     },
 }
@@ -65,12 +66,13 @@ impl WireguardManager {
     ///
     /// # Errors
     /// Returns an error if the manager task has stopped or the peer cannot be removed
-    pub async fn remove_peer(&self, public_key: &str) -> Result<()> {
+    pub async fn remove_peer(&self, address: &str, public_key: &str) -> Result<()> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.tx
             .send(WireguardCommand::RemovePeer {
                 public_key: public_key.to_string(),
+                address: address.to_string(),
                 response: response_tx,
             })
             .map_err(|_| miette!("WireGuard manager task has stopped"))?;
@@ -181,9 +183,9 @@ where
             for peer in corrosion_peers.iter() {
                 let endpoint = format!("{}:{WIREGUARD_PORT}", peer.ipv4);
                 match wireguard.add_peer(&endpoint, &peer.wg_address, &peer.wg_public_key) {
-                    Ok(()) => info!("Added peer from database: {}", peer.name),
+                    Ok(()) => {}
                     Err(e) => {
-                        tracing::error!("Failed to add peer {}: {e}", peer.name);
+                        error!("Failed to add peer {}: {e}", peer.name);
                     }
                 }
             }
@@ -191,7 +193,6 @@ where
             info!("No peers found in Corrosion database, falling back to bootstrap peers");
             Self::add_bootstrap_peers(&wireguard, config);
         }
-
         Ok(wireguard)
     }
 
@@ -208,6 +209,8 @@ where
         if self.config.public_key.as_str() == public_key {
             return Ok(());
         }
+
+        info!("Adding new peer: {endpoint} -> {address}");
 
         let peer_key =
             Key::from_str(public_key).map_err(|e| miette!("Invalid peer public key: {e}"))?;
@@ -229,6 +232,29 @@ where
             .configure_peer(&peer)
             .map_err(|e| miette!("Failed to configure peer: {e}"))?;
 
+        info!("Peer configured successfully");
+
+        let route_output = std::process::Command::new("sudo")
+            .args([
+                "ip",
+                "route",
+                "add",
+                &format!("{address}/32"),
+                "dev",
+                &self.config.interface,
+            ])
+            .output()
+            .map_err(|e| miette!("Failed to execute ip route command: {e}"))?;
+
+        if !route_output.status.success() {
+            let stderr = String::from_utf8_lossy(&route_output.stderr);
+            if !stderr.contains("File exists") {
+                return Err(miette!("Failed to add route for peer {address}: {stderr}"));
+            }
+        }
+
+        info!("Added route for peer: {address}/32");
+
         Ok(())
     }
 
@@ -236,7 +262,7 @@ where
     ///
     /// # Errors
     /// Returns an error if the peer cannot be removed
-    pub fn remove_peer(&self, public_key: &str) -> Result<()> {
+    pub fn remove_peer(&self, address: &str, public_key: &str) -> Result<()> {
         if is_container() {
             info!("Container environment detected - skipping peer removal");
             return Ok(());
@@ -246,6 +272,8 @@ where
             return Ok(());
         }
 
+        info!("Removing peer: {public_key}");
+
         let peer_key =
             Key::from_str(public_key).map_err(|e| miette!("Invalid peer public key: {e}"))?;
 
@@ -253,7 +281,27 @@ where
             .remove_peer(&peer_key)
             .map_err(|e| miette!("Failed to remove peer: {e}"))?;
 
-        info!("Removed peer: {}", public_key);
+        let route_output = std::process::Command::new("sudo")
+            .args([
+                "ip",
+                "route",
+                "del",
+                &format!("{address}/32"),
+                "dev",
+                &self.config.interface,
+            ])
+            .output()
+            .map_err(|e| miette!("Failed to execute ip route command: {e}"))?;
+
+        if route_output.status.success() {
+            info!("Removed route for peer: {address}/32");
+        } else {
+            let stderr = String::from_utf8_lossy(&route_output.stderr);
+            if !stderr.contains("No such process") {
+                error!("Failed to remove route for peer {address}: {stderr}");
+            }
+        }
+
         Ok(())
     }
 
@@ -286,13 +334,13 @@ where
             info!("Bootstrapping {} peers", config.bootstrap.len());
             for bootstrap_peer in config.bootstrap.iter() {
                 match wireguard.add_peer(
-                    &bootstrap_peer.address,
                     &bootstrap_peer.endpoint,
+                    &bootstrap_peer.address,
                     &bootstrap_peer.public_key,
                 ) {
                     Ok(()) => info!("Added bootstrap peer: {}", bootstrap_peer.address),
                     Err(e) => {
-                        tracing::error!(
+                        error!(
                             "Failed to add bootstrap peer {}: {e}",
                             bootstrap_peer.address,
                         );
@@ -379,9 +427,10 @@ pub async fn setup(
                 }
                 WireguardCommand::RemovePeer {
                     public_key,
+                    address,
                     response,
                 } => {
-                    let result = wg_interface.remove_peer(&public_key);
+                    let result = wg_interface.remove_peer(&address, &public_key);
                     let _ = response.send(result);
                 }
             }

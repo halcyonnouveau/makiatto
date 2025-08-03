@@ -7,12 +7,11 @@ use serde::Deserialize;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 pub mod corrosion;
-mod geolocation;
 mod provision;
 
 use crate::{
     config::{Machine, Profile},
-    ssh::{self, SshSession},
+    ssh::SshSession,
     ui,
 };
 
@@ -73,6 +72,23 @@ pub struct AddMachine {
     pub key_path: Option<PathBuf>,
 }
 
+/// upgrade makiatto binary on machines
+#[derive(FromArgs)]
+#[argh(subcommand, name = "upgrade")]
+pub struct UpgradeMachine {
+    /// machine names to upgrade (defaults to all)
+    #[argh(positional, greedy)]
+    pub names: Vec<String>,
+
+    /// path to makiatto binary (optional, defaults to GitHub release)
+    #[argh(option, long = "binary-path")]
+    pub binary_path: Option<PathBuf>,
+
+    /// path to SSH private key (optional)
+    #[argh(option, long = "ssh-priv-key")]
+    pub key_path: Option<PathBuf>,
+}
+
 /// Validate node name contains only allowed characters
 fn validate_node_name(name: &str) -> Result<()> {
     if name.is_empty() {
@@ -101,7 +117,7 @@ fn validate_node_name(name: &str) -> Result<()> {
 ///
 /// # Errors
 /// Returns an error if SSH connection fails, installation fails, or configuration is invalid
-pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshSession> {
+pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshSession> {
     validate_node_name(&request.name)?;
 
     if profile.find_machine(&request.name).is_some() {
@@ -119,12 +135,8 @@ pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Resul
         }
     }
 
-    let (_user, host, _port) = ssh::parse_ssh_target(&request.ssh_target)?;
     let wg_address = assign_wireguard_address(profile)?;
     let (wg_private_key, wg_public_key) = generate_wireguard_keypair();
-
-    ui::status("Detecting public IP addresses and location...");
-    let (ipv4, ipv6, latitude, longitude) = geolocation::detect_node_info(&host).await?;
 
     let is_nameserver = if request.force_nameserver {
         true
@@ -137,25 +149,9 @@ pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Resul
     ui::header("Initialising machine:");
     ui::field("Name", &request.name);
     ui::field("SSH target", &request.ssh_target);
-    ui::field(
-        "Is nameserver",
-        if is_nameserver { "true" } else { "false" },
-    );
+    ui::field("Nameserver", if is_nameserver { "true" } else { "false" });
     ui::field("WireGuard public key", &wg_public_key);
     ui::field("WireGuard address", &wg_address);
-    ui::field("IPv4", &ipv4);
-
-    if let Some(ref v6) = ipv6 {
-        ui::field("IPv6", v6);
-    } else {
-        ui::field("IPv6", "Not available");
-    }
-
-    if let (Some(lat), Some(lon)) = (latitude, longitude) {
-        ui::field("Location", &format!("{lat:.4}, {lon:.4}"));
-    } else {
-        ui::field("Location", "Unknown");
-    }
 
     let machine = Machine {
         name: Arc::from(request.name.as_str()),
@@ -163,16 +159,16 @@ pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Resul
         is_nameserver,
         wg_public_key: Arc::from(wg_public_key),
         wg_address: Arc::from(wg_address),
-        latitude,
-        longitude,
-        ipv4: Arc::from(ipv4),
-        ipv6: ipv6.map(Arc::from),
         sync_target: profile.machines.is_empty(),
+        latitude: None,
+        longitude: None,
+        ipv4: Arc::from(""),
+        ipv6: None,
     };
 
-    let session = provision::install_makiatto(
+    let (session, machine) = provision::install_makiatto(
+        machine,
         profile,
-        &machine,
         &wg_private_key,
         request.binary_path.as_ref(),
         request.key_path.as_ref(),
@@ -184,6 +180,9 @@ pub async fn init_machine(request: &InitMachine, profile: &mut Profile) -> Resul
         ui::status("Adding machine to cluster...");
 
         if let Some(existing_machine) = profile.machines.iter().nth_back(1) {
+            ui::action(&format!("Adding `{}` as a peer", existing_machine.name));
+            corrosion::insert_peer(&session, existing_machine)?;
+
             ui::action(&format!(
                 "Connecting to `{}` to add `{}` as a peer",
                 existing_machine.name, machine.name
@@ -255,10 +254,7 @@ pub fn add_machine(request: &AddMachine, profile: &mut Profile) -> Result<()> {
     ui::header("Adding machine:");
     ui::field("Name", node_name);
     ui::field("SSH target", &request.ssh_target);
-    ui::field(
-        "Is nameserver",
-        if is_nameserver { "true" } else { "false" },
-    );
+    ui::field("Nameserver", if is_nameserver { "true" } else { "false" });
     ui::field("WireGuard public key", wg_public_key);
     ui::field("WireGuard address", wg_address);
     ui::field("IPv4", ipv4);
@@ -292,6 +288,72 @@ pub fn add_machine(request: &AddMachine, profile: &mut Profile) -> Result<()> {
     ui::status("Machine added successfully");
 
     Ok(())
+}
+
+/// Upgrade makiatto binary on one or more machines
+///
+/// # Errors
+/// Returns an error if SSH connection fails or upgrade fails
+pub fn upgrade_machine(request: &UpgradeMachine, profile: &Profile) -> Result<()> {
+    let machines_to_upgrade: Vec<&Machine> = if request.names.is_empty() {
+        profile.machines.iter().collect()
+    } else {
+        request
+            .names
+            .iter()
+            .filter_map(|name| profile.find_machine(name))
+            .collect()
+    };
+
+    if machines_to_upgrade.is_empty() {
+        return Err(miette!("No machines found to upgrade"));
+    }
+
+    ui::header(&format!(
+        "Upgrading {} machine(s)",
+        machines_to_upgrade.len()
+    ));
+
+    for machine in machines_to_upgrade {
+        ui::status(&format!("Upgrading {}", machine.name));
+
+        match upgrade_single_machine(
+            machine,
+            request.binary_path.as_ref(),
+            request.key_path.as_ref(),
+        ) {
+            Ok(()) => ui::info(&format!("✓ {} upgraded successfully", machine.name)),
+            Err(e) => ui::info(&format!("✗ {} upgrade failed: {}", machine.name, e)),
+        }
+    }
+
+    Ok(())
+}
+
+fn upgrade_single_machine(
+    machine: &Machine,
+    binary_path: Option<&PathBuf>,
+    key_path: Option<&PathBuf>,
+) -> Result<()> {
+    let ssh = SshSession::new(&machine.ssh_target, key_path)?;
+
+    ui::action("Installing new binary");
+    provision::install_makiatto_binary(&ssh, binary_path)?;
+
+    ui::action("Setting capabilities");
+    if !ssh.is_container() {
+        ssh.exec("sudo setcap cap_net_admin=+epi /usr/local/bin/makiatto")?;
+    }
+
+    ui::action("Restarting service");
+    ssh.exec("sudo systemctl restart makiatto")?;
+
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    match ssh.exec("sudo systemctl is-active makiatto") {
+        Ok(status) if status.trim() == "active" => Ok(()),
+        _ => Err(miette!("Service failed to restart properly")),
+    }
 }
 
 fn generate_wireguard_keypair() -> (String, String) {

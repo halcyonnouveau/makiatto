@@ -57,10 +57,12 @@ impl AcmeClient {
             challenge.set_ready().await.into_diagnostic()?;
         }
 
-        let status = order
-            .poll_ready(&RetryPolicy::default())
-            .await
-            .into_diagnostic()?;
+        let retry_policy = RetryPolicy::new()
+            .initial_delay(Duration::from_secs(5))
+            .backoff(2.0)
+            .timeout(Duration::from_secs(600)); // 10 minutes
+
+        let status = order.poll_ready(&retry_policy).await.into_diagnostic()?;
 
         if status != OrderStatus::Ready {
             return Err(miette::miette!("Order validation failed: {status:?}"));
@@ -68,7 +70,7 @@ impl AcmeClient {
 
         let private_key_pem = order.finalize().await.into_diagnostic()?;
         let cert_pem = order
-            .poll_certificate(&RetryPolicy::default())
+            .poll_certificate(&retry_policy)
             .await
             .into_diagnostic()?;
 
@@ -111,7 +113,7 @@ impl AcmeClient {
             VALUES ('{token}', '{key_auth}', {now}, {expires_at})",
         );
 
-        corrosion::execute_transaction(&sql).await
+        corrosion::execute_transactions(&[sql]).await
     }
 
     /// Delete ACME challenge from database
@@ -120,24 +122,23 @@ impl AcmeClient {
     /// Returns an error if database operations fail
     pub async fn delete_acme_challenge(&self, token: &str) -> Result<()> {
         let sql = format!("DELETE FROM acme_challenges WHERE token = '{token}'");
-        corrosion::execute_transaction(&sql).await
+        corrosion::execute_transactions(&[sql]).await
     }
 
     /// Get or create ACME account
     async fn get_or_create_account(&self) -> Result<Account> {
-        // For now, create a new account each time
-        // TODO: Store and reuse account credentials
-
-        let url = if self.config.acme.acme_directory_url.contains("staging") {
-            LetsEncrypt::Staging.url().to_owned()
+        // for now, create a new account each time
+        // TODO: store and reuse account credentials
+        let directory = if self.config.acme.staging {
+            LetsEncrypt::Staging
         } else {
-            LetsEncrypt::Production.url().to_owned()
+            LetsEncrypt::Production
         };
 
-        let contact = if self.config.acme.acme_email.is_empty() {
+        let contact = if self.config.acme.email.is_empty() {
             vec![]
         } else {
-            vec![format!("mailto:{}", self.config.acme.acme_email)]
+            vec![format!("mailto:{}", self.config.acme.email)]
         };
 
         let (account, _credentials) = Account::builder()
@@ -148,7 +149,7 @@ impl AcmeClient {
                     terms_of_service_agreed: true,
                     only_return_existing: false,
                 },
-                url,
+                directory.url().to_string(),
                 None,
             )
             .await

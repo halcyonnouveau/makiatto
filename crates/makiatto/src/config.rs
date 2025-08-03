@@ -138,6 +138,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_false() -> bool {
+    false
+}
+
 fn default_otlp_endpoint() -> Arc<str> {
     Arc::from("http://localhost:4317")
 }
@@ -197,13 +201,17 @@ pub struct AcmeConfig {
     #[serde(default = "default_max_retry_attempts")]
     pub max_retry_attempts: u32,
 
+    /// Hours after which to reset retry count for failed domains
+    #[serde(default = "default_retry_reset_hours")]
+    pub retry_reset_hours: u32,
+
     /// ACME account email
     #[serde(default)]
-    pub acme_email: String,
+    pub email: String,
 
     /// ACME directory URL
-    #[serde(default = "default_acme_directory_url")]
-    pub acme_directory_url: String,
+    #[serde(default = "default_false")]
+    pub staging: bool,
 }
 
 impl Default for AcmeConfig {
@@ -213,14 +221,15 @@ impl Default for AcmeConfig {
             check_interval: default_check_interval(),
             renewal_threshold: default_renewal_threshold(),
             max_retry_attempts: default_max_retry_attempts(),
-            acme_email: String::new(),
-            acme_directory_url: default_acme_directory_url(),
+            retry_reset_hours: default_retry_reset_hours(),
+            email: String::new(),
+            staging: default_false(),
         }
     }
 }
 
 fn default_check_interval() -> u64 {
-    3600 // 1 hour
+    300 // 5 minutes
 }
 
 fn default_renewal_threshold() -> u32 {
@@ -231,9 +240,8 @@ fn default_max_retry_attempts() -> u32 {
     5
 }
 
-fn default_acme_directory_url() -> String {
-    // Use staging by default for safety
-    "https://acme-staging-v02.api.letsencrypt.org/directory".to_string()
+fn default_retry_reset_hours() -> u32 {
+    24 // hours
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

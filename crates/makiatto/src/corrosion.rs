@@ -91,7 +91,6 @@ pub async fn get_peers() -> Result<Arc<[Peer]>> {
         })
         .collect();
 
-    info!("Retrieved {} peers from database", peers.len());
     Ok(peers.into())
 }
 
@@ -103,28 +102,31 @@ pub async fn get_dns_records() -> Result<std::collections::HashMap<String, Vec<D
     let pool = get_pool().await?;
 
     let rows = sqlx::query!(
-        "SELECT domain, name, record_type, value, source_domain, ttl, priority, geo_enabled FROM dns_records"
+        "SELECT domain, name, record_type, value, ttl, priority, geo_enabled FROM dns_records"
     )
     .fetch_all(pool)
     .await
     .map_err(|e| miette::miette!("Failed to query DNS records: {e}"))?;
 
-    info!("Retrieved {} DNS record entries from database", rows.len());
-
     let mut records_map = std::collections::HashMap::new();
 
     for row in rows {
-        let lookup_key = row.domain.clone();
+        let lookup_key = if row.name == "@" {
+            row.domain.clone()
+        } else {
+            format!("{}.{}", row.name.clone(), row.domain.clone())
+        };
+
         let record = DnsRecord {
-            name: Arc::from(row.name),
             domain: Arc::from(row.domain),
-            source_domain: Arc::from(row.source_domain),
+            name: Arc::from(row.name),
             record_type: Arc::from(row.record_type),
             value: Arc::from(row.value),
             ttl: row.ttl.try_into().unwrap_or(0),
             priority: row.priority.try_into().unwrap_or(0),
             geo_enabled: row.geo_enabled != 0,
         };
+
         records_map
             .entry(lookup_key)
             .or_insert_with(Vec::new)
@@ -147,19 +149,29 @@ pub async fn get_domains() -> Result<Vec<String>> {
 
     let domains: Vec<String> = rows.into_iter().map(|row| row.name).collect();
 
-    info!("Retrieved {} domains from database", domains.len());
     Ok(domains)
 }
 
-/// Execute a SQL transaction via Corrosion API
+/// Execute SQL transactions via Corrosion API
 ///
 /// # Errors
 /// Returns an error if the HTTP request fails or the API returns an error
-pub async fn execute_transaction(sql: &str) -> Result<()> {
-    let json_payload = format!(
-        "[\"{}\"]",
-        sql.replace('"', "\\\"").replace('\n', " ").trim()
-    );
+pub async fn execute_transactions(sqls: &[String]) -> Result<()> {
+    if sqls.is_empty() {
+        return Ok(());
+    }
+
+    let escaped_sqls: Vec<String> = sqls
+        .iter()
+        .map(|sql| {
+            sql.replace('"', "\\\"")
+                .replace('\n', " ")
+                .trim()
+                .to_string()
+        })
+        .collect();
+
+    let json_payload = format!("[\"{}\"]", escaped_sqls.join("\", \""));
 
     let client = reqwest::Client::new();
     let response = client
@@ -170,7 +182,7 @@ pub async fn execute_transaction(sql: &str) -> Result<()> {
         .body(json_payload)
         .send()
         .await
-        .map_err(|e| miette::miette!("Failed to send transaction: {e}"))?;
+        .map_err(|e| miette::miette!("Failed to send transactions: {e}"))?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();

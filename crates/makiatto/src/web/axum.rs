@@ -18,6 +18,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
+use axum_extra::extract::Host;
 use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -44,49 +45,77 @@ struct WebState {
 
 #[instrument(
     name = "http_request",
-    skip(state, headers, request),
-    fields(hostname, method, uri, error, slow)
+    skip(state, request),
+    fields(method, uri, error, slow)
 )]
 async fn handle_request(
     State(state): State<WebState>,
-    headers: HeaderMap,
+    Host(host): Host,
     request: Request<Body>,
 ) -> Response<Body> {
     let start_time = std::time::Instant::now();
     let method = request.method().to_string();
     let uri = request.uri().to_string();
-    let hostname = headers
-        .get("host")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("localhost");
 
     let span = tracing::Span::current();
-    span.record("hostname", hostname);
     span.record("method", &method);
     span.record("uri", &uri);
 
-    let domain = hostname.split(':').next().unwrap_or(hostname);
-
-    // Resolve domain alias if exists
-    let resolved_domain = {
-        let cache = state.cname_map.read().await;
-        resolve_cname(&cache, domain)
-    };
+    // resolve domain alias if exists
+    let cache = state.cname_map.read().await;
+    let resolved_domain = resolve_cname(&cache, &host);
 
     let domain_path = state.static_dir.join(&resolved_domain);
 
     if !domain_path.exists() {
         span.record("error", format!("Domain '{resolved_domain}' not found"));
-        warn!("Domain '{resolved_domain}' not found for {method} {uri} (requested: {domain})");
 
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::from(format!("Domain '{domain}' not found")))
+            .body(Body::from(format!("'{host:?}' not found")))
             .unwrap();
     }
 
+    let uri_path = request.uri().path().to_string();
+
+    let final_request = {
+        let requested_file = domain_path.join(uri_path.trim_start_matches('/'));
+
+        if requested_file.exists() && requested_file.is_file() {
+            // original path exists, use as-is
+            request
+        } else {
+            // try fallback paths
+            let fallback_paths = generate_fallback_paths(&uri_path);
+            let mut found_fallback = None;
+
+            for fallback_path in &fallback_paths {
+                let fallback_file = domain_path.join(fallback_path.trim_start_matches('/'));
+                if fallback_file.exists() && fallback_file.is_file() {
+                    debug!("Using fallback: {} -> {}", uri_path, fallback_path);
+                    found_fallback = Some(fallback_path);
+                    break;
+                }
+            }
+
+            if let Some(fallback_path) = found_fallback {
+                let fallback_uri = fallback_path
+                    .parse::<Uri>()
+                    .unwrap_or_else(|_| Uri::from_static("/"));
+                Request::builder()
+                    .method(request.method())
+                    .uri(fallback_uri)
+                    .body(Body::empty())
+                    .unwrap()
+            } else {
+                // no fallback found, use original request
+                request
+            }
+        }
+    };
+
     let serve_dir = ServeDir::new(&domain_path);
-    match serve_dir.oneshot(request).await {
+    match serve_dir.oneshot(final_request).await {
         Ok(response) => {
             let status = response.status();
             let duration = start_time.elapsed();
@@ -236,7 +265,7 @@ pub async fn start(
         .fallback(handle_request)
         .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(caching_middleware))
-        .with_state(state);
+        .with_state(state.clone());
 
     let http_addr: SocketAddr = config
         .web
@@ -277,7 +306,13 @@ pub async fn start(
     };
 
     let http_app = if https_active {
-        Router::new().fallback(https_redirect)
+        Router::new()
+            .route(
+                "/.well-known/acme-challenge/{token}",
+                get(handle_acme_challenge),
+            )
+            .fallback(https_redirect)
+            .with_state(state.clone())
     } else {
         app.clone()
     };
@@ -497,12 +532,31 @@ async fn https_redirect(headers: HeaderMap, uri: Uri) -> Redirect {
     Redirect::permanent(&https_uri)
 }
 
+/// Generate fallback paths for a given URI path
+fn generate_fallback_paths(uri_path: &str) -> Vec<String> {
+    let mut fallbacks = Vec::new();
+    let clean_path = uri_path.trim_end_matches('/');
+
+    if !clean_path.is_empty() && clean_path != "/" {
+        // html fallbacks if the path doesn't have an extension
+        let path_obj = std::path::Path::new(clean_path);
+        if path_obj.extension().is_none() {
+            // path.html (e.g., /about -> /about.html)
+            fallbacks.push(format!("{clean_path}.html"));
+            // path/index.html (e.g., /about -> /about/index.html)
+            fallbacks.push(format!("{clean_path}/index.html"));
+        }
+    }
+
+    fallbacks
+}
+
 /// Resolve a domain through alias chains
 fn resolve_cname(cache: &HashMap<String, String>, domain: &str) -> String {
     let mut current = domain;
     let mut seen = std::collections::HashSet::new();
 
-    // Follow alias chain with loop detection
+    // follow alias chain with loop detection
     while let Some(target) = cache.get(current) {
         if !seen.insert(current) {
             warn!("Alias loop detected for domain: {domain}");
@@ -555,13 +609,7 @@ async fn https_server(
                 let tls_acceptor = tls_acceptor.clone();
 
                 tokio::spawn(async move {
-                    let stream = match tls_acceptor.accept(cnx).await {
-                        Ok(stream) => stream,
-                        Err(e) => {
-                            warn!("TLS handshake failed for connection from {addr}: {e}");
-                            return;
-                        }
-                    };
+                    let Ok(stream) = tls_acceptor.accept(cnx).await else { return; };
 
                     let hyper_service = hyper::service::service_fn(move |request: hyper::Request<Incoming>| {
                         service.clone().oneshot(request)

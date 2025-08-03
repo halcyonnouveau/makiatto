@@ -16,12 +16,12 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     config::Config,
-    corrosion::{self, consensus::DirectorElection, schema::Certificate},
+    corrosion::{self, consensus::DirectorElection},
     util,
 };
 
 /// Orchestrates certificate lifecycle management
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CertificateManager {
     config: Arc<Config>,
     director_election: Arc<DirectorElection>,
@@ -57,60 +57,6 @@ impl CertificateManager {
         })
     }
 
-    /// Load certificates from database and generate nameserver records
-    ///
-    /// # Errors
-    /// Returns an error if operations fail
-    pub async fn load_certificates(&self) -> Result<()> {
-        self.store.load_certificates().await?;
-
-        Ok(())
-    }
-
-    /// Get a certificate by domain
-    pub async fn get_certificate(&self, domain: &str) -> Option<Certificate> {
-        self.store.get_certificate(domain).await
-    }
-
-    /// Save a certificate
-    ///
-    /// # Errors
-    /// Returns an error if database operations fail
-    pub async fn save_certificate(&self, cert: Certificate) -> Result<()> {
-        self.store.save_certificate(cert).await
-    }
-
-    /// Build TLS configuration
-    ///
-    /// # Errors
-    /// Returns an error if TLS config cannot be built
-    pub async fn build_tls_config(&self) -> Result<rustls::ServerConfig> {
-        self.store.build_tls_config().await
-    }
-
-    /// Get expiring certificates
-    ///
-    /// # Errors
-    /// Returns an error if operations fail
-    pub async fn get_expiring_certificates(&self, days_threshold: u64) -> Result<Vec<String>> {
-        self.store.get_expiring_certificates(days_threshold).await
-    }
-
-    /// Check if certificate is expiring
-    ///
-    /// # Errors
-    /// Returns an error if operations fail
-    pub async fn is_certificate_expiring(&self, domain: &str, days_threshold: u64) -> Result<bool> {
-        self.store
-            .is_certificate_expiring(domain, days_threshold)
-            .await
-    }
-
-    /// Get certificate expiration info
-    pub async fn get_certificate_expiration_info(&self) -> Vec<(String, i64, bool)> {
-        self.store.get_certificate_expiration_info().await
-    }
-
     /// Start the ACME renewal loop
     pub async fn run(&self, mut tripwire: tripwire::Tripwire) {
         if !self.config.acme.enabled {
@@ -119,7 +65,6 @@ impl CertificateManager {
         }
 
         let mut check_interval = interval(Duration::from_secs(self.config.acme.check_interval));
-        check_interval.tick().await; // skip the first immediate tick
 
         loop {
             tokio::select! {
@@ -142,7 +87,6 @@ impl CertificateManager {
         }
     }
 
-    /// Check all domains and renew certificates as needed (business logic)
     async fn check_and_renew_certificates(&self) -> Result<()> {
         let domains = self.get_candidate_domains().await?;
         info!(
@@ -161,7 +105,6 @@ impl CertificateManager {
         Ok(())
     }
 
-    /// Process a single domain for certificate renewal (business logic)
     async fn process_domain(&self, domain: &str, peer_ips: &[IpAddr]) -> Result<()> {
         if domain.parse::<IpAddr>().is_ok() || domain == "localhost" {
             debug!("Skipping {domain}: not eligible for certificates");
@@ -177,6 +120,7 @@ impl CertificateManager {
             .store
             .is_certificate_expiring(domain, self.config.acme.renewal_threshold.into())
             .await?;
+
         if !needs_renewal {
             debug!("Domain {domain} certificate is still valid");
             return Ok(());
@@ -184,15 +128,37 @@ impl CertificateManager {
 
         info!("Domain {domain} needs certificate renewal");
 
-        if let Some((status, retry_count)) = self.get_renewal_status(domain).await? {
+        if let Some((status, retry_count, last_check)) = self.get_renewal_status(domain).await? {
             if status == "in_progress" {
-                warn!("Certificate renewal for {domain} is already in progress");
-                return Ok(());
+                let now = util::get_current_timestamp()?;
+                let ten_minutes_ago = now - 600; // 10 minutes in seconds
+
+                if last_check > ten_minutes_ago {
+                    warn!("Certificate renewal for {domain} is already in progress");
+                    return Ok(());
+                }
+
+                info!(
+                    "Certificate renewal for {domain} was in progress but last check was over 10 minutes ago, continuing"
+                );
             }
 
             if retry_count >= self.config.acme.max_retry_attempts {
-                warn!("Maximum retry attempts reached for {domain}, skipping");
-                return Ok(());
+                // check if enough time has passed to reset the retry count
+                let now = util::get_current_timestamp()?;
+                #[allow(clippy::cast_lossless)]
+                let reset_threshold = now - (self.config.acme.retry_reset_hours as i64 * 3600);
+
+                if last_check < reset_threshold {
+                    info!(
+                        "Resetting retry count for {domain} after {} hours",
+                        self.config.acme.retry_reset_hours
+                    );
+                    self.reset_retry_count(domain).await?;
+                } else {
+                    warn!("Maximum retry attempts reached for {domain}, skipping");
+                    return Ok(());
+                }
             }
         }
 
@@ -215,13 +181,16 @@ impl CertificateManager {
         Ok(())
     }
 
-    /// Get all candidate domains from the database
     async fn get_candidate_domains(&self) -> Result<Vec<String>> {
         let pool = corrosion::get_pool().await?;
 
         let rows = sqlx::query!(
             "SELECT DISTINCT domain FROM (
-                SELECT domain FROM dns_records WHERE record_type IN ('A', 'AAAA', 'CNAME')
+                SELECT CASE
+                    WHEN name = '@' THEN domain
+                    ELSE name || '.' || domain
+                END AS domain
+                FROM dns_records WHERE record_type IN ('A', 'AAAA', 'CNAME')
                 UNION
                 SELECT alias AS domain FROM domain_aliases
             ) ORDER BY domain"
@@ -234,12 +203,10 @@ impl CertificateManager {
         Ok(domains)
     }
 
-    /// Get cluster IPs for domain validation
     async fn get_cluster_ips(&self) -> Result<Vec<IpAddr>> {
         let peers = corrosion::get_peers().await?;
         let mut peer_ips = Vec::new();
 
-        // Add peer IPs
         for peer in peers.iter() {
             if let Ok(ip) = peer.ipv4.parse::<IpAddr>() {
                 peer_ips.push(ip);
@@ -255,7 +222,6 @@ impl CertificateManager {
         Ok(peer_ips)
     }
 
-    /// Validate that a domain resolves to one of our IPs
     async fn validate_domain_ownership(&self, domain: &str, peer_ips: &[IpAddr]) -> Result<bool> {
         match self.resolver.lookup_ip(domain).await {
             Ok(response) => {
@@ -278,12 +244,11 @@ impl CertificateManager {
         }
     }
 
-    /// Get renewal status from database
-    async fn get_renewal_status(&self, domain: &str) -> Result<Option<(String, u32)>> {
+    async fn get_renewal_status(&self, domain: &str) -> Result<Option<(String, u32, i64)>> {
         let pool = corrosion::get_pool().await?;
 
         let row = sqlx::query!(
-            "SELECT renewal_status, retry_count FROM certificate_renewals WHERE domain = ?1",
+            "SELECT renewal_status, retry_count, last_check FROM certificate_renewals WHERE domain = ?1",
             domain
         )
         .fetch_optional(pool)
@@ -294,12 +259,12 @@ impl CertificateManager {
             Some(row) => Ok(Some((
                 row.renewal_status,
                 row.retry_count.try_into().unwrap_or(0),
+                row.last_check,
             ))),
             None => Ok(None),
         }
     }
 
-    /// Update renewal status in database
     async fn update_renewal_status(&self, domain: &str, status: &str) -> Result<()> {
         let now = util::get_current_timestamp()?;
 
@@ -317,10 +282,9 @@ impl CertificateManager {
             )",
         );
 
-        corrosion::execute_transaction(&sql).await
+        corrosion::execute_transactions(&[sql]).await
     }
 
-    /// Increment retry count for a domain
     async fn increment_retry_count(&self, domain: &str) -> Result<()> {
         let sql = format!(
             r"UPDATE certificate_renewals
@@ -328,6 +292,16 @@ impl CertificateManager {
             WHERE domain = '{domain}'",
         );
 
-        corrosion::execute_transaction(&sql).await
+        corrosion::execute_transactions(&[sql]).await
+    }
+
+    async fn reset_retry_count(&self, domain: &str) -> Result<()> {
+        let sql = format!(
+            r"UPDATE certificate_renewals
+            SET retry_count = 0
+            WHERE domain = '{domain}'",
+        );
+
+        corrosion::execute_transactions(&[sql]).await
     }
 }

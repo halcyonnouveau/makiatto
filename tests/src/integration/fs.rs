@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use blake3::Hasher;
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use testcontainers::{ContainerAsync, GenericImage};
 
 use crate::container::{ContainerContext, TestContainer, util};
@@ -18,7 +18,7 @@ pub async fn insert_peer_with_fs_port(
     let sql = format!(
         "INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('{name}', 'test-pubkey', '{wg_address}', 0.0, 0.0, '{ipv4}', NULL, {fs_port})",
     );
-    util::execute_transaction(daemon, &sql).await
+    util::execute_transactions(daemon, &[sql]).await
 }
 
 /// Create a test file in the container's static directory
@@ -217,14 +217,14 @@ async fn test_file_deletion_sync() -> Result<()> {
     let _content_hash =
         create_test_file(&d1, "example.com", "/delete-me.txt", test_content).await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
     assert!(verify_file_content(&d1, "example.com", "/delete-me.txt", test_content).await?);
     assert!(verify_file_content(&d2, "example.com", "/delete-me.txt", test_content).await?);
 
     util::execute_command(&d1, "rm /var/makiatto/sites/example.com/delete-me.txt").await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
     assert!(
         !verify_file_content(&d2, "example.com", "/delete-me.txt", test_content).await?,
@@ -368,6 +368,73 @@ async fn test_file_edit_sync() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_nested_directory_file_sync() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon1_container,
+        ports: d1_ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let TestContainer {
+        container: daemon2_container,
+        ports: d2_ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let d1 = daemon1_container.unwrap();
+    let d2 = daemon2_container.unwrap();
+
+    insert_peer_with_fs_port(
+        &d1,
+        "daemon2",
+        &context.gateway_ip,
+        "127.0.0.1",
+        d2_ports.fs,
+    )
+    .await?;
+    insert_peer_with_fs_port(
+        &d2,
+        "daemon1",
+        &context.gateway_ip,
+        "127.0.0.1",
+        d1_ports.fs,
+    )
+    .await?;
+
+    util::execute_command(
+        &d1,
+        "mkdir -p /var/makiatto/sites/example.com/deeply/nested/directory/structure",
+    )
+    .await?;
+
+    let nested_content = "File in nested directory";
+    let _hash = create_test_file(
+        &d1,
+        "example.com",
+        "/deeply/nested/directory/structure/test.txt",
+        nested_content,
+    )
+    .await?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    assert!(
+        verify_file_sync(
+            &d1,
+            &d2,
+            "example.com",
+            "/deeply/nested/directory/structure/test.txt",
+            nested_content
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_large_file_sync() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
@@ -435,7 +502,7 @@ async fn test_large_file_sync() -> Result<()> {
         "Large file should have synced to daemon2 with correct size. Expected: {expected_size}, Actual: {actual_size2}, Raw output: '{size2}'"
     );
 
-    // Verify content matches by comparing first few bytes
+    // verify content matches by comparing first few bytes
     let (content1, _) = util::execute_command(
         &d1,
         "head -c 100 /var/makiatto/sites/example.com/large-video.bin",
@@ -453,6 +520,230 @@ async fn test_large_file_sync() -> Result<()> {
         content2.trim(),
         "File content should match between daemons"
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_watcher_pause_resume() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ports: d_ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let _ = daemon_container.unwrap();
+
+    let pause_url = format!("http://127.0.0.1:{}/watcher/pause", d_ports.fs);
+    let pause_response = reqwest::Client::new()
+        .post(&pause_url)
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(pause_response.status(), 200);
+    let pause_body: serde_json::Value = pause_response.json().await.into_diagnostic()?;
+    assert_eq!(pause_body["success"], true);
+    assert_eq!(pause_body["message"], "File watcher paused");
+
+    let resume_url = format!("http://127.0.0.1:{}/watcher/resume", d_ports.fs);
+    let resume_response = reqwest::Client::new()
+        .post(&resume_url)
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(resume_response.status(), 200);
+    let resume_body: serde_json::Value = resume_response.json().await.into_diagnostic()?;
+    assert_eq!(resume_body["success"], true);
+    assert_eq!(resume_body["message"], "File watcher resumed");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_watcher_paused_ignores_events() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ports: d_ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let daemon = daemon_container.unwrap();
+
+    let pause_url = format!("http://127.0.0.1:{}/watcher/pause", d_ports.fs);
+    let _pause_response = reqwest::Client::new()
+        .post(&pause_url)
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    util::execute_command(&daemon, "sudo mkdir -p /var/makiatto/sites/test.com").await?;
+    util::execute_command(
+        &daemon,
+        "sudo bash -c 'echo \"test content while paused\" > /var/makiatto/sites/test.com/paused.txt'",
+    )
+    .await?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // check that the file was NOT added to the database while paused
+    let (db_output, _) = util::execute_command(
+        &daemon,
+        "sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"SELECT COUNT(*) FROM files WHERE domain = 'test.com' AND path = '/paused.txt'\"",
+    )
+    .await?;
+
+    let count: i32 = db_output.trim().parse().unwrap_or(-1);
+    assert_eq!(
+        count, 0,
+        "File should not be in database while watcher is paused"
+    );
+
+    let resume_url = format!("http://127.0.0.1:{}/watcher/resume", d_ports.fs);
+    let _resume_response = reqwest::Client::new()
+        .post(&resume_url)
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    // run a manual scan to catch the file we created while paused
+    let scan_url = format!("http://127.0.0.1:{}/scan/test.com", d_ports.fs);
+    let scan_response = reqwest::Client::new()
+        .post(&scan_url)
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(scan_response.status(), 200);
+    let scan_body: serde_json::Value = scan_response.json().await.into_diagnostic()?;
+    assert_eq!(scan_body["success"], true);
+
+    // should have added 1 file and removed 0 files
+    assert_eq!(scan_body["files_added"], 1);
+    assert_eq!(scan_body["files_removed"], 0);
+
+    let (db_output_after, _) = util::execute_command(
+        &daemon,
+        "sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"SELECT COUNT(*) FROM files WHERE domain = 'test.com' AND path = '/paused.txt'\"",
+    )
+    .await?;
+
+    let count_after: i32 = db_output_after.trim().parse().unwrap_or(-1);
+    assert_eq!(
+        count_after, 1,
+        "File should be in database after scan while watcher is resumed"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_domain_scan_removes_deleted_files() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ports: d_ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let daemon = daemon_container.unwrap();
+
+    util::execute_command(&daemon, "sudo mkdir -p /var/makiatto/sites/test.com").await?;
+
+    let file1_content = "Content of file 1";
+    let file2_content = "Content of file 2";
+    let file3_content = "Content of file 3";
+
+    create_test_file(&daemon, "test.com", "/file1.txt", file1_content).await?;
+    create_test_file(&daemon, "test.com", "/file2.txt", file2_content).await?;
+    create_test_file(&daemon, "test.com", "/file3.txt", file3_content).await?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let (db_count_before, _) = util::execute_command(
+        &daemon,
+        "sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"SELECT COUNT(*) FROM files WHERE domain = 'test.com'\"",
+    )
+    .await?;
+
+    let initial_count: i32 = db_count_before.trim().parse().unwrap_or(0);
+    assert_eq!(
+        initial_count, 3,
+        "All 3 files should be in database initially"
+    );
+
+    // pause the file watcher to prevent it from automatically cleaning up deleted files
+    let pause_url = format!("http://127.0.0.1:{}/watcher/pause", d_ports.fs);
+    let _pause_response = reqwest::Client::new()
+        .post(&pause_url)
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    util::execute_command(&daemon, "rm /var/makiatto/sites/test.com/file1.txt").await?;
+    util::execute_command(&daemon, "rm /var/makiatto/sites/test.com/file3.txt").await?;
+
+    let (db_count_after_delete, _) = util::execute_command(
+        &daemon,
+        "sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"SELECT COUNT(*) FROM files WHERE domain = 'test.com'\"",
+    )
+    .await?;
+
+    let count_after_delete: i32 = db_count_after_delete.trim().parse().unwrap_or(0);
+    assert_eq!(
+        count_after_delete, 3,
+        "Database should still have 3 records before scan"
+    );
+
+    let scan_url = format!("http://127.0.0.1:{}/scan/test.com", d_ports.fs);
+    let scan_response = reqwest::Client::new()
+        .post(&scan_url)
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(scan_response.status(), 200);
+    let scan_body: serde_json::Value = scan_response.json().await.into_diagnostic()?;
+    assert_eq!(scan_body["success"], true);
+
+    assert_eq!(scan_body["files_added"], 0, "No new files should be added");
+    assert_eq!(
+        scan_body["files_removed"], 2,
+        "Two deleted files should be removed from database"
+    );
+
+    let (db_count_final, _) = util::execute_command(
+        &daemon,
+        "sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"SELECT COUNT(*) FROM files WHERE domain = 'test.com'\"",
+    )
+    .await?;
+
+    let final_count: i32 = db_count_final.trim().parse().unwrap_or(0);
+    assert_eq!(
+        final_count, 1,
+        "Database should have only 1 record after scan"
+    );
+
+    let (remaining_file, _) = util::execute_command(
+        &daemon,
+        "sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"SELECT path FROM files WHERE domain = 'test.com'\"",
+    )
+    .await?;
+
+    assert_eq!(
+        remaining_file.trim(),
+        "/file2.txt",
+        "Only file2.txt should remain in database"
+    );
+
+    // Verify file2.txt still exists on disk and has correct content
+    assert!(verify_file_content(&daemon, "test.com", "/file2.txt", file2_content).await?);
 
     Ok(())
 }

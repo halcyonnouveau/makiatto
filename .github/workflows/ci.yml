@@ -136,7 +136,7 @@ jobs:
   upload-makiatto:
     name: Upload makiatto binaries
     needs: [release-plz-release]
-    if: needs.release-plz-release.outputs.releases != '[]'
+    if: needs.release-plz-release.outputs.releases_created == 'true'
     strategy:
       matrix:
         include:
@@ -160,7 +160,7 @@ jobs:
   upload-makiatto-cli:
     name: Upload makiatto-cli binaries
     needs: [release-plz-release]
-    if: needs.release-plz-release.outputs.releases != '[]'
+    if: needs.release-plz-release.outputs.releases_created == 'true'
     strategy:
       matrix:
         include:

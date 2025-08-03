@@ -35,7 +35,6 @@ pub struct DomainAlias {
 pub struct DnsRecord {
     pub name: Arc<str>,
     pub domain: Arc<str>,
-    pub source_domain: Arc<str>,
     pub record_type: Arc<str>,
     pub value: Arc<str>,
     pub ttl: u32,

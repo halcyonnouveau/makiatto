@@ -66,7 +66,10 @@ impl SubscriptionWatcher {
                         "subscription_peers",
                         |event| {
                             let watcher = watcher.clone();
-                            Box::pin(async move { watcher.handle_peers_change(event).await })
+                            Box::pin(async move {
+                                watcher.handle_peers_change(event).await?;
+                                Ok(())
+                            })
                         },
                     )
                     .await;
@@ -80,7 +83,7 @@ impl SubscriptionWatcher {
                 watcher
                     .watch_table(
                         tripwire,
-                        "DNS records",
+                        "DNS",
                         "SELECT domain, name, record_type, value FROM dns_records",
                         "subscription_dns_records",
                         |event| {
@@ -271,7 +274,7 @@ impl SubscriptionWatcher {
                     info!("{table_name} watcher shutting down");
                     break;
                 }
-                result = self.subscribe_and_watch(query, state_key, &handler) => {
+                result = self.subscribe(query, state_key, &handler) => {
                     if let Err(e) = result {
                         warn!("{table_name} subscription failed: {e}, retrying in {backoff_secs} seconds");
                     } else {
@@ -287,7 +290,7 @@ impl SubscriptionWatcher {
     }
 
     /// Subscribe to a query and process events
-    async fn subscribe_and_watch<F>(&self, query: &str, state_key: &str, handler: F) -> Result<()>
+    async fn subscribe<F>(&self, query: &str, state_key: &str, handler: F) -> Result<()>
     where
         F: Fn(&QueryEvent) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>,
     {
@@ -310,7 +313,6 @@ impl SubscriptionWatcher {
             });
 
         loop {
-            // Determine URL and request type
             let (url, is_new) = if let Some(query_id) = &state.query_id {
                 let from = if state.last_change_id > 0 {
                     format!("?from={}", state.last_change_id)
@@ -322,12 +324,11 @@ impl SubscriptionWatcher {
                 (api_base.clone(), true)
             };
 
-            info!(
+            debug!(
                 "Subscribing to query: {state_key} (new: {is_new}, from: {})",
                 state.last_change_id
             );
 
-            // Make the request
             let response = if is_new {
                 client
                     .post(&url)
@@ -344,7 +345,7 @@ impl SubscriptionWatcher {
                     .map_err(|e| miette::miette!("Failed to reconnect to subscription: {e}"))?
             };
 
-            // Handle new subscription ID
+            // handle new subscription ID
             if is_new
                 && let Some(query_id_str) = response.headers().get("corro-query-id")
                 && let Ok(query_id_str) = query_id_str.to_str()
@@ -392,12 +393,13 @@ impl SubscriptionWatcher {
                 }
             }
 
-            // Stream ended cleanly, save state and reconnect
+            // stream ended cleanly, save state and reconnect
             self.cache_store
                 .set_subscription(state_key, state.clone())
                 .await;
 
             info!("Subscription stream ended, reconnecting to {state_key}...");
+            sleep(Duration::from_secs(5)).await;
         }
     }
 
@@ -405,10 +407,6 @@ impl SubscriptionWatcher {
     async fn handle_peers_change(&self, event: &QueryEvent) -> Result<()> {
         if let QueryEvent::Change(change_type, row_id, values, _) = event {
             info!("Peers change: {change_type:?} row {row_id}");
-
-            if let Err(e) = self.dns_restart_tx.try_send(()) {
-                error!("Failed to signal DNS restart: {e}");
-            }
 
             if values.len() >= 4 {
                 let name = values[0].as_text().unwrap_or("");
@@ -420,43 +418,29 @@ impl SubscriptionWatcher {
                     ChangeType::Insert => {
                         info!("New peer added: {name}");
                         let endpoint = format!("{ipv4}:{WIREGUARD_PORT}");
-                        let address = format!("{wg_address}/32");
                         if let Some(ref wg_mgr) = self.wireguard_manager {
-                            if let Err(e) = wg_mgr.add_peer(&endpoint, &address, public_key).await {
-                                error!("Failed to add WireGuard peer {name}: {e}");
-                            } else {
-                                info!("Added WireGuard peer: {name} ({endpoint} -> {address})");
-                            }
+                            wg_mgr.add_peer(&endpoint, wg_address, public_key).await?;
                         }
                     }
                     ChangeType::Delete => {
                         info!("Peer removed: {name}");
                         if let Some(ref wg_mgr) = self.wireguard_manager {
-                            if let Err(e) = wg_mgr.remove_peer(public_key).await {
-                                error!("Failed to remove WireGuard peer: {e}");
-                            } else {
-                                info!("Removed WireGuard peer: {name}");
-                            }
+                            wg_mgr.remove_peer(wg_address, public_key).await?;
                         }
                     }
                     ChangeType::Update => {
                         info!("Peer updated: {name}");
                         let endpoint = format!("{ipv4}:{WIREGUARD_PORT}");
-                        let address = format!("{wg_address}/32");
 
-                        // Update peer in WireGuard (remove and re-add)
                         if let Some(ref wg_mgr) = self.wireguard_manager {
-                            if let Err(e) = wg_mgr.remove_peer(public_key).await {
-                                error!("Failed to remove WireGuard peer for update: {e}");
-                            }
-
-                            if let Err(e) = wg_mgr.add_peer(&endpoint, &address, public_key).await {
-                                error!("Failed to re-add WireGuard peer {name}: {e}");
-                            } else {
-                                info!("Updated WireGuard peer: {name} ({endpoint} -> {address})");
-                            }
+                            wg_mgr.remove_peer(wg_address, public_key).await?;
+                            wg_mgr.add_peer(&endpoint, wg_address, public_key).await?;
                         }
                     }
+                }
+
+                if let Err(e) = self.dns_restart_tx.try_send(()) {
+                    error!("Failed to signal DNS restart: {e}");
                 }
             }
         }
@@ -562,7 +546,7 @@ impl SubscriptionWatcher {
                         .await
                     {
                         Ok(()) => {
-                            info!("Successfully fetched file {content_hash} for {domain}{path}");
+                            debug!("Successfully fetched file {content_hash} for {domain}{path}");
                         }
                         Err(e) => {
                             error!("Error fetching file {content_hash} for {domain}{path}: {e}");
@@ -572,7 +556,7 @@ impl SubscriptionWatcher {
                 ChangeType::Delete => {
                     match fs::watcher::delete_domain_file(&config, &domain, &path).await {
                         Ok(()) => {
-                            info!("File deleted from database: {domain}{path}");
+                            debug!("File deleted from database: {domain}{path}");
                         }
                         Err(e) => {
                             error!("Failed to delete domain file {domain}{path}: {e}");
@@ -589,10 +573,10 @@ impl Clone for SubscriptionWatcher {
         Self {
             config: self.config.clone(),
             cache_store: self.cache_store.clone(),
+            director_election: self.director_election.clone(),
             wireguard_manager: self.wireguard_manager.clone(),
             dns_restart_tx: self.dns_restart_tx.clone(),
             axum_restart_tx: self.axum_restart_tx.clone(),
-            director_election: self.director_election.clone(),
         }
     }
 }

@@ -5,8 +5,11 @@ use makiatto::{
     cache::CacheStore,
     config,
     corrosion::{self, consensus::DirectorElection, subscriptions::SubscriptionWatcher},
-    fs, service, web,
-    web::certificate::{CertificateManager, CertificateStore},
+    fs, service,
+    web::{
+        self,
+        certificate::{CertificateManager, CertificateStore},
+    },
     wireguard,
 };
 use miette::Result;
@@ -80,6 +83,9 @@ impl ServiceFlags {
 #[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> Result<()> {
+    rustls::crypto::CryptoProvider::install_default(rustls::crypto::aws_lc_rs::default_provider())
+        .map_err(|_| miette::miette!("Failed to install default crypto provider"))?;
+
     let args: Args = argh::from_env();
     let services = ServiceFlags::from_args(&args);
 
@@ -158,7 +164,6 @@ async fn main() -> Result<()> {
         });
         handles.push(subscription_handle);
 
-        // Start certificate manager for ACME renewal
         info!("Starting certificate manager...");
         let cert_store = Arc::new(CertificateStore::new());
         let cert_manager = CertificateManager::new(config.clone(), director_election, cert_store)?;
