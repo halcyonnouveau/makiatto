@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use argh::FromArgs;
 use makiatto_cli::{
     config::{Config, Profile},
+    dns,
     machine::{self, AddMachine, InitMachine, UpgradeMachine},
     sync::{self, SyncCommand},
     ui,
@@ -30,13 +31,11 @@ enum Command {
     Machine(MachineCommand),
     Sync(SyncCommand),
     Status(StatusCommand),
+    Dns(DnsCommand),
 }
 
 // TODO: commands to add
 // machine remove - remove a machine from the cluster
-// update - update all machines with latest makiatto server
-// domain list - list all domains in the corrosion db
-// domain remove - remove a domain from the corrosion db
 
 /// manage makiatto machines
 #[derive(FromArgs)]
@@ -64,6 +63,25 @@ struct ListMachines {}
 #[derive(FromArgs)]
 #[argh(subcommand, name = "status")]
 struct StatusCommand {}
+
+/// manage DNS configuration
+#[derive(FromArgs)]
+#[argh(subcommand, name = "dns")]
+struct DnsCommand {
+    #[argh(subcommand)]
+    action: DnsAction,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum DnsAction {
+    NameserverSetup(NameserverSetupCommand),
+}
+
+/// show complete nameserver setup guide for domain registrars
+#[derive(FromArgs)]
+#[argh(subcommand, name = "nameserver-setup")]
+struct NameserverSetupCommand {}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -116,5 +134,12 @@ async fn main() -> Result<()> {
             // TODO: Query machines for status
             Ok(())
         }
+        Command::Dns(dns) => match dns.action {
+            DnsAction::NameserverSetup(_) => {
+                let config = Config::load(cli.config_path)?;
+                dns::show_nameserver_setup(&profile, &config)?;
+                Ok(())
+            }
+        },
     }
 }

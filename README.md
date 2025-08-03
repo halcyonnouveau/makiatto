@@ -65,6 +65,16 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
    makiatto-cli sync
    ```
 
+5. **Configure your domain nameservers**
+
+   Set up your domain to use Makiatto's custom nameservers for GeoDNS routing:
+
+   ```bash
+   makiatto-cli dns nameserver-setup
+   ```
+
+   Follow the guide to add glue records and configure your domain registrar.
+
 Your content is now distributed globally with automatic geolocation DNS routing!
 
 ## License
