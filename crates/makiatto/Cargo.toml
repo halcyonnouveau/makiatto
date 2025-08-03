@@ -27,7 +27,6 @@ defguard_wireguard_rs = { workspace = true }
 camino = { workspace = true }
 corro-agent = { workspace = true }
 corro-types = { workspace = true }
-dirs = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 geo = { workspace = true }
