@@ -14,7 +14,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     cache::{CacheStore, SubscriptionState},
     config::Config,
-    constants::{CORROSION_API_PORT, WIREGUARD_PORT},
+    r#const::{CORROSION_API_PORT, WIREGUARD_PORT},
     corrosion::consensus::DirectorElection,
     fs,
     wireguard::WireguardManager,

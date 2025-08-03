@@ -16,7 +16,7 @@ use tracing::{error, info};
 
 use crate::{
     config::{Config, WireguardConfig},
-    constants::WIREGUARD_PORT,
+    r#const::WIREGUARD_PORT,
     corrosion,
 };
 

@@ -6,7 +6,7 @@ use serde_json::{self, Value};
 
 use crate::{
     config::{Machine, Profile},
-    constants::{CORROSION_API_PORT, CORROSION_GOSSIP_PORT, WIREGUARD_PORT},
+    r#const::{CORROSION_API_PORT, CORROSION_GOSSIP_PORT, WIREGUARD_PORT},
     machine::corrosion,
     ssh::SshSession,
     ui,
