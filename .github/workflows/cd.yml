@@ -6,6 +6,12 @@ permissions:
 on:
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v0.2.1)"
+        required: true
+        type: string
 
 jobs:
   upload-makiatto:
@@ -27,6 +33,7 @@ jobs:
           target: ${{ matrix.target }}
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.inputs.tag && format('refs/tags/{0}', github.event.inputs.tag) || github.ref }}
 
   upload-makiatto-cli:
     name: Upload makiatto-cli binaries
@@ -51,3 +58,4 @@ jobs:
           target: ${{ matrix.target }}
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.inputs.tag && format('refs/tags/{0}', github.event.inputs.tag) || github.ref }}
