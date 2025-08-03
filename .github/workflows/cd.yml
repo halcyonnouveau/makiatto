@@ -4,10 +4,8 @@ permissions:
   contents: write
 
 on:
-  push:
-    tags:
-      - "v*"
-  workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   upload-makiatto:

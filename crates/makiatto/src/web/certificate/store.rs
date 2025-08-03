@@ -97,11 +97,6 @@ impl CertificateStore {
         Ok(())
     }
 
-    /// Get a certificate by domain
-    pub async fn get_certificate(&self, domain: &str) -> Option<Certificate> {
-        self.certificates.read().await.get(domain).cloned()
-    }
-
     /// Save a certificate to the database and update memory cache
     ///
     /// # Errors
