@@ -7,7 +7,7 @@ use sqlx::SqlitePool;
 use tracing::{error, info};
 
 use crate::config::Config;
-use crate::constants::CORROSION_API_PORT;
+use crate::r#const::CORROSION_API_PORT;
 
 pub mod consensus;
 pub mod schema;

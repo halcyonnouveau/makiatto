@@ -2,7 +2,7 @@
 #![feature(str_as_str)]
 pub mod cache;
 pub mod config;
-pub mod constants;
+pub mod r#const;
 pub mod corrosion;
 pub mod fs;
 pub mod o11y;
