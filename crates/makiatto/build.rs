@@ -1,11 +1,21 @@
 use std::env;
 use std::fs::DirEntry;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let db_path = Path::new(&out_dir).join("schema.db");
+    let out_dir = env::var("OUT_DIR").unwrap_or_else(|_| {
+        std::env::temp_dir()
+            .join("makiatto-build")
+            .to_string_lossy()
+            .to_string()
+    });
+    let out_path = Path::new(&out_dir);
+
+    std::fs::create_dir_all(out_path).expect("Failed to create output directory");
+
+    let db_path = out_path.join("schema.db");
 
     // Set DATABASE_URL for sqlx
     println!("cargo:rustc-env=DATABASE_URL=sqlite:{}", db_path.display());
@@ -38,7 +48,6 @@ fn main() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .and_then(|mut child| {
-            use std::io::Write;
             if let Some(stdin) = child.stdin.as_mut() {
                 stdin.write_all(combined_sql.as_bytes())?;
             }

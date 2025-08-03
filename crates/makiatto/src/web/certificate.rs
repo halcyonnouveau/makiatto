@@ -74,11 +74,9 @@ impl CertificateManager {
                 }
                 _ = check_interval.tick() => {
                     if !self.director_election.is_leader().await {
-                        debug!("Not the director, skipping certificate check");
                         continue;
                     }
 
-                    info!("Running certificate check as director");
                     if let Err(e) = self.check_and_renew_certificates().await {
                         error!("Certificate renewal check failed: {e}");
                     }
@@ -89,10 +87,6 @@ impl CertificateManager {
 
     async fn check_and_renew_certificates(&self) -> Result<()> {
         let domains = self.get_candidate_domains().await?;
-        info!(
-            "Found {} candidate domains for certificate management",
-            domains.len()
-        );
 
         let peer_ips = self.get_cluster_ips().await?;
 
