@@ -87,10 +87,21 @@ impl DirectorElection {
 
         if let Some(leader) = leadership {
             if leader.node_name == self.node_name {
-                // We are the leader, update heartbeat
-                self.update_heartbeat(current_time, lease_duration).await?;
+                if leader.term == self.state.read().await.current_term {
+                    // we are the leader, update heartbeat
+                    self.update_heartbeat(current_time, lease_duration).await?;
+                } else {
+                    // term mismatch - try to reclaim
+                    match self
+                        .try_claim_leadership(current_time, lease_duration, leader.term + 1)
+                        .await
+                    {
+                        Ok(()) => info!("Successfully attempted leadership claim"),
+                        Err(e) => error!("Failed to claim leadership: {e}"),
+                    }
+                }
             } else if leader.expires_at < current_time {
-                // Leader expired, try to claim leadership
+                // leader expired, try to claim leadership
                 info!(
                     "Current leader '{}' expired (expires_at: {}, current_time: {}), attempting to claim leadership",
                     leader.node_name, leader.expires_at, current_time
@@ -103,7 +114,7 @@ impl DirectorElection {
                     Err(e) => error!("Failed to claim leadership: {e}"),
                 }
             } else {
-                // Someone else is leader
+                // someone else is leader
                 let mut state = self.state.write().await;
                 state.is_leader = false;
                 state.current_leader = Some(leader.node_name.clone());
@@ -114,7 +125,7 @@ impl DirectorElection {
                 );
             }
         } else {
-            // No leader exists, try to claim
+            // no leader exists, try to claim
             info!("No current leader, attempting to claim leadership");
             match self
                 .try_claim_leadership(current_time, lease_duration, 1)
@@ -161,7 +172,7 @@ impl DirectorElection {
             current_time,
         );
 
-        corrosion::execute_transaction(&sql).await?;
+        corrosion::execute_transactions(&[sql]).await?;
 
         let leadership = self.get_current_leadership().await?;
 
@@ -203,7 +214,7 @@ impl DirectorElection {
             current_time, expires_at, DIRECTOR_ROLE, self.node_name, current_term
         );
 
-        match corrosion::execute_transaction(&sql).await {
+        match corrosion::execute_transactions(&[sql]).await {
             Ok(()) => {
                 debug!("Updated leadership heartbeat");
             }
@@ -212,8 +223,9 @@ impl DirectorElection {
             }
         }
 
-        // Check if we're still leader
+        // check if we're still leader
         let leadership = self.get_current_leadership().await?;
+
         if let Some(leader) = leadership
             && (leader.node_name != self.node_name || leader.term != current_term)
         {
@@ -232,7 +244,7 @@ impl DirectorElection {
 
     /// Get current leadership from database
     async fn get_current_leadership(&self) -> Result<Option<ClusterLeadership>> {
-        let pool = crate::corrosion::get_pool().await?;
+        let pool = corrosion::get_pool().await?;
 
         let row = sqlx::query!(
             "SELECT role, node_name, term, last_heartbeat, expires_at FROM cluster_leadership WHERE role = ?1",
@@ -271,7 +283,7 @@ impl DirectorElection {
             DIRECTOR_ROLE, self.node_name, current_term
         );
 
-        if corrosion::execute_transaction(&sql).await.is_ok() {
+        if corrosion::execute_transactions(&[sql]).await.is_ok() {
             let mut state = self.state.write().await;
             state.is_leader = false;
             info!("Stepped down from leadership");

@@ -98,9 +98,12 @@ where
 
                             if let (Some(server), Some(shutdown_tx)) = (current_server.take(), current_shutdown_tx.take()) {
                                 let _ = shutdown_tx.send(()).await;
-                                // Wait for graceful shutdown
+                                // wait for graceful shutdown
                                 let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server).await;
                             }
+
+                            // add small delay to ensure OS releases the ports
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
                             // start new server with new shutdown channel
                             let (shutdown_tx, shutdown_rx) = mpsc::channel(1);

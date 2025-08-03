@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use argh::FromArgs;
 use makiatto_cli::{
     config::{Config, Profile},
-    machine::{self, AddMachine, InitMachine},
+    machine::{self, AddMachine, InitMachine, UpgradeMachine},
     sync::{self, SyncCommand},
     ui,
 };
@@ -52,6 +52,7 @@ enum MachineAction {
     Init(InitMachine),
     Add(AddMachine),
     List(ListMachines),
+    Upgrade(UpgradeMachine),
 }
 
 /// list configured machines
@@ -72,7 +73,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Machine(machine) => match machine.action {
             MachineAction::Init(init) => {
-                machine::init_machine(&init, &mut profile).await?;
+                machine::init_machine(&init, &mut profile)?;
                 profile.save(cli.profile_path)?;
 
                 Ok(())
@@ -98,6 +99,10 @@ async fn main() -> Result<()> {
                         ui::field("WireGuard Address", &machine.wg_address);
                     }
                 }
+                Ok(())
+            }
+            MachineAction::Upgrade(upgrade) => {
+                machine::upgrade_machine(&upgrade, &profile)?;
                 Ok(())
             }
         },

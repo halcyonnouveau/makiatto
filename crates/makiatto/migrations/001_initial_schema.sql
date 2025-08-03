@@ -7,9 +7,15 @@ CREATE TABLE IF NOT EXISTS peers (
     latitude REAL NOT NULL DEFAULT 0.0,
     longitude REAL NOT NULL DEFAULT 0.0,
     is_nameserver INTEGER NOT NULL DEFAULT 0,
-    fs_port INTEGER NOT NULL DEFAULT 8282,
-    created_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond')),
-    updated_at TIMESTAMP NOT NULL DEFAULT (datetime('subsecond'))
+    fs_port INTEGER NOT NULL DEFAULT 8282
+);
+
+CREATE TABLE IF NOT EXISTS cluster_leadership (
+    role TEXT NOT NULL PRIMARY KEY,
+    node_name TEXT NOT NULL DEFAULT '',
+    term INTEGER NOT NULL DEFAULT 0,
+    last_heartbeat INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS domains (
@@ -22,15 +28,14 @@ CREATE TABLE IF NOT EXISTS domain_aliases (
 );
 
 CREATE TABLE IF NOT EXISTS dns_records (
-    domain TEXT NOT NULL,
-    name TEXT NOT NULL,
-    record_type TEXT NOT NULL,
+    id TEXT NOT NULL PRIMARY KEY,
+    domain TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    record_type TEXT NOT NULL DEFAULT '',
     value TEXT NOT NULL DEFAULT '',
-    source_domain TEXT NOT NULL DEFAULT '',
     ttl INTEGER NOT NULL DEFAULT 300,
     priority INTEGER NOT NULL DEFAULT 0,
-    geo_enabled INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (domain, name, record_type)
+    geo_enabled INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS certificates (
@@ -39,14 +44,6 @@ CREATE TABLE IF NOT EXISTS certificates (
     private_key_pem TEXT NOT NULL DEFAULT '',
     expires_at INTEGER NOT NULL DEFAULT '',
     issuer TEXT NOT NULL DEFAULT "lets_encrypt"
-);
-
-CREATE TABLE IF NOT EXISTS cluster_leadership (
-    role TEXT NOT NULL PRIMARY KEY,
-    node_name TEXT NOT NULL DEFAULT '',
-    term INTEGER NOT NULL DEFAULT 0,
-    last_heartbeat INTEGER NOT NULL DEFAULT 0,
-    expires_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS certificate_renewals (

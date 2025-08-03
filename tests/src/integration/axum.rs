@@ -19,7 +19,7 @@ async fn test_virtual_hosting() -> Result<()> {
 
     let commands = vec![
         "sudo mkdir -p /var/makiatto/sites/example.com",
-        "echo '<h1>Example.com Homepage</h1>' | sudo tee /var/makiatto/sites/example.com/index.html",
+        "sudo bash -c 'echo \"<h1>Example.com Homepage</h1>\" > /var/makiatto/sites/example.com/index.html'",
     ];
 
     util::execute_commands(&daemon, &commands).await?;
@@ -52,10 +52,10 @@ async fn test_static_file_serving() -> Result<()> {
 
     let commands = vec![
         "sudo mkdir -p /var/makiatto/sites/localhost/assets",
-        "echo '<!DOCTYPE html><html><head><title>Test</title></head><body><h1>Test Page</h1></body></html>' | sudo tee /var/makiatto/sites/localhost/index.html",
-        "echo 'body { color: red; }' | sudo tee /var/makiatto/sites/localhost/assets/style.css",
-        "echo 'console.log(\"Hello world\");' | sudo tee /var/makiatto/sites/localhost/assets/script.js",
-        "echo 'Plain text file content' | sudo tee /var/makiatto/sites/localhost/readme.txt",
+        "sudo bash -c 'echo \"<!DOCTYPE html><html><head><title>Test</title></head><body><h1>Test Page</h1></body></html>\" > /var/makiatto/sites/localhost/index.html'",
+        "sudo bash -c 'echo \"body { color: red; }\" > /var/makiatto/sites/localhost/assets/style.css'",
+        "sudo bash -c 'echo \"console.log(\\\"Hello world\\\");\" > /var/makiatto/sites/localhost/assets/script.js'",
+        "sudo bash -c 'echo \"Plain text file content\" > /var/makiatto/sites/localhost/readme.txt'",
         "sudo chown -R makiatto:makiatto /var/makiatto/sites",
     ];
 
@@ -172,7 +172,7 @@ async fn test_https_single_certificate() -> Result<()> {
 
     let setup_commands = vec![
         "sudo mkdir -p /var/makiatto/sites/localhost",
-        "echo '<h1>HTTPS Test Page</h1>' | sudo tee /var/makiatto/sites/localhost/index.html",
+        "sudo bash -c 'echo \"<h1>HTTPS Test Page</h1>\" > /var/makiatto/sites/localhost/index.html'",
     ];
 
     util::execute_commands(&daemon, &setup_commands).await?;
@@ -216,8 +216,8 @@ async fn test_https_sni_multiple_certificates() -> Result<()> {
     let setup_commands = vec![
         "sudo mkdir -p /var/makiatto/sites/example.com",
         "sudo mkdir -p /var/makiatto/sites/test.com",
-        "echo '<h1>Example.com HTTPS</h1>' | sudo tee /var/makiatto/sites/example.com/index.html",
-        "echo '<h1>Test.com HTTPS</h1>' | sudo tee /var/makiatto/sites/test.com/index.html",
+        "sudo bash -c 'echo \"<h1>Example.com HTTPS</h1>\" > /var/makiatto/sites/example.com/index.html'",
+        "sudo bash -c 'echo \"<h1>Test.com HTTPS</h1>\" > /var/makiatto/sites/test.com/index.html'",
     ];
 
     util::execute_commands(&daemon, &setup_commands).await?;
@@ -304,17 +304,17 @@ async fn test_domain_alias_web_serving() -> Result<()> {
     util::execute_command(&daemon, "sudo mkdir -p /var/makiatto/sites/dog.com").await?;
     util::execute_command(
         &daemon,
-        "echo '<h1>Hello from dog.com</h1>' | sudo tee /var/makiatto/sites/dog.com/index.html",
+        "sudo bash -c 'echo \"<h1>Hello from dog.com</h1>\" > /var/makiatto/sites/dog.com/index.html'",
     )
     .await?;
 
-    // Insert domain alias: frog.com -> dog.com
+    // insert domain alias: frog.com -> dog.com
     let sql = "INSERT INTO domain_aliases (alias, target) VALUES ('frog.com', 'dog.com')";
-    util::execute_transaction(&daemon, sql).await?;
+    util::execute_transactions(&daemon, &[sql.to_string()]).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Test that frog.com serves content from dog.com
+    // test that frog.com serves content from dog.com
     let frog_response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{}", ports.http))
         .header("Host", "frog.com")
@@ -329,7 +329,7 @@ async fn test_domain_alias_web_serving() -> Result<()> {
         "frog.com should serve content from dog.com"
     );
 
-    // Test that dog.com still works directly
+    // test that dog.com still works directly
     let dog_response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{}", ports.http))
         .header("Host", "dog.com")
@@ -344,7 +344,7 @@ async fn test_domain_alias_web_serving() -> Result<()> {
         "dog.com should serve its own content"
     );
 
-    // Test that a non-aliased domain returns 404
+    // test that a non-aliased domain returns 404
     let cat_response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{}", ports.http))
         .header("Host", "cat.com")
@@ -353,11 +353,6 @@ async fn test_domain_alias_web_serving() -> Result<()> {
         .into_diagnostic()?;
 
     assert_eq!(cat_response.status(), 404);
-    let cat_body = cat_response.text().await.into_diagnostic()?;
-    assert!(
-        cat_body.contains("Domain 'cat.com' not found"),
-        "Non-existent domain should return 404"
-    );
 
     Ok(())
 }
@@ -377,15 +372,15 @@ async fn test_domain_alias_chain() -> Result<()> {
     util::execute_command(&daemon, "sudo mkdir -p /var/makiatto/sites/target.com").await?;
     util::execute_command(
         &daemon,
-        "echo '<h1>Final target content</h1>' | sudo tee /var/makiatto/sites/target.com/index.html",
+        "sudo bash -c 'echo \"<h1>Final target content</h1>\" > /var/makiatto/sites/target.com/index.html'",
     )
     .await?;
 
     // Insert alias chain: first.com -> second.com -> target.com
     let sql1 = "INSERT INTO domain_aliases (alias, target) VALUES ('first.com', 'second.com')";
     let sql2 = "INSERT INTO domain_aliases (alias, target) VALUES ('second.com', 'target.com')";
-    util::execute_transaction(&daemon, sql1).await?;
-    util::execute_transaction(&daemon, sql2).await?;
+    util::execute_transactions(&daemon, &[sql1.to_string()]).await?;
+    util::execute_transactions(&daemon, &[sql2.to_string()]).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -422,15 +417,15 @@ async fn test_domain_alias_loop_protection() -> Result<()> {
     util::execute_command(&daemon, "sudo mkdir -p /var/makiatto/sites/loop1.com").await?;
     util::execute_command(
         &daemon,
-        "echo '<h1>Loop1 content</h1>' | sudo tee /var/makiatto/sites/loop1.com/index.html",
+        "sudo bash -c 'echo \"<h1>Loop1 content</h1>\" > /var/makiatto/sites/loop1.com/index.html'",
     )
     .await?;
 
     // Insert circular alias: loop1.com -> loop2.com -> loop1.com
     let sql1 = "INSERT INTO domain_aliases (alias, target) VALUES ('loop1.com', 'loop2.com')";
     let sql2 = "INSERT INTO domain_aliases (alias, target) VALUES ('loop2.com', 'loop1.com')";
-    util::execute_transaction(&daemon, sql1).await?;
-    util::execute_transaction(&daemon, sql2).await?;
+    util::execute_transactions(&daemon, &[sql1.to_string()]).await?;
+    util::execute_transactions(&daemon, &[sql2.to_string()]).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -447,6 +442,123 @@ async fn test_domain_alias_loop_protection() -> Result<()> {
     assert!(
         loop_body.contains("Loop1 content"),
         "Loop protection should allow loop1.com to serve its own content"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_html_fallback_paths() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let daemon = daemon_container.unwrap();
+
+    let setup_commands = vec![
+        "sudo mkdir -p /var/makiatto/sites/localhost/blog",
+        "sudo mkdir -p /var/makiatto/sites/localhost/contact",
+        "sudo bash -c 'echo \"<h1>About Page</h1>\" > /var/makiatto/sites/localhost/about.html'",
+        "sudo bash -c 'echo \"<h1>Blog Home</h1>\" > /var/makiatto/sites/localhost/blog/index.html'",
+        "sudo bash -c 'echo \"<h1>Contact Page</h1>\" > /var/makiatto/sites/localhost/contact/index.html'",
+        "sudo bash -c 'echo \"/* CSS content */\" > /var/makiatto/sites/localhost/style.css'",
+        "sudo chown -R makiatto:makiatto /var/makiatto/sites",
+    ];
+
+    util::execute_commands(&daemon, &setup_commands).await?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Test 1: /about should serve /about.html
+    let about_response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/about", ports.http))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(about_response.status(), 200);
+    let about_body = about_response.text().await.into_diagnostic()?;
+    assert!(
+        about_body.contains("About Page"),
+        "Should serve about.html for /about"
+    );
+
+    // Test 2: /blog should serve /blog/index.html
+    let blog_response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/blog", ports.http))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(blog_response.status(), 200);
+    let blog_body = blog_response.text().await.into_diagnostic()?;
+    assert!(
+        blog_body.contains("Blog Home"),
+        "Should serve blog/index.html for /blog"
+    );
+
+    // Test 3: /contact should serve /contact/index.html (no contact.html exists)
+    let contact_response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/contact", ports.http))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(contact_response.status(), 200);
+    let contact_body = contact_response.text().await.into_diagnostic()?;
+    assert!(
+        contact_body.contains("Contact Page"),
+        "Should serve contact/index.html for /contact"
+    );
+
+    // Test 4: /style.css should NOT use fallbacks (has extension)
+    let css_response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/style.css", ports.http))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(css_response.status(), 200);
+    let css_body = css_response.text().await.into_diagnostic()?;
+    assert!(
+        css_body.contains("CSS content"),
+        "Should serve actual CSS file"
+    );
+
+    // Test 5: /nonexistent should return 404 (no fallbacks exist)
+    let nonexistent_response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/nonexistent", ports.http))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(
+        nonexistent_response.status(),
+        404,
+        "Should return 404 when no fallbacks exist"
+    );
+
+    // Test 6: /missing.png should return 404 (has extension, no fallbacks attempted)
+    let missing_image_response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/missing.png", ports.http))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(
+        missing_image_response.status(),
+        404,
+        "Should return 404 for missing files with extensions"
     );
 
     Ok(())

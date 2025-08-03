@@ -1,10 +1,13 @@
 use std::os::unix::fs::MetadataExt;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use blake3::Hasher;
 use futures_util::StreamExt;
 use miette::Result;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify_debouncer_full::{
+    DebounceEventResult, new_debouncer,
+    notify::{EventKind, RecursiveMode, event::CreateKind},
+};
 use rand::{Rng, seq::SliceRandom};
 use tokio::{
     fs,
@@ -19,7 +22,6 @@ use crate::{
     util,
 };
 
-// Use streaming for files larger than 100MB
 const STREAMING_THRESHOLD: u64 = 100 * 1024 * 1024; // 100MB
 
 /// File watcher service that monitors `static_dir` for changes
@@ -32,38 +34,41 @@ pub async fn start(config: Arc<Config>, mut shutdown_rx: mpsc::Receiver<()>) -> 
 
     info!("Starting file watcher for {}", static_dir.display());
 
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, mut rx) = mpsc::channel(1000);
 
-    // Create file watcher
-    let mut watcher = RecommendedWatcher::new(
-        move |res: notify::Result<Event>| {
-            if let Ok(event) = res
-                && let Err(e) = tx.blocking_send(event)
-            {
-                error!("Failed to send file event: {e}");
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(500),
+        None,
+        move |result: DebounceEventResult| {
+            if let Err(e) = tx.blocking_send(result) {
+                error!("Failed to send debounced event: {e}");
             }
         },
-        notify::Config::default(),
     )
     .map_err(|e| miette::miette!("Failed to create file watcher: {e}"))?;
 
-    // Start watching the static directory
-    watcher
+    debouncer
         .watch(static_dir, RecursiveMode::Recursive)
         .map_err(|e| miette::miette!("Failed to watch directory {}: {e}", static_dir.display()))?;
 
     loop {
         tokio::select! {
-            // Handle shutdown signal
             _ = shutdown_rx.recv() => {
                 info!("File watcher received shutdown signal");
                 break;
             }
-
-            // Handle file system events
-            Some(event) = rx.recv() => {
-                if let Err(e) = handle_file_event(&event, static_dir, storage_dir, &config).await {
-                    error!("Failed to handle file event: {e}");
+            Some(result) = rx.recv() => {
+                match result {
+                    Ok(events) => {
+                        if let Err(e) = handle_debounced_events(events, static_dir, storage_dir, &config).await {
+                            error!("Failed to handle file events: {e}");
+                        }
+                    }
+                    Err(errors) => {
+                        for error in errors {
+                            error!("File watcher error: {}", error);
+                        }
+                    }
                 }
             }
         }
@@ -72,34 +77,56 @@ pub async fn start(config: Arc<Config>, mut shutdown_rx: mpsc::Receiver<()>) -> 
     Ok(())
 }
 
-/// Handle individual file system events
-async fn handle_file_event(
-    event: &Event,
+/// Handle debounced file system events
+async fn handle_debounced_events(
+    events: Vec<notify_debouncer_full::DebouncedEvent>,
     static_dir: &std::path::Path,
     storage_dir: &std::path::Path,
     config: &Config,
 ) -> Result<()> {
-    // Only handle file creation and modification events
-    match event.kind {
-        EventKind::Create(_) | EventKind::Modify(_) => {
-            let file_records = process_file_changes(&event.paths, static_dir, storage_dir).await;
+    // skip processing if watcher is paused
+    if super::is_watcher_paused() {
+        debug!("File watcher is paused, skipping {} events", events.len());
+        return Ok(());
+    }
 
-            if !file_records.is_empty()
-                && let Err(e) = update_file_records(&file_records, config).await
-            {
-                error!("Failed to batch update file records: {e}");
-            }
-        }
-        EventKind::Remove(_) => {
-            let delete_records = collect_file_deletions(&event.paths, static_dir);
+    let mut file_paths = Vec::new();
+    let mut delete_paths = Vec::new();
 
-            if !delete_records.is_empty()
-                && let Err(e) = delete_file_records(&delete_records).await
-            {
-                error!("Failed to batch delete file records: {e}");
+    for event in events {
+        match event.kind {
+            EventKind::Create(CreateKind::File) => {
+                debug!("File created: {}", event.paths[0].display());
+                file_paths.push(event.paths[0].clone());
             }
+            EventKind::Modify(_) => {
+                debug!("File modified: {}", event.paths[0].display());
+                file_paths.push(event.paths[0].clone());
+            }
+            EventKind::Remove(_) => {
+                debug!("File removed: {}", event.paths[0].display());
+                delete_paths.push(event.paths[0].clone());
+            }
+            _ => {}
         }
-        _ => {} // Ignore other event types
+    }
+
+    if !file_paths.is_empty() {
+        let file_records = process_file_changes(&file_paths, static_dir, storage_dir).await;
+        if !file_records.is_empty()
+            && let Err(e) = update_file_records(&file_records, config).await
+        {
+            error!("Failed to batch update file records: {e}");
+        }
+    }
+
+    if !delete_paths.is_empty() {
+        let delete_records = collect_file_deletions(&delete_paths, static_dir);
+        if !delete_records.is_empty()
+            && let Err(e) = delete_file_records(&delete_records).await
+        {
+            error!("Failed to batch delete file records: {e}");
+        }
     }
 
     Ok(())
@@ -116,7 +143,7 @@ async fn process_file_changes(
     for path in paths {
         match process_file_change(path, static_dir, storage_dir).await {
             Ok(Some(record)) => file_records.push(record),
-            Ok(None) => {} // File was skipped (not a file, etc.)
+            Ok(None) => {} // file was skipped (not a file, etc.)
             Err(e) => warn!("Failed to process file change for {}: {e}", path.display()),
         }
     }
@@ -172,7 +199,6 @@ pub fn parse_domain_and_path<'a>(
         .to_str()
         .ok_or_else(|| miette::miette!("Invalid path encoding"))?;
 
-    // Ensure path starts with /
     let normalised_path = if file_relative_path.starts_with('/') {
         file_relative_path.to_string()
     } else {
@@ -183,7 +209,10 @@ pub fn parse_domain_and_path<'a>(
 }
 
 /// Process a single file change for batching
-async fn process_file_change(
+///
+/// # Errors
+/// Returns an error if file processing, hashing, or database operations fail
+pub async fn process_file_change(
     file_path: &std::path::Path,
     static_dir: &std::path::Path,
     storage_dir: &std::path::Path,
@@ -194,33 +223,51 @@ async fn process_file_change(
 
     let (domain, normalised_path) = parse_domain_and_path(file_path, static_dir)?;
 
-    // Handle race condition: check if file was modified during processing
+    // ensure file is stable (not actively being written)
     let metadata_before = tokio::fs::metadata(file_path)
         .await
         .map_err(|e| miette::miette!("Failed to get file metadata: {e}"))?;
 
-    // Check if file was modified during read
-    let metadata_after = tokio::fs::metadata(file_path)
-        .await
-        .map_err(|e| miette::miette!("Failed to get file metadata after read: {e}"))?;
-
-    let modified_before = metadata_before
-        .modified()
-        .map_err(|e| miette::miette!("Failed to get modification time: {e}"))?;
-
-    let modified_after = metadata_after
-        .modified()
-        .map_err(|e| miette::miette!("Failed to get modification time: {e}"))?;
-
-    if modified_before != modified_after {
-        warn!(
-            "File {} was modified during processing, retrying",
-            file_path.display()
-        );
-        return Box::pin(process_file_change(file_path, static_dir, storage_dir)).await;
-    }
-
     let file_size = metadata_before.len();
+
+    if file_size > STREAMING_THRESHOLD {
+        //  wait a bit and verify file size is stable
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let metadata_after = tokio::fs::metadata(file_path)
+            .await
+            .map_err(|e| miette::miette!("Failed to get file metadata after delay: {e}"))?;
+
+        if metadata_before.len() != metadata_after.len()
+            || metadata_before.modified().ok() != metadata_after.modified().ok()
+        {
+            warn!(
+                "Large file {} still being written, retrying",
+                file_path.display()
+            );
+            return Box::pin(process_file_change(file_path, static_dir, storage_dir)).await;
+        }
+    } else {
+        let metadata_after = tokio::fs::metadata(file_path)
+            .await
+            .map_err(|e| miette::miette!("Failed to get file metadata after read: {e}"))?;
+
+        let modified_before = metadata_before
+            .modified()
+            .map_err(|e| miette::miette!("Failed to get modification time: {e}"))?;
+
+        let modified_after = metadata_after
+            .modified()
+            .map_err(|e| miette::miette!("Failed to get modification time: {e}"))?;
+
+        if modified_before != modified_after {
+            warn!(
+                "File {} was modified during processing, retrying",
+                file_path.display()
+            );
+            return Box::pin(process_file_change(file_path, static_dir, storage_dir)).await;
+        }
+    }
 
     let hash = if file_size > STREAMING_THRESHOLD {
         debug!(
@@ -230,16 +277,14 @@ async fn process_file_change(
         );
         store_content_streaming(file_path, storage_dir).await?
     } else {
-        // Small file - use existing approach
         let content = fs::read(file_path)
             .await
             .map_err(|e| miette::miette!("Failed to read file {}: {e}", file_path.display()))?;
 
-        // Store in content-addressed storage
         store_content(&storage_dir.to_path_buf(), &content).await?
     };
 
-    // Check if we already have this exact record in database
+    // check if we already have this exact record in database
     if file_record_exists(domain, &normalised_path, &hash).await? {
         debug!("File {domain}{normalised_path} already exists with hash {hash}, skipping");
         return Ok(None);
@@ -266,7 +311,13 @@ async fn process_file_change(
 }
 
 /// Batch update multiple file records in database
-async fn update_file_records(records: &[File], config: &Config) -> Result<()> {
+///
+/// # Errors
+/// Returns an error if database operations fail
+pub async fn update_file_records(records: &[File], config: &Config) -> Result<()> {
+    let mut sqls = Vec::new();
+    let mut existing_hashes = Vec::new();
+
     for record in records {
         let pool = corrosion::get_pool().await?;
         let domain_str = record.domain.as_ref();
@@ -296,21 +347,28 @@ async fn update_file_records(records: &[File], config: &Config) -> Result<()> {
             record.modified_at
         );
 
-        corrosion::execute_transaction(&sql)
-            .await
-            .map_err(|e| miette::miette!("Failed to insert file record: {e}"))?;
+        sqls.push(sql);
+        existing_hashes.push((existing_hash, content_hash));
+    }
 
-        // If this was an update with a different content hash, we need to recreate hardlinks
+    if !sqls.is_empty() {
+        corrosion::execute_transactions(&sqls)
+            .await
+            .map_err(|e| miette::miette!("Failed to insert file records: {e}"))?;
+    }
+
+    // Handle hardlink recreation for changed content hashes
+    for (i, (existing_hash, content_hash)) in existing_hashes.iter().enumerate() {
         if let Some(old_hash) = existing_hash
             && old_hash != content_hash
         {
             info!(
                 "File {} content changed from {} to {}, recreating hardlinks",
-                record.path, old_hash, content_hash
+                records[i].path, old_hash, content_hash
             );
 
             // Ensure all files with the old content hash still have proper hardlinks
-            if let Err(e) = recreate_hardlinks_for_content(config, &old_hash).await {
+            if let Err(e) = recreate_hardlinks_for_content(config, old_hash).await {
                 warn!("Failed to recreate hardlinks for content {}: {e}", old_hash);
             }
         }
@@ -322,13 +380,20 @@ async fn update_file_records(records: &[File], config: &Config) -> Result<()> {
 
 /// Batch delete multiple file records from database
 async fn delete_file_records(records: &[(String, String)]) -> Result<()> {
-    for (domain, path) in records {
-        let sql = format!("DELETE FROM files WHERE domain = '{domain}' AND path = '{path}'",);
-
-        corrosion::execute_transaction(&sql)
-            .await
-            .map_err(|e| miette::miette!("Failed to delete file record: {e}"))?;
+    if records.is_empty() {
+        return Ok(());
     }
+
+    let sqls: Vec<String> = records
+        .iter()
+        .map(|(domain, path)| {
+            format!("DELETE FROM files WHERE domain = '{domain}' AND path = '{path}'")
+        })
+        .collect();
+
+    corrosion::execute_transactions(&sqls)
+        .await
+        .map_err(|e| miette::miette!("Failed to delete file records: {e}"))?;
 
     debug!("Batch deleted {} file records", records.len());
     Ok(())
@@ -726,7 +791,23 @@ async fn store_content_streaming(
         .await
         .map_err(|e| miette::miette!("Failed to check if storage file exists: {e}"))?
     {
-        // Second pass: copy file to storage
+        debug!(
+            "Storage file doesn't exist, copying {} to {}",
+            file_path.display(),
+            storage_path.display()
+        );
+
+        if !tokio::fs::try_exists(file_path).await.unwrap_or(false) {
+            return Err(miette::miette!(
+                "Source file {} no longer exists before copy",
+                file_path.display()
+            ));
+        }
+
+        tokio::fs::create_dir_all(storage_dir)
+            .await
+            .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
+
         tokio::fs::copy(file_path, &storage_path)
             .await
             .map_err(|e| miette::miette!("Failed to copy large file to storage: {e}"))?;

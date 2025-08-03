@@ -21,7 +21,7 @@ async fn test_corrosion() -> Result<()> {
     let d2 = daemon2_container.unwrap();
 
     let insert_sql = r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('test-peer', 'test-pubkey-123', '10.0.0.99', 12.345, 67.890, '192.168.1.99', NULL, 8282)";
-    util::execute_transaction(&d2, insert_sql).await?;
+    util::execute_transactions(&d2, &[insert_sql.to_string()]).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 

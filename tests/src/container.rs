@@ -392,6 +392,8 @@ impl Drop for PortMap {
 }
 
 pub mod util {
+    use uuid::Uuid;
+
     use super::*;
 
     /// Helper function to execute a command in a docker container
@@ -505,7 +507,7 @@ pub mod util {
         let cert_pem = String::from_utf8_lossy(&cert_bytes).trim().to_string();
         let key_pem = String::from_utf8_lossy(&key_bytes).trim().to_string();
 
-        // Validate certificate format
+        // validate certificate format
         if !cert_pem.starts_with("-----BEGIN CERTIFICATE-----") {
             return Err(miette::miette!("Invalid certificate format"));
         }
@@ -550,12 +552,18 @@ pub mod util {
         Ok(())
     }
 
-    /// Execute a Corrosion transaction (SQL insert/update/delete)
-    pub async fn execute_transaction(
+    /// Execute Corrosion transactions (SQL insert/update/delete)
+    pub async fn execute_transactions(
         daemon: &Arc<ContainerAsync<GenericImage>>,
-        sql: &str,
+        sqls: &[String],
     ) -> Result<()> {
-        let json_payload = format!("[\"{sql}\"]");
+        if sqls.is_empty() {
+            return Ok(());
+        }
+
+        let escaped_sqls: Vec<String> = sqls.iter().map(|sql| sql.replace('"', "\\\"")).collect();
+
+        let json_payload = format!("[\"{}\"]", escaped_sqls.join("\", \""));
 
         let mut result = daemon
             .exec(ExecCommand::new(vec![
@@ -613,14 +621,16 @@ pub mod util {
     pub async fn insert_dns_record(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         domain: &str,
+        name: &str,
         record_type: &str,
         value: &str,
     ) -> Result<()> {
-        let name = domain.split('.').next().unwrap_or(domain);
+        let id = Uuid::now_v7().to_string();
+
         let sql = format!(
-            r"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES ('{domain}', '{name}', '{record_type}', '{value}', '{domain}', 300, 0, 0)"
+            r"INSERT INTO dns_records (id, domain, name, record_type, value, geo_enabled) VALUES ('{id}', '{domain}', '{name}', '{record_type}', '{value}', 0)"
         );
-        execute_transaction(daemon, &sql).await
+        execute_transactions(daemon, &[sql.to_string()]).await
     }
 
     /// Insert a certificate via Corrosion API
@@ -642,7 +652,7 @@ pub mod util {
         let sql = format!(
             "INSERT INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{domain}', '{certificate_pem}', '{private_key_pem}', {expires_at}, 'test_ca')"
         );
-        execute_transaction(daemon, &sql).await
+        execute_transactions(daemon, &[sql.to_string()]).await
     }
 
     /// Insert certificate renewal status via Corrosion API
@@ -663,6 +673,6 @@ pub mod util {
             retry_count,
             current_time
         );
-        execute_transaction(daemon, &sql).await
+        execute_transactions(daemon, &[sql.to_string()]).await
     }
 }

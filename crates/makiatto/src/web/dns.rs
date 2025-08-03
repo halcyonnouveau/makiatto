@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     str::FromStr,
     sync::Arc,
@@ -21,7 +21,7 @@ use hickory_server::{
 use maxminddb::Reader;
 use miette::{IntoDiagnostic, Result};
 use opentelemetry::{KeyValue, global};
-use tokio::net::{TcpListener, UdpSocket};
+use tokio::net::{TcpSocket, UdpSocket};
 use tracing::{Level, debug, error, info, instrument, span, warn};
 use url::Url;
 
@@ -60,7 +60,6 @@ pub struct DnsRequest {
 pub struct Handler {
     peers: Arc<[DnsPeer]>,
     records: HashMap<String, Vec<DnsRecord>>,
-    records_by_name: HashMap<String, Vec<DnsRecord>>,
     reader: Reader<Vec<u8>>,
 }
 
@@ -71,23 +70,9 @@ impl Handler {
         records: HashMap<String, Vec<DnsRecord>>,
         reader: Reader<Vec<u8>>,
     ) -> Self {
-        // Build an index by record name for efficient lookups
-        // This allows queries like "kafka.ns.domain.com" to find A records
-        // that are stored under a different domain (e.g., "domain.com")
-        let mut records_by_name: HashMap<String, Vec<DnsRecord>> = HashMap::new();
-        for records_list in records.values() {
-            for record in records_list {
-                records_by_name
-                    .entry(record.name.to_string())
-                    .or_default()
-                    .push(record.clone());
-            }
-        }
-
         Self {
             peers,
             records,
-            records_by_name,
             reader,
         }
     }
@@ -224,34 +209,9 @@ impl Handler {
 
         let lookup_name = request.name.to_string().trim_end_matches('.').to_string();
 
-        let mut all_records = Vec::new();
-
-        // records from domain-based lookup
-        if let Some(domain_records) = self.records.get(&lookup_name) {
-            all_records.extend(domain_records.iter());
-        }
-
-        // records from name-based lookup
-        if let Some(name_records) = self.records_by_name.get(&lookup_name) {
-            all_records.extend(name_records.iter());
-        }
-
-        let mut unique_records = HashSet::new();
-        let records: Vec<DnsRecord> = all_records
-            .into_iter()
-            .filter_map(|record| {
-                let key = (
-                    record.name.as_ref(),
-                    record.record_type.as_ref(),
-                    record.value.as_ref(),
-                );
-                if unique_records.insert(key) {
-                    Some(record.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let Some(records) = self.records.get(&lookup_name) else {
+            return Ok(vec![]);
+        };
 
         if records.is_empty() {
             return Ok(vec![]);
@@ -325,6 +285,7 @@ impl Handler {
             .u64_counter("server.query.count")
             .with_description("Total number of DNS queries")
             .build();
+
         counter.add(1, &attributes);
 
         let histogram = meter
@@ -332,6 +293,7 @@ impl Handler {
             .with_unit("s")
             .with_description("DNS query response time in milliseconds")
             .build();
+
         histogram.record(duration.as_millis_f64(), &attributes);
 
         if self
@@ -463,6 +425,10 @@ pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
 ///
 /// # Errors
 /// Returns an error if the DNS server fails to start, bind to port 53, or encounters runtime errors
+///
+/// # Panics
+/// Panics if the socket address "[::]:853" or "[::]:53" cannot be parsed, which should never happen
+#[allow(clippy::too_many_lines)]
 pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
@@ -501,9 +467,25 @@ pub async fn start(
             Ok(tls_config) => {
                 let cert_resolver = tls_config.cert_resolver.clone();
 
-                let dot_listener = TcpListener::bind("[::]:853")
-                    .await
+                let socket = TcpSocket::new_v6()
+                    .map_err(|e| miette::miette!("Failed to create IPv6 socket: {e}"))?;
+
+                socket
+                    .set_reuseaddr(true)
+                    .map_err(|e| miette::miette!("Failed to set SO_REUSEADDR: {e}"))?;
+
+                #[cfg(target_os = "linux")]
+                socket
+                    .set_reuseport(true)
+                    .map_err(|e| miette::miette!("Failed to set SO_REUSEPORT: {e}"))?;
+
+                socket
+                    .bind("[::]:853".parse().unwrap())
                     .map_err(|e| miette::miette!("Failed to bind DoT TCP socket: {e}"))?;
+
+                let dot_listener = socket
+                    .listen(1024)
+                    .map_err(|e| miette::miette!("Failed to listen on DoT socket: {e}"))?;
 
                 let doq_socket = UdpSocket::bind("[::]:853")
                     .await
@@ -529,12 +511,27 @@ pub async fn start(
             .map_err(|e| miette::miette!("Failed to bind UDP socket: {e}"))?,
     );
 
-    server.register_listener(
-        TcpListener::bind("[::]:53")
-            .await
-            .map_err(|e| miette::miette!("Failed to bind TCP socket: {e}"))?,
-        Duration::from_secs(5),
-    );
+    let dns_socket = TcpSocket::new_v6()
+        .map_err(|e| miette::miette!("Failed to create IPv6 socket for DNS: {e}"))?;
+
+    dns_socket
+        .set_reuseaddr(true)
+        .map_err(|e| miette::miette!("Failed to set SO_REUSEADDR for DNS: {e}"))?;
+
+    #[cfg(target_os = "linux")]
+    dns_socket
+        .set_reuseport(true)
+        .map_err(|e| miette::miette!("Failed to set SO_REUSEPORT for DNS: {e}"))?;
+
+    dns_socket
+        .bind("[::]:53".parse().unwrap())
+        .map_err(|e| miette::miette!("Failed to bind DNS TCP socket: {e}"))?;
+
+    let dns_listener = dns_socket
+        .listen(1024)
+        .map_err(|e| miette::miette!("Failed to listen on DNS socket: {e}"))?;
+
+    server.register_listener(dns_listener, Duration::from_secs(5));
 
     if let Some((dot_listener, doq_socket, cert_resolver)) = tls_config {
         server

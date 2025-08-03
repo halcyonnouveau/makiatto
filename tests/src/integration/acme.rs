@@ -12,7 +12,7 @@ async fn remove_acme_challenge(
     token: &str,
 ) -> Result<()> {
     let sql = format!("DELETE FROM acme_challenges WHERE token = '{token}'");
-    util::execute_transaction(daemon, &sql).await
+    util::execute_transactions(daemon, &[sql]).await
 }
 
 /// Insert an ACME challenge via Corrosion API
@@ -28,7 +28,7 @@ pub async fn insert_acme_challenge(
     let sql = format!(
         "INSERT INTO acme_challenges (token, key_authorisation, created_at, expires_at) VALUES ('{token}', '{key_authorisation}', {current_time}, {expires_at})"
     );
-    util::execute_transaction(daemon, &sql).await
+    util::execute_transactions(daemon, &[sql]).await
 }
 
 #[tokio::test]

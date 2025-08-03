@@ -90,7 +90,7 @@ async fn test_single_domain() -> Result<()> {
         "SELECT name, record_type, value FROM dns_records WHERE domain = '{test_domain}' AND name LIKE '%mail%';"
     );
     let dns_result = util::query_database(&container, &dns_query).await?;
-    assert!(dns_result.contains("mail.test-sync.example.com|A|192.168.1.10"));
+    assert!(dns_result.contains("mail|A|192.168.1.10"));
 
     let alias_query = format!("SELECT alias FROM domain_aliases WHERE target = '{test_domain}';");
     let alias_result = util::query_database(&container, &alias_query).await?;
@@ -313,13 +313,13 @@ async fn test_update_changes() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let old_query = format!(
-        "SELECT COUNT(*) FROM dns_records WHERE domain = '{test_domain}' AND name = 'old.{test_domain}';"
+        "SELECT COUNT(*) FROM dns_records WHERE domain = '{test_domain}' AND name = 'old';"
     );
     let old_result = util::query_database(&container, &old_query).await?;
     assert_eq!(old_result.trim(), "0");
 
     let new_query = format!(
-        "SELECT value FROM dns_records WHERE domain = '{test_domain}' AND name = 'new.{test_domain}' AND record_type = 'CNAME';"
+        "SELECT value FROM dns_records WHERE domain = '{test_domain}' AND name = 'new' AND record_type = 'CNAME';"
     );
     let new_result = util::query_database(&container, &new_query).await?;
     assert!(new_result.contains("new.target.com"));

@@ -1,5 +1,6 @@
 #![cfg(test)]
 use miette::{IntoDiagnostic, Result};
+use uuid::Uuid;
 
 use crate::container::{ContainerContext, TestContainer, util};
 
@@ -22,15 +23,18 @@ async fn test_replication() -> Result<()> {
     let d1 = daemon1_container.unwrap();
     let d2 = daemon2_container.unwrap();
 
-    util::insert_dns_record(&d2, "test.example.com", "A", "192.168.1.100").await?;
+    util::insert_dns_record(&d2, "example.com", "@", "A", "192.168.1.100").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let stdout = util::query_database(&d1, "SELECT domain, name, record_type, value FROM dns_records WHERE domain = 'test.example.com';").await?;
+    let stdout = util::query_database(
+        &d1,
+        "SELECT domain, name, record_type, value FROM dns_records WHERE domain = 'example.com';",
+    )
+    .await?;
 
     assert!(!stdout.is_empty(), "No DNS record returned from d1 query");
     assert!(stdout.contains("example.com"));
-    assert!(stdout.contains("test"));
     assert!(stdout.contains('A'));
     assert!(stdout.contains("192.168.1.100"));
 
@@ -39,7 +43,7 @@ async fn test_replication() -> Result<()> {
             "@127.0.0.1",
             "-p",
             &d1_ports.dns.to_string(),
-            "test.example.com",
+            "example.com",
             "A",
             "+short",
         ])
@@ -64,7 +68,7 @@ async fn test_replication() -> Result<()> {
             "@127.0.0.1",
             "-p",
             &d2_ports.dns.to_string(),
-            "test.example.com",
+            "example.com",
             "A",
             "+short",
         ])
@@ -89,7 +93,7 @@ async fn test_replication() -> Result<()> {
 
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
-async fn test_dns_geolocation() -> Result<()> {
+async fn test_geolocation() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
     let TestContainer {
@@ -100,20 +104,27 @@ async fn test_dns_geolocation() -> Result<()> {
 
     let daemon = daemon_container.unwrap();
 
-    let insert_peers_sql = [
+    let insert_peers_sql = vec![
         r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('peer-nyc', 'pubkey-nyc-123', '10.0.0.10', 40.7128, -74.0060, '192.168.1.10', NULL, 8282)",
         r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('peer-london', 'pubkey-london-456', '10.0.0.20', 51.5074, -0.1278, '192.168.1.20', NULL, 8282)",
         r"INSERT INTO peers (name, wg_public_key, wg_address, latitude, longitude, ipv4, ipv6, fs_port) VALUES ('peer-tokyo', 'pubkey-tokyo-789', '10.0.0.30', 35.6762, 139.6503, '192.168.1.30', NULL, 8282)",
     ];
 
-    for sql in insert_peers_sql {
-        util::execute_transaction(&daemon, sql).await?;
-    }
+    let insert_peers_sql_strings: Vec<String> = insert_peers_sql
+        .into_iter()
+        .map(ToString::to_string)
+        .collect();
+
+    util::execute_transactions(&daemon, &insert_peers_sql_strings).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let sql = r"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES ('geo.example.com', 'geo', 'A', '192.168.1.100', 'example.com', 300, 0, 1)";
-    util::execute_transaction(&daemon, sql).await?;
+    let id = Uuid::now_v7().to_string();
+
+    util::execute_transactions(
+        &daemon,
+        &[format!("INSERT INTO dns_records (id, domain, name, record_type, value, geo_enabled) VALUES ('{id}', 'example.com', 'geo', 'A', '192.168.1.100', 1)")]
+    ).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
@@ -127,9 +138,9 @@ async fn test_dns_geolocation() -> Result<()> {
     assert!(peers_output.contains("peer-london|51.5074|-0.1278|192.168.1.20"));
     assert!(peers_output.contains("peer-tokyo|35.6762|139.6503|192.168.1.30"));
 
-    let dns_output = util::query_database(&daemon, "SELECT domain, name, record_type, geo_enabled FROM dns_records WHERE domain = 'geo.example.com';").await?;
+    let dns_output = util::query_database(&daemon, "SELECT domain, name, record_type, geo_enabled FROM dns_records WHERE domain = 'example.com';").await?;
 
-    assert!(dns_output.contains("geo.example.com|geo|A|1"));
+    assert!(dns_output.contains("example.com|geo|A|1"));
 
     let dig_output = std::process::Command::new("dig")
         .args([
@@ -178,8 +189,7 @@ async fn test_over_tls_with_certificates() -> Result<()> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let dns_record_sql = r"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES ('test.example.com', 'test', 'A', '192.168.1.100', 'example.com', 300, 0, 0)";
-    util::execute_transaction(&daemon, dns_record_sql).await?;
+    util::insert_dns_record(&daemon, "example.com", "test", "A", "192.168.1.100").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -214,14 +224,8 @@ async fn test_multi_domain_sni() -> Result<()> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let dns_records_sql = [
-        r"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES ('api.example.com', 'api', 'A', '192.168.1.10', 'example.com', 300, 0, 0)",
-        r"INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) VALUES ('api.test.com', 'api', 'A', '192.168.1.20', 'test.com', 300, 0, 0)",
-    ];
-
-    for sql in dns_records_sql {
-        util::execute_transaction(&daemon, sql).await?;
-    }
+    util::insert_dns_record(&daemon, "example.com", "@", "A", "192.168.1.10").await?;
+    util::insert_dns_record(&daemon, "test.com", "@", "A", "192.168.1.20").await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -230,7 +234,7 @@ async fn test_multi_domain_sni() -> Result<()> {
             "@127.0.0.1",
             "-p",
             &ports.dns.to_string(),
-            "api.example.com",
+            "example.com",
             "A",
             "+short",
         ])
@@ -255,7 +259,7 @@ async fn test_multi_domain_sni() -> Result<()> {
             "@127.0.0.1",
             "-p",
             &ports.dns.to_string(),
-            "api.test.com",
+            "test.com",
             "A",
             "+short",
         ])

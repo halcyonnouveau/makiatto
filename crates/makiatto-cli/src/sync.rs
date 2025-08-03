@@ -2,6 +2,7 @@ use std::{collections::HashSet, path::PathBuf, time::SystemTime};
 
 use argh::FromArgs;
 use miette::{Result, miette};
+use uuid::Uuid;
 
 use crate::{
     config::{Config, DnsRecord, Domain, Machine, Profile},
@@ -61,7 +62,7 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
 
     for domain in config.domains.iter() {
         ui::header(&format!("Processing domain: {}", domain.name));
-        sync_domain_files(&ssh, domain, command.key_path.as_ref())?;
+        sync_domain_files(&ssh, domain, command.key_path.as_ref(), sync_machine)?;
         sync_domain_records(&ssh, domain, &profile.machines)?;
     }
 
@@ -69,11 +70,23 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
     Ok(())
 }
 
-fn sync_domain_files(ssh: &SshSession, domain: &Domain, key_path: Option<&PathBuf>) -> Result<()> {
+fn sync_domain_files(
+    ssh: &SshSession,
+    domain: &Domain,
+    key_path: Option<&PathBuf>,
+    machine: &Machine,
+) -> Result<()> {
     ui::status("Syncing files...");
 
     let target_dir = format!("/var/makiatto/sites/{}", domain.name);
     ssh.exec(&format!("sudo mkdir -p {target_dir}"))?;
+
+    if let Err(e) = ssh.exec(&format!(
+        "curl -s -X POST http://{}:8282/watcher/pause",
+        machine.wg_address
+    )) {
+        return Err(miette!(format!("Failed to pause file watcher: {e}")));
+    }
 
     let spinner = ui::spinner("Running rsync...");
 
@@ -102,8 +115,9 @@ fn sync_domain_files(ssh: &SshSession, domain: &Domain, key_path: Option<&PathBu
     let mut rsync_cmd = std::process::Command::new("rsync");
     rsync_cmd
         .arg("-avz")
-        .arg("--delete")
+        .arg("--delete-after")
         .arg("--progress")
+        .arg("--chown=makiatto:makiatto")
         .arg("-e")
         .arg(&ssh_args)
         .arg("--rsync-path")
@@ -122,8 +136,19 @@ fn sync_domain_files(ssh: &SshSession, domain: &Domain, key_path: Option<&PathBu
 
     spinner.finish_with_message("✓ rsync completed");
 
-    ui::action("Setting permissions");
-    ssh.exec(&format!("sudo chown -R makiatto:makiatto {target_dir}"))?;
+    // trigger a manual directory scan to catch any files missed by the watcher
+    ui::status("Scanning synced files...");
+    ssh.exec(&format!(
+        "curl -s -X POST http://{}:8282/scan/{}",
+        machine.wg_address, domain.name
+    ))?;
+
+    if let Err(e) = ssh.exec(&format!(
+        "curl -s -X POST http://{}:8282/watcher/resume",
+        machine.wg_address
+    )) {
+        return Err(miette!(format!("Failed to resume file watcher: {e}")));
+    }
 
     Ok(())
 }
@@ -149,7 +174,7 @@ fn sync_domain_records(ssh: &SshSession, domain: &Domain, machines: &[Machine]) 
 
     let mut desired_records = Vec::new();
     generate_dns_records(&domain.name, machines, &mut desired_records)?;
-    collect_dns_records(&domain.name, &domain.records, &mut desired_records);
+    collect_dns_records(&domain.records, &mut desired_records);
 
     apply_dns_diff(ssh, &domain.name, &existing_records, &desired_records)?;
 
@@ -211,59 +236,50 @@ fn generate_dns_records(
         ));
     }
 
-    // A and AAAA records for the domain (geo-enabled)
-    let mut ipv4_addresses: HashSet<String> = HashSet::new();
-    let mut ipv6_addresses: HashSet<String> = HashSet::new();
+    if let Some(machine) = machines.iter().find(|m| !m.ipv4.is_empty()) {
+        records.push((
+            DnsRecordKey {
+                name: "@".to_string(),
+                record_type: "A".to_string(),
+            },
+            DnsRecordData {
+                value: machine.ipv4.to_string(),
+                ttl: 300,
+                priority: 0,
+                geo_enabled: true,
+            },
+        ));
+    }
 
-    for machine in machines {
-        let ipv4 = machine.ipv4.to_string();
-        if ipv4_addresses.insert(ipv4.clone()) {
-            records.push((
-                DnsRecordKey {
-                    name: domain.to_string(),
-                    record_type: "A".to_string(),
-                },
-                DnsRecordData {
-                    value: ipv4,
-                    ttl: 300,
-                    priority: 0,
-                    geo_enabled: true,
-                },
-            ));
-        }
-
-        if let Some(ipv6) = &machine.ipv6
-            && !ipv6.is_empty()
-        {
-            let ipv6_str = ipv6.to_string();
-            if ipv6_addresses.insert(ipv6_str.clone()) {
-                records.push((
-                    DnsRecordKey {
-                        name: domain.to_string(),
-                        record_type: "AAAA".to_string(),
-                    },
-                    DnsRecordData {
-                        value: ipv6_str,
-                        ttl: 300,
-                        priority: 0,
-                        geo_enabled: true,
-                    },
-                ));
-            }
-        }
+    if let Some(machine) = machines
+        .iter()
+        .find(|m| m.ipv6.is_some() && !m.ipv6.as_ref().unwrap().is_empty())
+    {
+        records.push((
+            DnsRecordKey {
+                name: "@".to_string(),
+                record_type: "AAAA".to_string(),
+            },
+            DnsRecordData {
+                value: machine.ipv6.as_ref().unwrap().to_string(),
+                ttl: 300,
+                priority: 0,
+                geo_enabled: true,
+            },
+        ));
     }
 
     // Generate NS records for each nameserver
     for nameserver in &nameservers {
-        let ns_hostname = format!("{}.ns.{}", nameserver.name, domain);
+        let ns_name = format!("{}.ns", nameserver.name);
 
         records.push((
             DnsRecordKey {
-                name: domain.to_string(),
+                name: "@".to_string(),
                 record_type: "NS".to_string(),
             },
             DnsRecordData {
-                value: ns_hostname.clone(),
+                value: format!("{ns_name}.{domain}"),
                 ttl: 300,
                 priority: 0,
                 geo_enabled: false,
@@ -273,7 +289,7 @@ fn generate_dns_records(
         // Create A record for the nameserver hostname
         records.push((
             DnsRecordKey {
-                name: ns_hostname.clone(),
+                name: ns_name.clone(),
                 record_type: "A".to_string(),
             },
             DnsRecordData {
@@ -290,7 +306,7 @@ fn generate_dns_records(
         {
             records.push((
                 DnsRecordKey {
-                    name: ns_hostname,
+                    name: ns_name,
                     record_type: "AAAA".to_string(),
                 },
                 DnsRecordData {
@@ -321,7 +337,7 @@ fn generate_dns_records(
 
         records.push((
             DnsRecordKey {
-                name: domain.to_string(),
+                name: "@".to_string(),
                 record_type: "SOA".to_string(),
             },
             DnsRecordData {
@@ -336,7 +352,7 @@ fn generate_dns_records(
     // CAA record
     records.push((
         DnsRecordKey {
-            name: domain.to_string(),
+            name: "@".to_string(),
             record_type: "CAA".to_string(),
         },
         DnsRecordData {
@@ -351,22 +367,13 @@ fn generate_dns_records(
 }
 
 fn collect_dns_records(
-    domain: &str,
     config_records: &[DnsRecord],
     records: &mut Vec<(DnsRecordKey, DnsRecordData)>,
 ) {
     for record in config_records {
-        let record_name = if record.name.as_str() == "@" {
-            domain.to_string()
-        } else if record.name.contains('.') {
-            record.name.to_string()
-        } else {
-            format!("{}.{}", record.name, domain)
-        };
-
         records.push((
             DnsRecordKey {
-                name: record_name,
+                name: record.name.to_string(),
                 record_type: record.record_type.to_string(),
             },
             DnsRecordData {
@@ -422,14 +429,15 @@ fn apply_dns_diff(
             "Adding DNS record: {} {} -> {}",
             key.name, key.record_type, data.value
         ));
+        let id = Uuid::now_v7().to_string();
         let sql = format!(
-            "INSERT INTO dns_records (domain, name, record_type, value, source_domain, ttl, priority, geo_enabled) \
+            "INSERT INTO dns_records (id, domain, name, record_type, value, ttl, priority, geo_enabled) \
              VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, {})",
+            id,
             domain,
             key.name,
             key.record_type,
             data.value,
-            domain,
             data.ttl,
             data.priority,
             i32::from(data.geo_enabled)

@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use indoc::formatdoc;
 use miette::Result;
+use serde_json::{self, Value};
 
 use crate::{
     config::{Machine, Profile},
@@ -11,34 +12,48 @@ use crate::{
     ui,
 };
 
+struct GeoData {
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub ipv4: Arc<str>,
+    pub ipv6: Option<Arc<str>>,
+}
+
 pub fn install_makiatto(
+    mut machine: Machine,
     profile: &Profile,
-    machine: &Machine,
     wg_private_key: &str,
     binary_path: Option<&PathBuf>,
     key_path: Option<&PathBuf>,
-) -> Result<SshSession> {
+) -> Result<(SshSession, Machine)> {
     ui::status("Connecting to remote machine via SSH...");
     let ssh = SshSession::new(&machine.ssh_target, key_path)?;
+
+    let geo_data = retrieve_geolocation(&ssh)?;
+
+    machine.ipv4 = geo_data.ipv4;
+    machine.ipv6 = geo_data.ipv6;
+    machine.latitude = geo_data.latitude;
+    machine.longitude = geo_data.longitude;
 
     create_makiatto_user(&ssh)?;
     install_makiatto_binary(&ssh, binary_path)?;
     setup_system_permissions(&ssh)?;
     ensure_installed(&ssh)?;
-    create_daemon_config(&ssh, profile, machine, wg_private_key)?;
+    create_daemon_config(&ssh, profile, &machine, wg_private_key)?;
 
     if ssh.is_container() {
         ui::info("Container environment detected - starting makiatto as background process");
         start_makiatto_background(&ssh)?;
     } else {
         setup_systemd_service(&ssh)?;
-        setup_dns_configuration(&ssh, machine)?;
+        setup_dns_configuration(&ssh, &machine)?;
         start_makiatto_service(&ssh)?;
     }
 
-    add_self_as_peer(&ssh, machine)?;
+    add_self_as_peer(&ssh, &machine)?;
 
-    Ok(ssh)
+    Ok((ssh, machine))
 }
 
 fn create_makiatto_user(ssh: &SshSession) -> Result<()> {
@@ -68,7 +83,7 @@ fn create_makiatto_user(ssh: &SshSession) -> Result<()> {
     Ok(())
 }
 
-fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) -> Result<()> {
+pub fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) -> Result<()> {
     ui::status("Installing makiatto binary...");
 
     if let Some(path) = binary_path {
@@ -126,7 +141,7 @@ fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) -> R
 fn setup_system_permissions(ssh: &SshSession) -> Result<()> {
     ui::status("Setting up system permissions...");
 
-    // Only set capabilities if not in a container (overlay fs doesn't support xattrs properly)
+    // only set capabilities if not in a container (overlay fs doesn't support xattrs properly)
     if ssh.is_container() {
         ui::info("Container detected - skipping capability setup (overlay fs limitation)");
     } else {
@@ -135,8 +150,17 @@ fn setup_system_permissions(ssh: &SshSession) -> Result<()> {
     }
 
     ui::action("Configuring unprivileged port binding");
+    ssh.exec("sudo mkdir -p /etc/sysctl.d")?;
     ssh.exec(
-        "echo 'net.ipv4.ip_unprivileged_port_start=0' | sudo tee /etc/sysctl.d/50-unprivileged-ports.conf"
+        "sudo bash -c 'echo \"net.ipv4.ip_unprivileged_port_start=0\" > /etc/sysctl.d/50-unprivileged-ports.conf'"
+    )?;
+
+    ui::action("Configuring inotify limits");
+    ssh.exec(
+        "sudo bash -c 'echo \"fs.inotify.max_queued_events=65536\" > /etc/sysctl.d/51-inotify-limits.conf'",
+    )?;
+    ssh.exec(
+        "sudo bash -c 'echo \"fs.inotify.max_user_watches=524288\" >> /etc/sysctl.d/51-inotify-limits.conf'"
     )?;
 
     ui::action("Reloading sysctl configuration");
@@ -190,6 +214,17 @@ fn ensure_installed(ssh: &SshSession) -> Result<()> {
         ],
     )?;
 
+    install(
+        "curl",
+        &[
+            "sudo apt update && sudo apt install -y curl",
+            "sudo dnf install -y curl || sudo yum install -y curl",
+            "sudo apk add curl",
+            "sudo pacman -S --noconfirm curl",
+            "sudo zypper install -y curl",
+        ],
+    )?;
+
     Ok(())
 }
 
@@ -201,8 +236,8 @@ fn setup_dns_configuration(ssh: &SshSession, machine: &Machine) -> Result<()> {
 
         ui::action("Setting up external DNS resolution");
         ssh.exec("sudo rm -f /etc/resolv.conf")?;
-        ssh.exec("echo 'nameserver 9.9.9.9' | sudo tee /etc/resolv.conf")?;
-        ssh.exec("echo 'nameserver 1.1.1.1' | sudo tee -a /etc/resolv.conf")?;
+        ssh.exec("sudo bash -c 'echo \"nameserver 9.9.9.9\" > /etc/resolv.conf'")?;
+        ssh.exec("sudo bash -c 'echo \"nameserver 1.1.1.1\" >> /etc/resolv.conf'")?;
 
         ui::info("Configured Quad9 (9.9.9.9) and Cloudflare (1.1.1.1) as upstream DNS");
     } else {
@@ -343,7 +378,6 @@ fn setup_systemd_service(ssh: &SshSession) -> Result<()> {
         Restart=on-failure
         RestartSec=10
         StartLimitBurst=3
-        StartLimitIntervalSec=60
         User=makiatto
         Group=makiatto
         Environment=RUST_LOG=makiatto=info
@@ -449,4 +483,78 @@ fn start_makiatto_background(ssh: &SshSession) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn retrieve_geolocation(ssh: &SshSession) -> Result<GeoData> {
+    ui::status("Retrieving geolocation for machine...");
+
+    let mut data = GeoData {
+        ipv4: Arc::from(""),
+        ipv6: None,
+        latitude: None,
+        longitude: None,
+    };
+
+    let version = env!("CARGO_PKG_VERSION");
+    let user_agent = format!("makiatto-cli/{version} (https://github.com/halcyonnouveau/makiatto)");
+
+    let ipv4_result = ssh.exec(&format!(
+        "curl -s --connect-timeout 5 --max-time 15 -H 'User-Agent: {user_agent}' https://api4.ipify.org"
+    ));
+
+    match ipv4_result {
+        Ok(ipv4) => {
+            let ipv4 = ipv4.trim();
+            if !ipv4.is_empty() && !ipv4.contains("error") && ipv4.contains('.') {
+                ui::info(&format!("Fetched IPv4: {ipv4}"));
+                data.ipv4 = Arc::from(ipv4);
+            } else {
+                return Err(miette::miette!("Could not fetch IPv4 address"));
+            }
+        }
+        Err(_) => {
+            return Err(miette::miette!("Could not fetch IPv4 address"));
+        }
+    }
+
+    let ipv6_result = ssh.exec(&format!(
+        "curl -s --connect-timeout 5 --max-time 15 -H 'User-Agent: {user_agent}' https://api6.ipify.org"
+    ));
+
+    match ipv6_result {
+        Ok(ipv6) => {
+            let ipv6 = ipv6.trim();
+            if !ipv6.is_empty() && !ipv6.contains("error") && ipv6.contains(':') {
+                ui::info(&format!("Fetched IPv6: {ipv6}"));
+                data.ipv6 = Some(Arc::from(ipv6));
+            }
+        }
+        Err(_) => {
+            ui::info("Unable to fetch IPv6 address");
+        }
+    }
+
+    let geo_result = ssh.exec(&format!(
+        "curl -s --connect-timeout 10 --max-time 30 -H 'User-Agent: {user_agent}' https://ipapi.co/json/"
+    ));
+
+    match geo_result {
+        Ok(response) => {
+            if let Ok(geo_data) = serde_json::from_str::<Value>(&response)
+                && let (Some(lat), Some(lon)) = (
+                    geo_data.get("latitude").and_then(Value::as_f64),
+                    geo_data.get("longitude").and_then(Value::as_f64),
+                )
+            {
+                ui::info(&format!("Fetched geolocation: {lat:.4}, {lon:.4}"));
+                data.latitude = Some(lat);
+                data.longitude = Some(lon);
+            }
+        }
+        Err(_) => {
+            ui::info("Unable to fetched geolocation data");
+        }
+    }
+
+    Ok(data)
 }

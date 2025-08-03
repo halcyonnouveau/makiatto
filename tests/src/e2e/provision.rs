@@ -26,7 +26,7 @@ async fn test_provision_first() -> Result<()> {
         key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };
 
-    makiatto_cli::machine::init_machine(&request, &mut config).await?;
+    makiatto_cli::machine::init_machine(&request, &mut config)?;
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     Ok(())
@@ -58,7 +58,7 @@ async fn test_provision_second() -> Result<()> {
         key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };
 
-    makiatto_cli::machine::init_machine(&request, &mut config).await?;
+    makiatto_cli::machine::init_machine(&request, &mut config)?;
 
     // test peer data replicated to daemon container
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

@@ -115,13 +115,13 @@ impl CertificateStore {
             cert.domain, cert_pem_b64, key_pem_b64, cert.expires_at, cert.issuer
         );
 
-        corrosion::execute_transaction(&sql).await?;
-
-        // Update memory cache
+        // update memory cache
         self.certificates
             .write()
             .await
             .insert(cert.domain.to_string(), cert);
+
+        corrosion::execute_transactions(&[sql]).await?;
 
         Ok(())
     }
@@ -136,52 +136,22 @@ impl CertificateStore {
         #[allow(clippy::cast_possible_wrap)]
         let threshold_time = current_time + (days_threshold * 24 * 60 * 60) as i64;
 
-        let certificates = self.certificates.read().await;
-        if let Some(cert) = certificates.get(domain) {
+        // query database directly to ensure we have the latest certificate info
+        let pool = corrosion::get_pool().await?;
+        let row = sqlx::query!(
+            "SELECT expires_at FROM certificates WHERE domain = ?1",
+            domain
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query certificate expiry: {e}"))?;
+
+        if let Some(cert) = row {
             Ok(cert.expires_at <= threshold_time)
         } else {
-            // No certificate exists, so it needs one
+            // no certificate exists, so it needs one
             Ok(true)
         }
-    }
-
-    /// Get all certificates that are expiring within the specified number of days
-    ///
-    /// # Errors
-    /// Returns an error if system time cannot be retrieved
-    pub async fn get_expiring_certificates(&self, days_threshold: u64) -> Result<Vec<String>> {
-        let current_time = util::get_current_timestamp()?;
-
-        #[allow(clippy::cast_possible_wrap)]
-        let threshold_time = current_time + (days_threshold * 24 * 60 * 60) as i64;
-
-        let certificates = self.certificates.read().await;
-        let mut expiring_domains = Vec::new();
-
-        for (domain, cert) in certificates.iter() {
-            if cert.expires_at <= threshold_time {
-                expiring_domains.push(domain.clone());
-            }
-        }
-
-        Ok(expiring_domains)
-    }
-
-    /// Get certificate expiration information for all certificates
-    pub async fn get_certificate_expiration_info(&self) -> Vec<(String, i64, bool)> {
-        let Ok(current_time) = util::get_current_timestamp() else {
-            return vec![];
-        };
-
-        let certificates = self.certificates.read().await;
-        let mut info = Vec::new();
-
-        for (domain, cert) in certificates.iter() {
-            let is_expired = cert.expires_at <= current_time;
-            info.push((domain.clone(), cert.expires_at, is_expired));
-        }
-
-        info
     }
 
     /// Build TLS configuration from loaded certificates with SNI support
