@@ -402,7 +402,6 @@ fn apply_dns_diff(
         .collect();
 
     if to_delete.is_empty() && to_add.is_empty() {
-        ui::info("No DNS records changed");
         return Ok(());
     }
 
@@ -442,12 +441,6 @@ fn apply_dns_diff(
     }
 
     corrosion::execute_transactions(ssh, &sqls)?;
-
-    ui::info(&format!(
-        "DNS diff applied: {} added, {} removed",
-        to_add.len(),
-        to_delete.len()
-    ));
 
     let added_ns_records: Vec<_> = to_add
         .iter()

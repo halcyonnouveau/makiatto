@@ -105,8 +105,7 @@ pub fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) 
         let target = match arch_output.trim() {
             "x86_64" => "x86_64-unknown-linux-gnu",
             "aarch64" => "aarch64-unknown-linux-gnu",
-            "armv7l" => "armv7-unknown-linux-gnueabihf",
-            arch => return Err(miette::miette!("Unsupported architecture: {}", arch)),
+            arch => return Err(miette::miette!("Unsupported architecture: {arch}")),
         };
 
         let version = env!("CARGO_PKG_VERSION");
