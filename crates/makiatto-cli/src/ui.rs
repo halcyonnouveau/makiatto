@@ -20,6 +20,21 @@ pub fn info(msg: &str) {
     println!("{} {}", style("::").blue().bold(), style(msg).dim());
 }
 
+/// Print a warning message
+pub fn warn(msg: &str) {
+    println!("{} {}", style("!!").yellow().bold(), style(msg).yellow());
+}
+
+/// Print plain text without any prefix
+pub fn text(msg: &str) {
+    println!("{msg}");
+}
+
+/// Print a command to run (dimmed)
+pub fn command(cmd: &str) {
+    println!("  {}", style(cmd).dim());
+}
+
 /// Print a key-value field
 pub fn field(key: &str, value: &str) {
     println!("  {}: {}", style(key).dim(), value);

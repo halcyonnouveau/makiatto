@@ -269,7 +269,7 @@ fn generate_dns_records(
         ));
     }
 
-    // Generate NS records for each nameserver
+    // generate NS records for each nameserver
     for nameserver in &nameservers {
         let ns_name = format!("{}.ns", nameserver.name);
 
@@ -286,7 +286,6 @@ fn generate_dns_records(
             },
         ));
 
-        // Create A record for the nameserver hostname
         records.push((
             DnsRecordKey {
                 name: ns_name.clone(),
@@ -300,7 +299,6 @@ fn generate_dns_records(
             },
         ));
 
-        // Create AAAA record for the nameserver hostname (if IPv6 available)
         if let Some(ipv6) = &nameserver.ipv6
             && !ipv6.is_empty()
         {
@@ -319,7 +317,6 @@ fn generate_dns_records(
         }
     }
 
-    // Generate SOA record (using first nameserver as primary)
     if let Some(primary_ns) = nameservers.first() {
         let serial = {
             let now = SystemTime::now()
@@ -349,7 +346,6 @@ fn generate_dns_records(
         ));
     }
 
-    // CAA record
     records.push((
         DnsRecordKey {
             name: "@".to_string(),
@@ -452,6 +448,18 @@ fn apply_dns_diff(
         to_add.len(),
         to_delete.len()
     ));
+
+    let added_ns_records: Vec<_> = to_add
+        .iter()
+        .filter(|(key, _)| key.record_type == "NS")
+        .collect();
+
+    if !added_ns_records.is_empty() {
+        ui::warn("⚠️ New nameserver records detected");
+        ui::info(
+            "Consider running `makiatto-cli dns nameserver-setup` to get the complete nameserver configuration guide.",
+        );
+    }
 
     Ok(())
 }
