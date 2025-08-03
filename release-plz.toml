@@ -17,10 +17,11 @@ commit_parsers = [
 
 [[package]]
 name = "makiatto"
-changelog_path = "crates/makiatto/CHANGELOG.md"
+changelog_update = false
 publish = false
 git_release_enable = false
 
 [[package]]
 name = "makiatto-cli"
-changelog_path = "crates/makiatto-cli/CHANGELOG.md"
+changelog_include = ["makiatto"]
+changelog_path = "CHANGELOG.md"
