@@ -13,6 +13,7 @@ pub struct Profile {
 pub struct Machine {
     pub name: Arc<str>,
     pub ssh_target: Arc<str>,
+    pub port: Option<u16>,
     pub is_nameserver: bool,
     pub wg_public_key: Arc<str>,
     pub wg_address: Arc<str>,
@@ -172,6 +173,7 @@ mod tests {
         let machine1 = Machine {
             name: Arc::from("test1"),
             ssh_target: Arc::from("user@host1"),
+            port: None,
             is_nameserver: false,
             wg_public_key: Arc::from("key1"),
             wg_address: Arc::from("10.0.0.1"),
@@ -185,6 +187,7 @@ mod tests {
         let machine2 = Machine {
             name: Arc::from("test2"),
             ssh_target: Arc::from("user@host2"),
+            port: Some(22),
             is_nameserver: true,
             wg_public_key: Arc::from("key2"),
             wg_address: Arc::from("10.0.0.2"),

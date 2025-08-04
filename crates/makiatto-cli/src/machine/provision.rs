@@ -27,7 +27,7 @@ pub fn install_makiatto(
     key_path: Option<&PathBuf>,
 ) -> Result<(SshSession, Machine)> {
     ui::status("Connecting to remote machine via SSH...");
-    let ssh = SshSession::new(&machine.ssh_target, key_path)?;
+    let ssh = SshSession::new(&machine.ssh_target, machine.port, key_path)?;
 
     let geo_data = retrieve_geolocation(&ssh)?;
 

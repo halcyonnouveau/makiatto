@@ -307,7 +307,8 @@ impl TestContainer {
     pub fn get_config(&self) -> Machine {
         Machine {
             name: Arc::from(format!("{}-wawa-daemon", self.id)),
-            ssh_target: Arc::from(format!("root@127.0.0.1:{}", self.ports.ssh)),
+            ssh_target: Arc::from("root@127.0.0.1"),
+            port: Some(self.ports.ssh),
             is_nameserver: true,
             wg_public_key: Arc::from("todayiwantedtoeataquaso"),
             wg_address: Arc::from("0.0.0.0"),

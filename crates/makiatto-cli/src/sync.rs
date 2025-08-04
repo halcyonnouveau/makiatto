@@ -58,7 +58,11 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
     ui::header(&format!("Syncing to machine '{}'", sync_machine.name));
 
     ui::status(&format!("Connecting to {}", sync_machine.ssh_target));
-    let ssh = SshSession::new(&sync_machine.ssh_target, command.key_path.as_ref())?;
+    let ssh = SshSession::new(
+        &sync_machine.ssh_target,
+        sync_machine.port,
+        command.key_path.as_ref(),
+    )?;
 
     for domain in config.domains.iter() {
         ui::header(&format!("Processing domain: {}", domain.name));

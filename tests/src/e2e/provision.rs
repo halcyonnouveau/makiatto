@@ -18,7 +18,8 @@ async fn test_provision_first() -> Result<()> {
 
     let request = InitMachine {
         name: "test-machine-init-first".into(),
-        ssh_target: format!("root@localhost:{ssh}"),
+        ssh_target: "root@localhost".into(),
+        port: Some(ssh),
         skip_nameserver: false,
         force_nameserver: false,
         override_existing: false,
@@ -50,7 +51,8 @@ async fn test_provision_second() -> Result<()> {
 
     let request = InitMachine {
         name: "test-machine-init-second".into(),
-        ssh_target: format!("root@localhost:{ssh}"),
+        ssh_target: "root@localhost".into(),
+        port: Some(ssh),
         skip_nameserver: false,
         force_nameserver: false,
         override_existing: false,

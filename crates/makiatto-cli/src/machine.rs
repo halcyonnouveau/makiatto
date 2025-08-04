@@ -34,15 +34,19 @@ pub struct InitMachine {
     #[argh(positional)]
     pub name: String,
 
-    /// ssh connection string (user@host:port)
+    /// ssh connection string (user@host)
     #[argh(positional)]
     pub ssh_target: String,
 
-    /// skip nameserver role (default: auto-assign if <3 nameservers exist)
+    /// ssh port
+    #[argh(option, long = "port")]
+    pub port: Option<u16>,
+
+    /// skip nameserver role (default: auto-assign if < 3 nameservers exist)
     #[argh(switch, long = "skip-ns")]
     pub skip_nameserver: bool,
 
-    /// force nameserver role (even if 3+ nameservers already exist)
+    /// force nameserver role (even if >= 3 nameservers already exist)
     #[argh(switch, long = "force-ns")]
     pub force_nameserver: bool,
 
@@ -63,9 +67,13 @@ pub struct InitMachine {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "add")]
 pub struct AddMachine {
-    /// ssh connection string (user@host:port)
+    /// ssh connection string (user@host)
     #[argh(positional)]
     pub ssh_target: String,
+
+    /// ssh port
+    #[argh(option, long = "port")]
+    pub port: Option<u16>,
 
     /// path to SSH private key (optional)
     #[argh(option, long = "ssh-priv-key")]
@@ -156,6 +164,7 @@ pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshS
     let machine = Machine {
         name: Arc::from(request.name.as_str()),
         ssh_target: Arc::from(request.ssh_target.as_str()),
+        port: request.port,
         is_nameserver,
         wg_public_key: Arc::from(wg_public_key),
         wg_address: Arc::from(wg_address),
@@ -188,8 +197,11 @@ pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshS
                 existing_machine.name, machine.name
             ));
 
-            let existing_ssh =
-                SshSession::new(&existing_machine.ssh_target, request.key_path.as_ref())?;
+            let existing_ssh = SshSession::new(
+                &existing_machine.ssh_target,
+                existing_machine.port,
+                request.key_path.as_ref(),
+            )?;
 
             corrosion::insert_peer(&existing_ssh, &machine)?;
         }
@@ -206,7 +218,7 @@ pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshS
 /// Returns an error if SSH connection fails or configuration cannot be retrieved
 pub fn add_machine(request: &AddMachine, profile: &mut Profile) -> Result<()> {
     ui::status(&format!("Connecting to {}", request.ssh_target));
-    let session = SshSession::new(&request.ssh_target, request.key_path.as_ref())?;
+    let session = SshSession::new(&request.ssh_target, request.port, request.key_path.as_ref())?;
 
     ui::action("Reading remote configuration");
 
@@ -274,6 +286,7 @@ pub fn add_machine(request: &AddMachine, profile: &mut Profile) -> Result<()> {
     let machine = Machine {
         name: Arc::from(node_name.as_str()),
         ssh_target: Arc::from(request.ssh_target.as_str()),
+        port: request.port,
         is_nameserver,
         wg_public_key: Arc::from(wg_public_key.to_owned()),
         wg_address: Arc::from(wg_address.to_owned()),
@@ -335,7 +348,7 @@ fn upgrade_single_machine(
     binary_path: Option<&PathBuf>,
     key_path: Option<&PathBuf>,
 ) -> Result<()> {
-    let ssh = SshSession::new(&machine.ssh_target, key_path)?;
+    let ssh = SshSession::new(&machine.ssh_target, machine.port, key_path)?;
 
     ui::action("Installing new binary");
     provision::install_makiatto_binary(&ssh, binary_path)?;
@@ -437,6 +450,7 @@ mod tests {
                 Machine {
                     name: Arc::from("node1"),
                     ssh_target: Arc::from("user@host1"),
+                    port: None,
                     is_nameserver: false,
                     wg_public_key: Arc::from("key1"),
                     wg_address: Arc::from("10.44.44.1"),
@@ -449,6 +463,7 @@ mod tests {
                 Machine {
                     name: Arc::from("node2"),
                     ssh_target: Arc::from("user@host2"),
+                    port: None,
                     is_nameserver: false,
                     wg_public_key: Arc::from("key2"),
                     wg_address: Arc::from("10.44.44.3"),
@@ -472,6 +487,7 @@ mod tests {
             machines.push(Machine {
                 name: Arc::from(format!("node{i}")),
                 ssh_target: Arc::from(format!("user@host{i}")),
+                port: None,
                 is_nameserver: false,
                 wg_public_key: Arc::from(format!("key{i}")),
                 wg_address: Arc::from(format!("10.44.44.{i}")),

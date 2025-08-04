@@ -17,4 +17,3 @@ commit_parsers = [
 
 [[package]]
 name = "makiatto-cli"
-changelog_path = "CHANGELOG.md"

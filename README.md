@@ -38,18 +38,17 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 
 2. **Create your CDN nodes**
 
-   Set up nodes in different geographic regions. Each node will automatically join the mesh network and sync content.
+   Set up nodes in different geographic regions. Each node will automatically join the mesh network and sync content. We recommend using at least 3 nodes as you'll need a minimum of 3 nameservers for proper DNS redundancy.
 
    ```bash
-   #       init machine args <name> <ssh: user@address:port>
-   makiatto-cli machine init tololo user@server1.example.com
-   makiatto-cli machine init vector user@server2.example.com
-   makiatto-cli machine init klukai user@server3.example.com
+   makiatto-cli machine init <name> <user>@<ip address>
+   makiatto-cli machine init vector root@203.0.113.1
+   makiatto-cli machine init klukai ubuntu@2001:db8::1
    ```
 
 3. **Configure your project**
 
-   Create a `makiatto.toml` file in your project to define your domain and content paths:
+   Create a `makiatto.toml` file in your project to define your domain and content paths.
 
    ```toml
    [[domain]]
@@ -59,7 +58,7 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 
 4. **Deploy your content**
 
-   Sync your static files and domain config to all nodes in the mesh:
+   Sync your static files and domain config to all nodes in the mesh.
 
    ```bash
    makiatto-cli sync
@@ -67,13 +66,11 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 
 5. **Configure your domain nameservers**
 
-   Set up your domain to use Makiatto's custom nameservers for GeoDNS routing:
+   Set up your domain to use Makiatto's custom nameservers for GeoDNS routing. Follow the guide to add glue records and configure your domain registrar.
 
    ```bash
    makiatto-cli dns nameserver-setup
    ```
-
-   Follow the guide to add glue records and configure your domain registrar.
 
 Your content is now distributed globally with automatic geolocation DNS routing!
 

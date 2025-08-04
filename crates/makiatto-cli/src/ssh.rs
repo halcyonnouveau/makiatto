@@ -23,8 +23,9 @@ impl SshSession {
     ///
     /// # Errors
     /// Returns an error if connection fails or authentication fails
-    pub fn new(ssh_target: &str, key_path: Option<&PathBuf>) -> Result<Self> {
-        let (user, host, port) = parse_ssh_target(ssh_target)?;
+    pub fn new(ssh_target: &str, port: Option<u16>, key_path: Option<&PathBuf>) -> Result<Self> {
+        let port = port.unwrap_or(22);
+        let (user, host) = parse_ssh_target(ssh_target)?;
 
         let tcp = TcpStream::connect((host.as_str(), port))
             .map_err(|e| miette!("Failed to connect to {host}:{port}: {e}"))?;
@@ -285,7 +286,7 @@ impl SshSession {
     }
 }
 
-pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String, u16)> {
+pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String)> {
     let parts: Vec<&str> = target.split('@').collect();
     if parts.len() != 2 {
         return Err(miette!(
@@ -308,15 +309,7 @@ pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String, u16)> {
         return Err(miette!("Host cannot be empty"));
     }
 
-    let port = if host_parts.len() > 1 {
-        host_parts[1]
-            .parse::<u16>()
-            .map_err(|_| miette!("Invalid port number"))?
-    } else {
-        22
-    };
-
-    Ok((user, host, port))
+    Ok((user, host))
 }
 
 fn find_ssh_keys() -> Vec<PathBuf> {
@@ -341,18 +334,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_ssh_target_with_port() {
-        let result = parse_ssh_target("user@example.com:2222").unwrap();
-        assert_eq!(
-            result,
-            ("user".to_string(), "example.com".to_string(), 2222)
-        );
-    }
-
-    #[test]
     fn test_parse_ssh_target_without_port() {
         let result = parse_ssh_target("root@192.168.1.1").unwrap();
-        assert_eq!(result, ("root".to_string(), "192.168.1.1".to_string(), 22));
+        assert_eq!(result, ("root".to_string(), "192.168.1.1".to_string()));
     }
 
     #[test]
@@ -360,17 +344,5 @@ mod tests {
         assert!(parse_ssh_target("invalid").is_err());
         assert!(parse_ssh_target("@host").is_err());
         assert!(parse_ssh_target("user@").is_err());
-    }
-
-    #[test]
-    fn test_parse_ssh_target_invalid_port() {
-        assert!(parse_ssh_target("user@host:abc").is_err());
-        assert!(parse_ssh_target("user@host:99999").is_err());
-    }
-
-    #[test]
-    fn test_parse_ssh_target_ipv4() {
-        let result = parse_ssh_target("admin@10.0.0.1:8022").unwrap();
-        assert_eq!(result, ("admin".to_string(), "10.0.0.1".to_string(), 8022));
     }
 }
