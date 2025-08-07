@@ -411,10 +411,10 @@ fn apply_dns_diff(
 
     let mut sqls = Vec::new();
 
-    for (key, _) in &to_delete {
+    for (key, data) in &to_delete {
         ui::action(&format!(
-            "Removing DNS record: {} {}",
-            key.name, key.record_type
+            "Removing DNS record: {} {} -> {}",
+            key.name, key.record_type, data.value
         ));
         let sql = format!(
             "DELETE FROM dns_records WHERE domain = '{}' AND name = '{}' AND record_type = '{}'",

@@ -26,7 +26,6 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 - **Privacy-conscious users** who prefer self-hosted solutions
 - **Small teams** serving static sites that need global performance without vendor lock-in
 - **Hobbyists** who enjoy building their own infrastructure
-- **Anyone** with multiple VPS instances who wants to put them to good use
 
 ## Quick Start
 
@@ -72,7 +71,7 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
    makiatto-cli dns nameserver-setup
    ```
 
-Your content is now distributed globally with automatic geolocation DNS routing!
+Your content is now distributed globally with automatic geolocation DNS routing! For more detailed instructions, see the [documentation](https://halcyonnouveau.github.io/makiatto/).
 
 ## License
 

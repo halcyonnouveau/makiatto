@@ -1,3 +1,7 @@
 # Summary
 
-- [Chapter 1](./chapter_1.md)
+- [Introduction](./introduction.md)
+  - [Installation](./introduction/installation.md)
+- [Getting Started](./getting-started.md)
+- [Usage Guide](./usage-guide.md)
+- [FAQ](./faq.md)
