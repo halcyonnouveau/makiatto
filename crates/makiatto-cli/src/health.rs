@@ -40,6 +40,7 @@ struct NodeHealth {
     system: SystemStatus,
     dns: Option<DnsStatus>,
     web: Vec<DomainStatus>,
+    version: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -181,6 +182,7 @@ async fn check_node_health(
     };
 
     let web = check_web_domains(machine, config, certificates).await;
+    let version = check_makiatto_version(&ssh).await;
 
     NodeHealth {
         name: machine.name.clone(),
@@ -188,6 +190,28 @@ async fn check_node_health(
         system,
         dns,
         web,
+        version,
+    }
+}
+
+async fn check_makiatto_version(ssh: &SshSession) -> Option<String> {
+    let ssh = ssh.clone();
+
+    match tokio::task::spawn_blocking(move || {
+        let cmd = "makiatto --version 2>/dev/null || echo 'unknown'";
+        ssh.exec(cmd)
+    })
+    .await
+    {
+        Ok(Ok(output)) => {
+            let version = output.trim();
+            if version.is_empty() || version == "unknown" {
+                None
+            } else {
+                Some(version.to_string())
+            }
+        }
+        _ => None,
     }
 }
 
@@ -491,6 +515,16 @@ fn check_consensus_agreement(results: &[NodeHealth]) -> bool {
 #[allow(clippy::too_many_lines)]
 fn display_health_results(results: &[NodeHealth], consensus_ok: bool) {
     ui::separator();
+
+    println!();
+    ui::header("Makiatto Versions");
+    for node in results {
+        let version_info = node
+            .version
+            .as_ref()
+            .map_or("Unknown".to_string(), std::clone::Clone::clone);
+        ui::field(&format!("├─ {}", node.name), &version_info);
+    }
 
     if let Some(first_healthy) = results.iter().find(|n| n.consensus.leader.is_some()) {
         let leader = first_healthy

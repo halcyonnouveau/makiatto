@@ -14,16 +14,20 @@ use miette::Result;
 /// makiatto-cli - manage makiatto cdn nodes and deployments
 #[derive(FromArgs)]
 struct Cli {
-    /// path to local project config (default: ./makiatto.toml)
+    /// project config path (default: ./makiatto.toml)
     #[argh(option, long = "config")]
     config_path: Option<PathBuf>,
 
-    /// path to machines profile (default: ~/.config/makiatto/default.toml)
+    /// profile path (default: ~/.config/makiatto/default.toml)
     #[argh(option, long = "profile")]
     profile_path: Option<PathBuf>,
 
+    /// show version information
+    #[argh(switch)]
+    version: bool,
+
     #[argh(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(FromArgs)]
@@ -82,9 +86,20 @@ struct NameserverSetupCommand {}
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli: Cli = argh::from_env();
+
+    if cli.version {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    let Some(command) = cli.command else {
+        eprintln!("No command specified. Use --help for usage information.");
+        std::process::exit(1);
+    };
+
     let mut profile = Profile::load(cli.profile_path.clone())?;
 
-    match cli.command {
+    match command {
         Command::Machine(machine) => match machine.action {
             MachineAction::Init(init) => {
                 machine::init_machine(&init, &mut profile)?;
