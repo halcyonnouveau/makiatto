@@ -4,6 +4,7 @@ use argh::FromArgs;
 use makiatto_cli::{
     config::{Config, Profile},
     dns,
+    health::{self, HealthCommand},
     machine::{self, AddMachine, InitMachine, UpgradeMachine},
     sync::{self, SyncCommand},
     ui,
@@ -30,7 +31,7 @@ struct Cli {
 enum Command {
     Machine(MachineCommand),
     Sync(SyncCommand),
-    Status(StatusCommand),
+    Health(HealthCommand),
     Dns(DnsCommand),
 }
 
@@ -58,11 +59,6 @@ enum MachineAction {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "list")]
 struct ListMachines {}
-
-/// show cluster status
-#[derive(FromArgs)]
-#[argh(subcommand, name = "status")]
-struct StatusCommand {}
 
 /// manage DNS configuration
 #[derive(FromArgs)]
@@ -129,10 +125,9 @@ async fn main() -> Result<()> {
             sync::sync_project(&command, &profile, &config)?;
             Ok(())
         }
-        Command::Status(_) => {
-            ui::header("Cluster status:");
-            // TODO: Query machines for status
-            Ok(())
+        Command::Health(command) => {
+            let config = Config::load(cli.config_path)?;
+            health::check_health(&command, &profile, &config).await
         }
         Command::Dns(dns) => match dns.action {
             DnsAction::NameserverSetup(_) => {

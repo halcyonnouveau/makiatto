@@ -17,13 +17,16 @@ base64 = { workspace = true }
 console = { workspace = true }
 dialoguer = { workspace = true }
 dirs = { workspace = true }
+futures = { workspace = true }
+hickory-resolver = { workspace = true }
 indicatif = { workspace = true }
 indoc = { workspace = true }
 miette = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ssh2 = { workspace = true }
-tokio = { workspace = true, features = ["fs", "process"] }
+tokio = { workspace = true, features = ["fs", "process", "time"] }
 toml = { workspace = true }
 uuid = { workspace = true }
 x25519-dalek = { workspace = true }

@@ -6,7 +6,6 @@ use testcontainers::{ContainerAsync, GenericImage};
 
 use crate::container::{ContainerContext, TestContainer, util};
 
-/// Helper function to query cluster leadership
 async fn get_cluster_leadership(
     daemon: &Arc<ContainerAsync<GenericImage>>,
 ) -> Result<Option<Vec<String>>> {

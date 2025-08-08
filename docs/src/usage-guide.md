@@ -26,16 +26,13 @@ If no machine names are provided, all machines will be upgraded. You can optiona
 
 ## Status
 
-Check cluster status:
+Check cluster health:
 
 ```bash
-makiatto-cli status
+makiatto-cli health
 ```
 
-```admonish note
-The status command is currently being implemented and will show detailed information about your cluster in future releases.
-```
-
+The health command performs comprehensive checks across your entire cluster.
 
 ## Configuration
 

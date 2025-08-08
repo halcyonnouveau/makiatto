@@ -3,6 +3,7 @@
 pub mod config;
 pub mod r#const;
 pub mod dns;
+pub mod health;
 pub mod machine;
 pub mod ssh;
 pub mod sync;

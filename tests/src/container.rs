@@ -5,6 +5,7 @@ use std::{
     net::TcpListener,
     path,
     process::Command,
+    slice,
     sync::{Arc, Mutex, OnceLock},
 };
 
@@ -17,6 +18,7 @@ use testcontainers::{
     core::{ExecCommand, IntoContainerPort, Mount, WaitFor},
     runners::AsyncRunner,
 };
+use uuid::Uuid;
 
 static PORT_REGISTRY: OnceLock<Mutex<HashSet<u16>>> = OnceLock::new();
 
@@ -393,7 +395,6 @@ impl Drop for PortMap {
 }
 
 pub mod util {
-    use uuid::Uuid;
 
     use super::*;
 
@@ -631,7 +632,7 @@ pub mod util {
         let sql = format!(
             r"INSERT INTO dns_records (id, domain, name, record_type, value, geo_enabled) VALUES ('{id}', '{domain}', '{name}', '{record_type}', '{value}', 0)"
         );
-        execute_transactions(daemon, &[sql.to_string()]).await
+        execute_transactions(daemon, slice::from_ref(&sql)).await
     }
 
     /// Insert a certificate via Corrosion API
@@ -653,7 +654,7 @@ pub mod util {
         let sql = format!(
             "INSERT INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{domain}', '{certificate_pem}', '{private_key_pem}', {expires_at}, 'test_ca')"
         );
-        execute_transactions(daemon, &[sql.to_string()]).await
+        execute_transactions(daemon, slice::from_ref(&sql)).await
     }
 
     /// Insert certificate renewal status via Corrosion API
@@ -674,6 +675,6 @@ pub mod util {
             retry_count,
             current_time
         );
-        execute_transactions(daemon, &[sql.to_string()]).await
+        execute_transactions(daemon, slice::from_ref(&sql)).await
     }
 }
