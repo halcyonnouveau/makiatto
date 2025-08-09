@@ -126,15 +126,25 @@ Each domain must be a root domain that you control at the registrar level. Subdo
 
 ## Profile Management
 
-Your machine configuration is stored in a profile (default: `~/.config/makiatto/default.toml`). You can use different profiles for different environments:
+Your machine configuration is stored in a profile (default: `~/.config/makiatto/default.toml`). Profiles can be stored anywhere - in your home directory for personal use or in your project repository for team sharing:
 
 ```bash
-makiatto-cli --profile ~/.config/makiatto/prod.toml machine list
+# Personal profile in home directory
+makiatto-cli --profile ~/.config/makiatto/zucchero.toml machine list
+
+# Shared profile in project repo
+makiatto-cli --profile ./deployment/zucchero.toml sync
 ```
 
-The profile stores:
-- Machine names and SSH targets
-- WireGuard public keys and addresses
-- Geographic coordinates (latitude/longitude)
-- IPv4/IPv6 addresses
-- Nameserver role assignments
+```admonish info
+Profiles contain only public configuration data (machine names, SSH targets, WireGuard public keys, IP addresses). Private keys and credentials are never stored in profiles - SSH keys are passed separately via the `--ssh-priv-key` flag (if needed). This makes profiles safe to commit to version control for team collaboration.
+```
+
+You can also set the `MAKIATTO_PROFILE` environment variable:
+
+```bash
+export MAKIATTO_PROFILE=./deployment/defy.toml
+makiatto-cli sync
+```
+
+The `--profile` flag takes precedence over the environment variable when both are set.

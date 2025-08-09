@@ -71,7 +71,13 @@ impl Profile {
     pub fn load(custom_path: Option<impl Into<PathBuf>>) -> Result<Self> {
         let config_path = match custom_path {
             Some(path) => path.into(),
-            None => Self::default_path()?,
+            None => {
+                if let Ok(env_path) = std::env::var("MAKIATTO_PROFILE") {
+                    PathBuf::from(env_path)
+                } else {
+                    Self::default_path()?
+                }
+            }
         };
 
         if !config_path.exists() {
@@ -110,7 +116,13 @@ impl Profile {
     pub fn save(&self, custom_path: Option<impl Into<PathBuf>>) -> Result<()> {
         let config_path = match custom_path {
             Some(path) => path.into(),
-            None => Self::default_path()?,
+            None => {
+                if let Ok(env_path) = std::env::var("MAKIATTO_PROFILE") {
+                    PathBuf::from(env_path)
+                } else {
+                    Self::default_path()?
+                }
+            }
         };
 
         if let Some(parent) = config_path.parent() {
