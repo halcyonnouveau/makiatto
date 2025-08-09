@@ -21,7 +21,7 @@ use tracing::{error, info};
 
 #[derive(FromArgs)]
 #[allow(clippy::struct_excessive_bools)]
-/// Makiatto network daemon
+/// makiatto network daemon
 struct Args {
     /// disable wireguard interface setup
     #[argh(switch)]

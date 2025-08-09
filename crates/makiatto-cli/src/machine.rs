@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use argh::FromArgs;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use dialoguer::Confirm;
 use miette::{Result, miette};
 use serde::Deserialize;
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -138,7 +139,7 @@ fn validate_node_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Initialize a new makiatto node by installing and configuring the daemon
+/// Initialise a new makiatto node by installing and configuring the daemon
 ///
 /// # Errors
 /// Returns an error if SSH connection fails, installation fails, or configuration is invalid
@@ -353,7 +354,9 @@ pub fn upgrade_machine(request: &UpgradeMachine, profile: &Profile) -> Result<()
             request.key_path.as_ref(),
         ) {
             Ok(()) => ui::info(&format!("✓ {} upgraded successfully", machine.name)),
-            Err(e) => ui::info(&format!("✗ {} upgrade failed: {}", machine.name, e)),
+            Err(e) => {
+                return Err(miette!(format!("✗ {} upgrade failed: {e}", machine.name)));
+            }
         }
     }
 
@@ -397,8 +400,6 @@ pub fn remove_machine(request: &RemoveMachine, profile: &mut Profile) -> Result<
         .clone();
 
     if !request.force {
-        use dialoguer::Confirm;
-
         ui::warn(&format!(
             "About to remove '{}' from the cluster. This action cannot be undone.",
             machine.name

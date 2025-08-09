@@ -130,10 +130,7 @@ pub async fn check_health(
         .filter_map(std::result::Result::ok)
         .collect();
 
-    let consensus_ok = check_consensus_agreement(&health_results);
-
-    // Display results
-    display_health_results(&health_results, consensus_ok);
+    display_health_results(&health_results);
 
     Ok(())
 }
@@ -491,7 +488,7 @@ async fn check_single_domain(
     }
 }
 
-fn check_consensus_agreement(results: &[NodeHealth]) -> bool {
+fn has_consensus_agreement(results: &[NodeHealth]) -> bool {
     let mut leaders = HashMap::new();
     let mut terms = HashMap::new();
     let mut healthy_count = 0;
@@ -513,10 +510,9 @@ fn check_consensus_agreement(results: &[NodeHealth]) -> bool {
 }
 
 #[allow(clippy::too_many_lines)]
-fn display_health_results(results: &[NodeHealth], consensus_ok: bool) {
+fn display_health_results(results: &[NodeHealth]) {
     ui::separator();
 
-    println!();
     ui::header("Makiatto Versions");
     for node in results {
         let version_info = node
@@ -526,6 +522,7 @@ fn display_health_results(results: &[NodeHealth], consensus_ok: bool) {
         ui::field(&format!("├─ {}", node.name), &version_info);
     }
 
+    println!();
     if let Some(first_healthy) = results.iter().find(|n| n.consensus.leader.is_some()) {
         let leader = first_healthy
             .consensus
@@ -535,7 +532,7 @@ fn display_health_results(results: &[NodeHealth], consensus_ok: bool) {
 
         let term = first_healthy.consensus.term.unwrap_or(0);
 
-        let consensus_symbol = if consensus_ok {
+        let consensus_symbol = if has_consensus_agreement(results) {
             style("✓").green()
         } else {
             style("✗").red()
