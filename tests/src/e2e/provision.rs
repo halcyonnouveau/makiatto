@@ -22,7 +22,7 @@ async fn test_provision_first() -> Result<()> {
         port: Some(ssh),
         skip_nameserver: false,
         force_nameserver: false,
-        override_existing: false,
+        recreate: false,
         binary_path: Some(context.root.join("target/tests/makiatto")),
         key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };
@@ -55,7 +55,7 @@ async fn test_provision_second() -> Result<()> {
         port: Some(ssh),
         skip_nameserver: false,
         force_nameserver: false,
-        override_existing: false,
+        recreate: false,
         binary_path: Some(context.root.join("target/tests/makiatto")),
         key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
     };

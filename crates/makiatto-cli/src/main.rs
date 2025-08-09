@@ -5,7 +5,7 @@ use makiatto_cli::{
     config::{Config, Profile},
     dns,
     health::{self, HealthCommand},
-    machine::{self, AddMachine, InitMachine, UpgradeMachine},
+    machine::{self, AddMachine, InitMachine, RemoveMachine, UpgradeMachine},
     sync::{self, SyncCommand},
     ui,
 };
@@ -39,9 +39,6 @@ enum Command {
     Dns(DnsCommand),
 }
 
-// TODO: commands to add
-// machine remove - remove a machine from the cluster
-
 /// manage makiatto machines
 #[derive(FromArgs)]
 #[argh(subcommand, name = "machine")]
@@ -57,6 +54,7 @@ enum MachineAction {
     Add(AddMachine),
     List(ListMachines),
     Upgrade(UpgradeMachine),
+    Remove(RemoveMachine),
 }
 
 /// list configured machines
@@ -132,6 +130,11 @@ async fn main() -> Result<()> {
             }
             MachineAction::Upgrade(upgrade) => {
                 machine::upgrade_machine(&upgrade, &profile)?;
+                Ok(())
+            }
+            MachineAction::Remove(remove) => {
+                machine::remove_machine(&remove, &mut profile)?;
+                profile.save(cli.profile_path)?;
                 Ok(())
             }
         },

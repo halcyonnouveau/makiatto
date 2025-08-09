@@ -24,6 +24,29 @@ makiatto-cli machine upgrade [machine names...]
 
 If no machine names are provided, all machines will be upgraded. You can optionally specify `--binary-path` to use a local binary instead of downloading from GitHub releases.
 
+Remove a machine from the cluster:
+
+```bash
+makiatto-cli machine remove <machine-name>
+```
+
+This command will:
+- Remove the machine from all peer databases in the cluster
+- Stop and disable the makiatto service on the target machine
+- Clean up all makiatto files and directories (`/var/makiatto`, `/etc/makiatto`)
+- Remove the makiatto binary and user
+- Update your profile configuration
+
+You'll be prompted for confirmation before removal. Use `--force` to skip the confirmation prompt:
+
+```bash
+makiatto-cli machine remove <machine-name> --force
+```
+
+```admonish warning
+Machine removal is permanent and cannot be undone. The machine will need to be re-initialised with `machine init` to rejoin the cluster.
+```
+
 ## Status
 
 Check cluster health:

@@ -44,6 +44,16 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
     Ok(())
 }
 
+/// Delete a peer from the database via SSH
+///
+/// # Errors
+/// Returns an error if the SSH command fails or if the database operation fails
+pub fn delete_peer(ssh: &SshSession, name: &str) -> Result<()> {
+    let sql = format!("DELETE FROM peers WHERE name = '{name}'");
+    execute_transactions(ssh, &[sql])?;
+    Ok(())
+}
+
 /// Query all peers from the database
 ///
 /// # Errors

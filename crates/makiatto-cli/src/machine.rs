@@ -50,9 +50,9 @@ pub struct InitMachine {
     #[argh(switch, long = "force-ns")]
     pub force_nameserver: bool,
 
-    /// override existing machine configuration if it exists
-    #[argh(switch, long = "override")]
-    pub override_existing: bool,
+    /// recreate machine if it already exists in configuration
+    #[argh(switch, long = "recreate")]
+    pub recreate: bool,
 
     /// path to makiatto binary (optional)
     #[argh(option, long = "binary-path")]
@@ -97,6 +97,23 @@ pub struct UpgradeMachine {
     pub key_path: Option<PathBuf>,
 }
 
+/// remove a makiatto node from the cluster
+#[derive(FromArgs)]
+#[argh(subcommand, name = "remove")]
+pub struct RemoveMachine {
+    /// machine name to remove
+    #[argh(positional)]
+    pub name: String,
+
+    /// skip confirmation prompt
+    #[argh(switch, long = "force")]
+    pub force: bool,
+
+    /// path to SSH private key (optional)
+    #[argh(option, long = "ssh-priv-key")]
+    pub key_path: Option<PathBuf>,
+}
+
 /// Validate node name contains only allowed characters
 fn validate_node_name(name: &str) -> Result<()> {
     if name.is_empty() {
@@ -129,15 +146,15 @@ pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshS
     validate_node_name(&request.name)?;
 
     if profile.find_machine(&request.name).is_some() {
-        if request.override_existing {
+        if request.recreate {
             ui::info(&format!(
-                "Overriding existing machine configuration for '{}'",
+                "Recreating machine configuration for '{}'",
                 request.name
             ));
             profile.remove_machine(&request.name);
         } else {
             return Err(miette!(
-                "Machine '{}' already exists in configuration. Use `--override` to replace it",
+                "Machine '{}' already exists in configuration. Use `--recreate` to replace it",
                 request.name
             ));
         }
@@ -367,6 +384,101 @@ fn upgrade_single_machine(
         Ok(status) if status.trim() == "active" => Ok(()),
         _ => Err(miette!("Service failed to restart properly")),
     }
+}
+
+/// Remove a makiatto node from the cluster
+///
+/// # Errors
+/// Returns an error if SSH connection fails, removal fails, or machine not found
+pub fn remove_machine(request: &RemoveMachine, profile: &mut Profile) -> Result<()> {
+    let machine = profile
+        .find_machine(&request.name)
+        .ok_or_else(|| miette!("Machine '{}' not found in configuration", request.name))?
+        .clone();
+
+    if !request.force {
+        use dialoguer::Confirm;
+
+        ui::warn(&format!(
+            "About to remove '{}' from the cluster. This action cannot be undone.",
+            machine.name
+        ));
+
+        let confirm = Confirm::new()
+            .with_prompt("Do you want to continue?")
+            .default(false)
+            .interact()
+            .map_err(|e| miette!("Failed to read confirmation: {e}"))?;
+
+        if !confirm {
+            ui::info("Removal cancelled");
+            return Ok(());
+        }
+    }
+
+    ui::header(&format!("Removing machine '{}'", machine.name));
+
+    let ssh = SshSession::new(&machine.ssh_target, machine.port, request.key_path.as_ref())?;
+
+    ui::action("Removing machine from peer database");
+    corrosion::delete_peer(&ssh, &machine.name)?;
+
+    if profile.machines.len() > 1 {
+        ui::action("Removing from other machines' peer databases");
+        for other_machine in &profile.machines {
+            if other_machine.name == machine.name {
+                continue;
+            }
+
+            match SshSession::new(
+                &other_machine.ssh_target,
+                other_machine.port,
+                request.key_path.as_ref(),
+            ) {
+                Ok(other_ssh) => {
+                    if let Err(e) = corrosion::delete_peer(&other_ssh, &machine.name) {
+                        ui::warn(&format!(
+                            "Failed to remove from {}: {}",
+                            other_machine.name, e
+                        ));
+                    }
+                }
+                Err(e) => {
+                    ui::warn(&format!(
+                        "Could not connect to {}: {}",
+                        other_machine.name, e
+                    ));
+                }
+            }
+        }
+    }
+
+    ui::action("Stopping makiatto service");
+    let _ = ssh.exec("sudo systemctl stop makiatto");
+
+    ui::action("Disabling makiatto service");
+    let _ = ssh.exec("sudo systemctl disable makiatto");
+
+    ui::action("Removing service file");
+    let _ = ssh.exec("sudo rm -f /etc/systemd/system/makiatto.service");
+    let _ = ssh.exec("sudo systemctl daemon-reload");
+
+    ui::action("Cleaning up /var/makiatto");
+    let _ = ssh.exec("sudo rm -rf /var/makiatto");
+
+    ui::action("Removing makiatto binary");
+    let _ = ssh.exec("sudo rm -f /usr/local/bin/makiatto");
+
+    ui::action("Removing configuration files");
+    let _ = ssh.exec("sudo rm -rf /etc/makiatto");
+
+    ui::action("Removing makiatto user");
+    let _ = ssh.exec("sudo userdel -r makiatto 2>/dev/null");
+
+    profile.remove_machine(&request.name);
+    ui::info(&format!("Machine '{}' removed successfully", request.name));
+
+    Ok(())
 }
 
 fn generate_wireguard_keypair() -> (String, String) {
