@@ -51,18 +51,31 @@ impl ContainerContext {
         let root = path::Path::new(&cwd).parent().unwrap();
         let target = root.join(format!("target/tests/context-{id}"));
 
-        Self::ensure_wawa_network()?;
+        let runtime = Self::detect_container_runtime()?;
+        Self::ensure_wawa_network(runtime)?;
 
         Ok(Self {
-            gateway_ip: Arc::from(Self::get_gateway_ip()?),
+            gateway_ip: Arc::from(Self::get_gateway_ip(runtime)?),
             root: root.to_owned(),
             target,
             containers: Vec::new(),
         })
     }
 
-    fn ensure_wawa_network() -> Result<()> {
-        let check_output = Command::new("docker")
+    fn detect_container_runtime() -> Result<&'static str> {
+        if Command::new("docker").arg("--version").output().is_ok() {
+            return Ok("docker");
+        }
+
+        if Command::new("podman").arg("--version").output().is_ok() {
+            return Ok("podman");
+        }
+
+        Err(miette!("Neither podman nor docker found in PATH"))
+    }
+
+    fn ensure_wawa_network(runtime: &str) -> Result<()> {
+        let check_output = Command::new(runtime)
             .args([
                 "network",
                 "ls",
@@ -79,7 +92,7 @@ impl ContainerContext {
             return Ok(());
         }
 
-        let create_output = Command::new("docker")
+        let create_output = Command::new(runtime)
             .args(["network", "create", "wawa"])
             .output()
             .map_err(|e| miette!("Failed to create wawa network: {e}"))?;
@@ -95,11 +108,13 @@ impl ContainerContext {
         Ok(())
     }
 
-    fn get_gateway_ip() -> Result<String> {
+    fn get_gateway_ip(runtime: &str) -> Result<String> {
         let output = Command::new("sh")
             .args([
                 "-c",
-                "docker network inspect wawa | grep -i gateway | head -1 | cut -f 4 -d '\"'",
+                &format!(
+                    "{runtime} network inspect wawa | grep -i gateway | head -1 | cut -f 4 -d '\"'"
+                ),
             ])
             .output()
             .map_err(|e| miette::miette!("Failed to get wawa network gateway: {e}"))?;
@@ -374,7 +389,6 @@ impl PortMap {
         ))
     }
 
-    /// Release all allocated ports back to the pool
     fn release_ports(&self) {
         if let Ok(mut registry) = get_port_registry().lock() {
             registry.remove(&self.ssh);
@@ -395,10 +409,8 @@ impl Drop for PortMap {
 }
 
 pub mod util {
-
     use super::*;
 
-    /// Helper function to execute a command in a docker container
     pub async fn execute_command(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         cmd: &str,
@@ -424,7 +436,6 @@ pub mod util {
         Ok((stdout_str, stderr_str))
     }
 
-    /// Helper function to execute a list of commands
     pub async fn execute_commands(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         commands: &[&str],
@@ -436,7 +447,6 @@ pub mod util {
         Ok(())
     }
 
-    /// Helper function to generate and insert a certificate for a domain
     pub async fn generate_tls_certificate(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         domain: &str,
@@ -554,7 +564,6 @@ pub mod util {
         Ok(())
     }
 
-    /// Execute Corrosion transactions (SQL insert/update/delete)
     pub async fn execute_transactions(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         sqls: &[String],
@@ -591,7 +600,6 @@ pub mod util {
         Ok(())
     }
 
-    /// Execute a `SQLite` query against the cluster database
     pub async fn query_database(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         sql: &str,
@@ -619,7 +627,6 @@ pub mod util {
             .as_secs() as i64
     }
 
-    /// Insert a DNS record via Corrosion API
     pub async fn insert_dns_record(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         domain: &str,
@@ -635,7 +642,6 @@ pub mod util {
         execute_transactions(daemon, slice::from_ref(&sql)).await
     }
 
-    /// Insert a certificate via Corrosion API
     pub async fn insert_certificate_record(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         domain: &str,
@@ -657,7 +663,6 @@ pub mod util {
         execute_transactions(daemon, slice::from_ref(&sql)).await
     }
 
-    /// Insert certificate renewal status via Corrosion API
     pub async fn insert_renewal_status(
         daemon: &Arc<ContainerAsync<GenericImage>>,
         domain: &str,
