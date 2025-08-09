@@ -160,7 +160,6 @@ impl CertificateStore {
             return Err(miette::miette!("No certificates available"));
         }
 
-        // Build certified keys for all domains
         let mut certified_keys = HashMap::new();
         let mut default_cert = None;
 
@@ -181,16 +180,13 @@ impl CertificateStore {
             }
 
             certified_keys.insert(domain.clone(), certified_key);
-            info!("Registered certificate for domain: {}", domain);
+            info!("Registered certificate for domain: {domain}");
         }
 
         let cert_resolver = SniCertResolver {
             certs: certified_keys,
             default_cert,
         };
-
-        // Install default crypto provider if none is set
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let mut config = ServerConfig::builder()
             .with_no_client_auth()

@@ -28,7 +28,7 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio_rustls::TlsAcceptor;
 use tower::{Service, ServiceExt};
-use tower_http::services::ServeDir;
+use tower_http::{compression::CompressionLayer, services::ServeDir};
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
@@ -237,7 +237,8 @@ pub async fn start(
 ) -> Result<()> {
     let cname_cache = Arc::new(RwLock::new(HashMap::new()));
 
-    // Load initial domain aliases
+    // load initial domain aliases
+    // scope ensures write lock is dropped before cloning cname_cache below
     {
         let pool = corrosion::get_pool().await?;
         let rows = sqlx::query!("SELECT alias, target FROM domain_aliases")
@@ -249,7 +250,6 @@ pub async fn start(
         for row in rows {
             cache.insert(row.alias, row.target);
         }
-        info!("Loaded {} domain aliases into cache", cache.len());
     }
 
     let state = WebState {
@@ -265,6 +265,7 @@ pub async fn start(
         .fallback(handle_request)
         .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(caching_middleware))
+        .layer(CompressionLayer::new())
         .with_state(state.clone());
 
     let http_addr: SocketAddr = config
@@ -312,6 +313,7 @@ pub async fn start(
                 get(handle_acme_challenge),
             )
             .fallback(https_redirect)
+            .layer(CompressionLayer::new())
             .with_state(state.clone())
     } else {
         app.clone()
@@ -376,14 +378,6 @@ pub async fn start(
     Ok(())
 }
 
-/// Generate `ETag` using CRC32 hash of content
-fn generate_etag(content: &[u8]) -> String {
-    let checksum = crc32fast::hash(content);
-    format!("\"{checksum}\"")
-}
-
-/// Get cache control header based on file extension
-/// With `ETags` providing content validation, we can use longer cache times safely
 fn get_cache_control(path: &str) -> HeaderValue {
     let extension = Path::new(path)
         .extension()
@@ -415,14 +409,13 @@ fn get_cache_control(path: &str) -> HeaderValue {
     }
 }
 
-/// Middleware to add caching headers and `ETag` validation
 async fn caching_middleware(request: Request, next: Next) -> impl IntoResponse {
     let path = request.uri().path().to_string();
     let if_none_match = request.headers().get(IF_NONE_MATCH).cloned();
 
     let response = next.run(request).await;
 
-    // Only apply caching to successful responses
+    // only apply caching to successful responses
     if response.status() != StatusCode::OK {
         return response;
     }
@@ -437,7 +430,7 @@ async fn caching_middleware(request: Request, next: Next) -> impl IntoResponse {
             .into_response();
     };
 
-    let etag = generate_etag(&body_bytes);
+    let etag = format!("\"{}\"", crc32fast::hash(&body_bytes));
 
     if let Some(client_etag) = if_none_match
         && client_etag.to_str().unwrap_or("") == etag
@@ -458,7 +451,6 @@ async fn caching_middleware(request: Request, next: Next) -> impl IntoResponse {
     (parts, Body::from(body_bytes)).into_response()
 }
 
-/// Middleware to collect HTTP metrics with domain separation
 async fn metrics_middleware(request: Request, next: Next) -> Response {
     use std::time::Instant;
 
