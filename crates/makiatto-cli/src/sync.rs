@@ -56,13 +56,15 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
         .unwrap_or(&profile.machines[0]);
 
     ui::header(&format!("Syncing to machine '{}'", sync_machine.name));
-
     ui::status(&format!("Connecting to {}", sync_machine.ssh_target));
+
     let ssh = SshSession::new(
         &sync_machine.ssh_target,
         sync_machine.port,
         command.key_path.as_ref(),
     )?;
+
+    check_remote_version(&ssh);
 
     for domain in config.domains.iter() {
         ui::header(&format!("Processing domain: {}", domain.name));
@@ -72,6 +74,24 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
 
     ui::status("Sync completed successfully");
     Ok(())
+}
+
+fn check_remote_version(ssh: &SshSession) {
+    let cli_version = env!("CARGO_PKG_VERSION");
+
+    match ssh.exec("makiatto --version 2>/dev/null") {
+        Ok(output) => {
+            let remote_version = output.trim();
+            if !remote_version.is_empty() && remote_version != cli_version {
+                ui::warn(&format!(
+                    "makiatto-cli is v{cli_version} but makiatto daemon is v{remote_version}. Consider running 'makiatto-cli machine upgrade' to update the daemon binary",
+                ));
+            }
+        }
+        Err(_) => {
+            ui::warn("Could not determine remote makiatto version");
+        }
+    }
 }
 
 fn sync_domain_files(
