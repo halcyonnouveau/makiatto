@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/halcyonnouveau/makiatto/compare/v0.2.3...v0.3.0) - 2025-08-09
+
+### Added
+
+- add machine remove command
+- add version command
+- cluster health command
+- [**breaking**] move ssh port to separate option
+
+### Other
+
+- remove warning
+- add book contents
+
 ## [0.2.3](https://github.com/halcyonnouveau/makiatto/compare/v0.2.2...v0.2.3) - 2025-08-03
 
 ### Added
