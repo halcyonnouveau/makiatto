@@ -9,9 +9,6 @@
 
 Makiatto is a lightweight CDN that lets you deploy and distribute content across multiple servers with minimal infrastructure overhead. It creates a secure WireGuard mesh network between your machines and provides automatic content synchronisation, GeoDNS routing, and coordinate-based geographic distribution through simple CLI commands.
 
-> [!WARNING]
-> Makiatto is currently under active development and not all features have been implemented. Do **NOT** use this yet.
-
 ## Features
 
 - **One-command deployment**: Initialise nodes with a single CLI command
@@ -71,7 +68,7 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
    makiatto-cli dns nameserver-setup
    ```
 
-Your content is now distributed globally with automatic geolocation DNS routing! For more detailed instructions, see the [documentation](https://halcyonnouveau.github.io/makiatto/).
+Your content should now be distributed globally with automatic geolocation DNS routing! For more detailed instructions, see the [documentation](https://halcyonnouveau.github.io/makiatto/).
 
 ## License
 
