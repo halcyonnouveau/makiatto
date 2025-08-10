@@ -7,6 +7,8 @@ fn main() -> Result<()> {
     let cwd = env::var("CARGO_MANIFEST_DIR").into_diagnostic()?;
     let workspace_root = std::path::Path::new(&cwd).parent().unwrap();
 
+    let runtime = detect_container_runtime()?;
+
     #[cfg(feature = "docker-build")]
     {
         println!("cargo:rerun-if-changed=dockerfiles");
@@ -21,7 +23,7 @@ fn main() -> Result<()> {
         for (dockerfile, tag) in dockerfiles {
             eprintln!("Building {tag}...");
 
-            let mut docker = Command::new("docker");
+            let mut docker = Command::new(runtime);
 
             let output = docker
                 .arg("build")
@@ -47,7 +49,7 @@ fn main() -> Result<()> {
     }
 
     // always export makiatto binary from builder (silently fail if not available)
-    let _ = Command::new("docker")
+    let _ = Command::new(runtime)
         .args([
             "run",
             "--rm",
@@ -78,5 +80,18 @@ fn main() -> Result<()> {
             ])
             .output();
     }
+
     Ok(())
+}
+
+fn detect_container_runtime() -> Result<&'static str> {
+    if Command::new("docker").arg("--version").output().is_ok() {
+        return Ok("docker");
+    }
+
+    if Command::new("podman").arg("--version").output().is_ok() {
+        return Ok("podman");
+    }
+
+    bail!("neither podman nor docker found in PATH");
 }

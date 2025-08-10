@@ -1,0 +1,82 @@
+name: 🐞 Bug Report
+description: Report a bug
+type: Bug
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## First of all
+        1. Please search for [existing issues](https://github.com/halcyonnouveau/makiatto/issues?q=is%3Aissue) about this problem first.
+        2. Make sure `makiatto` and `makiatto-cli` are up to date.
+        3. Make sure it's an issue with Makiatto and not something else you are using.
+        4. Remember to follow our community guidelines and be friendly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear description of what the bug is.
+      placeholder: Bug description
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A link to a reproduction repo or steps to reproduce the behaviour.
+      placeholder: |
+        Please provide a minimal reproduction or steps to reproduce, see this guide https://stackoverflow.com/help/minimal-reproducible-example
+        Why reproduction is required? see this article https://antfu.me/posts/why-reproductions-are-required
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: A clear description of what you expected to happen.
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Please provide the following information:
+        - OS and version
+        - Makiatto daemon version (`makiatto --version`)
+        - Makiatto CLI version (`makiatto-cli --version`)
+      placeholder: |
+        OS: Ubuntu 22.04
+        Daemon: makiatto 0.3.1
+        CLI: makiatto-cli 0.3.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Please include relevant logs (`journalctl -u makiatto` or equivalent) and any error messages.
+        Optional if provided reproduction. Please copy paste the log text rather than inserting an image.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Select the severity of this issue
+      options:
+        - Annoyance
+        - Blocking an upgrade
+        - Blocking all usage of Makiatto
+    validations:
+      required: true
