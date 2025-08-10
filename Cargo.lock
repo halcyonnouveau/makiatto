@@ -395,7 +395,7 @@ dependencies = [
 [[package]]
 name = "backoff"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "rand 0.8.5",
 ]
@@ -801,7 +801,7 @@ checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 [[package]]
 name = "consul-client"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "camino",
  "hyper 0.14.32",
@@ -845,7 +845,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "corro-agent"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -907,7 +907,7 @@ dependencies = [
 [[package]]
 name = "corro-api-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "async-trait",
  "camino",
@@ -927,7 +927,7 @@ dependencies = [
 [[package]]
 name = "corro-base-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "async-trait",
  "camino",
@@ -948,7 +948,7 @@ dependencies = [
 [[package]]
 name = "corro-pg"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "bytes",
  "chrono",
@@ -994,7 +994,7 @@ dependencies = [
 [[package]]
 name = "corro-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -1047,7 +1047,7 @@ dependencies = [
 [[package]]
 name = "corro-utils"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "eyre",
  "tokio",
@@ -3625,9 +3625,9 @@ checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
 name = "openssl-src"
-version = "300.5.1+3.5.1"
+version = "300.5.2+3.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "735230c832b28c000e3bc117119e6466a663ec73506bc0a9907ea4187508e42a"
+checksum = "d270b79e2926f5150189d475bc7e9d2c69f9c4697b185fa917d5a32b792d21b4"
 dependencies = [
  "cc",
 ]
@@ -4878,9 +4878,9 @@ dependencies = [
 
 [[package]]
 name = "rustversion"
-version = "1.0.21"
+version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
+checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "ryu"
@@ -5252,7 +5252,7 @@ dependencies = [
 [[package]]
 name = "spawn"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "futures",
  "pin-project-lite",
@@ -5308,7 +5308,7 @@ dependencies = [
 [[package]]
 name = "sqlite-functions"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -5317,7 +5317,7 @@ dependencies = [
 [[package]]
 name = "sqlite-pool"
 version = "0.1.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "arc-swap",
  "deadpool",
@@ -5359,7 +5359,7 @@ dependencies = [
 [[package]]
 name = "sqlx"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#24317d5eab40fbc33caf1142946e2f39caad73ea"
+source = "git+https://github.com/launchbadge/sqlx#c825bd36b50b157e68fb1dac542eb4d9fe863850"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -5371,7 +5371,7 @@ dependencies = [
 [[package]]
 name = "sqlx-core"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#24317d5eab40fbc33caf1142946e2f39caad73ea"
+source = "git+https://github.com/launchbadge/sqlx#c825bd36b50b157e68fb1dac542eb4d9fe863850"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -5403,7 +5403,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#24317d5eab40fbc33caf1142946e2f39caad73ea"
+source = "git+https://github.com/launchbadge/sqlx#c825bd36b50b157e68fb1dac542eb4d9fe863850"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5415,7 +5415,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros-core"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#24317d5eab40fbc33caf1142946e2f39caad73ea"
+source = "git+https://github.com/launchbadge/sqlx#c825bd36b50b157e68fb1dac542eb4d9fe863850"
 dependencies = [
  "dotenvy",
  "either",
@@ -5438,7 +5438,7 @@ dependencies = [
 [[package]]
 name = "sqlx-mysql"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#24317d5eab40fbc33caf1142946e2f39caad73ea"
+source = "git+https://github.com/launchbadge/sqlx#c825bd36b50b157e68fb1dac542eb4d9fe863850"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -5478,7 +5478,7 @@ dependencies = [
 [[package]]
 name = "sqlx-postgres"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#24317d5eab40fbc33caf1142946e2f39caad73ea"
+source = "git+https://github.com/launchbadge/sqlx#c825bd36b50b157e68fb1dac542eb4d9fe863850"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -5513,7 +5513,7 @@ dependencies = [
 [[package]]
 name = "sqlx-sqlite"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#24317d5eab40fbc33caf1142946e2f39caad73ea"
+source = "git+https://github.com/launchbadge/sqlx#c825bd36b50b157e68fb1dac542eb4d9fe863850"
 dependencies = [
  "atoi",
  "flume",
@@ -6276,7 +6276,7 @@ dependencies = [
 [[package]]
 name = "tripwire"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/beanpuppy/corrosion#a730ad5e3d213ca7deb3d0cc34fb937b30bd0c57"
+source = "git+https://github.com/beanpuppy/corrosion#1f93ba3c4705048b515afba682c5c7fbc28426b3"
 dependencies = [
  "futures",
  "futures-util",

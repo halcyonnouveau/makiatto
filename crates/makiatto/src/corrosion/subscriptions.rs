@@ -290,6 +290,7 @@ impl SubscriptionWatcher {
     }
 
     /// Subscribe to a query and process events
+    #[allow(clippy::too_many_lines)]
     async fn subscribe<F>(&self, query: &str, state_key: &str, handler: F) -> Result<()>
     where
         F: Fn(&QueryEvent) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>,
@@ -367,6 +368,9 @@ impl SubscriptionWatcher {
             let codec = LinesCodec::new();
             let mut framed_stream = FramedRead::new(reader, codec);
 
+            // track if we've observed End-of-Query - true if resuming from existing state
+            let mut observed_eoq = state.last_change_id > 0;
+
             while let Some(line_result) = framed_stream.next().await {
                 let line = line_result
                     .map_err(|e| miette::miette!("Failed to read subscription line: {e}"))?;
@@ -378,12 +382,49 @@ impl SubscriptionWatcher {
 
                 match serde_json::from_str::<QueryEvent>(line) {
                     Ok(event) => {
-                        if let QueryEvent::Change(_, _, _, change_id) = &event {
-                            state.last_change_id = change_id.0;
-                        }
+                        match &event {
+                            QueryEvent::EndOfQuery { change_id, .. } => {
+                                observed_eoq = true;
+                                if let Some(id) = change_id {
+                                    state.last_change_id = id.0;
+                                }
+                                debug!(
+                                    "End-of-query reached for {state_key}, now processing live updates"
+                                );
+                            }
+                            QueryEvent::Change(_, _, _, change_id) => {
+                                // only update state and handle changes after EOQ
+                                if observed_eoq {
+                                    // check for missed changes
+                                    if state.last_change_id > 0
+                                        && change_id.0 != state.last_change_id + 1
+                                    {
+                                        let expected = state.last_change_id + 1;
+                                        error!(
+                                            "Missed change detected for {state_key} - expected: {expected}, got: {}, forcing reconnection",
+                                            change_id.0
+                                        );
+                                        return Err(miette::miette!(
+                                            "Missed change (expected: {}, got: {}), inconsistent state",
+                                            expected,
+                                            change_id.0
+                                        ));
+                                    }
 
-                        if let Err(e) = handler(&event).await {
-                            error!("Handler error for subscription event: {e}");
+                                    state.last_change_id = change_id.0;
+                                    if let Err(e) = handler(&event).await {
+                                        error!("Handler error for subscription event: {e}");
+                                    }
+                                } else {
+                                    debug!("Skipping initial query result - waiting for EOQ");
+                                }
+                            }
+                            _ => {
+                                // Handle other event types (if any)
+                                if let Err(e) = handler(&event).await {
+                                    error!("Handler error for subscription event: {e}");
+                                }
+                            }
                         }
                     }
                     Err(e) => {
