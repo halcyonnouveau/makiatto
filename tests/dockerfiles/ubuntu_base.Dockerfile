@@ -4,7 +4,6 @@ RUN apt update && apt install -y \
     openssh-server sudo iproute2 wireguard ca-certificates libcap2-bin curl sqlite3 resolvconf rsync \
     && rm -rf /var/lib/apt/lists/*
 
-RUN touch /run/.containerenv
 RUN echo "root:wa2000" | chpasswd
 RUN echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
 

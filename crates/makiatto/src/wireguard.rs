@@ -105,19 +105,6 @@ where
         config: &WireguardConfig,
         peers: Option<Arc<[corrosion::schema::Peer]>>,
     ) -> Result<Self> {
-        if is_container() {
-            info!(
-                "Container environment detected - skipping WireGuard interface '{}' setup",
-                config.interface
-            );
-            let wgapi = WGApi::<T>::new(config.interface.to_string())
-                .map_err(|e| miette!("Failed to create WireGuard API: {e}"))?;
-            return Ok(Self {
-                api: wgapi,
-                config: config.to_owned(),
-            });
-        }
-
         info!("Setting up WireGuard interface '{}'", config.interface);
 
         let wgapi = WGApi::<T>::new(config.interface.to_string())
@@ -201,11 +188,6 @@ where
     /// # Errors
     /// Returns an error if the peer cannot be added
     pub fn add_peer(&self, endpoint: &str, address: &str, public_key: &str) -> Result<()> {
-        if is_container() {
-            info!("Container environment detected - skipping peer addition");
-            return Ok(());
-        }
-
         if self.config.public_key.as_str() == public_key {
             return Ok(());
         }
@@ -263,11 +245,6 @@ where
     /// # Errors
     /// Returns an error if the peer cannot be removed
     pub fn remove_peer(&self, address: &str, public_key: &str) -> Result<()> {
-        if is_container() {
-            info!("Container environment detected - skipping peer removal");
-            return Ok(());
-        }
-
         if self.config.public_key.as_str() == public_key {
             return Ok(());
         }
@@ -310,11 +287,6 @@ where
     /// # Errors
     /// Returns an error if the interface cannot be removed
     pub fn cleanup_interface(&self) -> Result<()> {
-        if is_container() {
-            info!("Container environment detected - skipping WireGuard interface cleanup",);
-            return Ok(());
-        }
-
         info!("Cleaning up WireGuard interface");
 
         if Self::check_interface_exists(&self.api) {
@@ -451,13 +423,4 @@ pub async fn cleanup_wireguard(handle: tokio::task::JoinHandle<Result<()>>) -> R
     handle
         .await
         .map_err(|e| miette!("WireGuard task panicked: {e}"))?
-}
-
-fn is_container() -> bool {
-    if cfg!(debug_assertions) {
-        std::path::Path::new("/.dockerenv").exists()
-            || std::path::Path::new("/run/.containerenv").exists()
-    } else {
-        false
-    }
 }

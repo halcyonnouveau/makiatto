@@ -1,0 +1,46 @@
+[node]
+name = "bench-daemon"
+data_dir = "/var/makiatto"
+is_nameserver = false
+
+[web]
+http_addr = "0.0.0.0:80"
+https_addr = "0.0.0.0:443"
+static_dir = "/var/makiatto/sites"
+
+[dns]
+addr = "0.0.0.0:53"
+geolite_path = "/var/makiatto/geolite/GeoLite2-City.mmdb"
+
+[o11y]
+tracing_enabled = false
+metrics_enabled = false
+logging_enabled = false
+sampling_ratio = 0.0
+
+[wireguard]
+interface = "wawa0"
+address = "127.0.0.1"
+private_key = "wawa"
+public_key = "wawa"
+
+[corrosion.admin]
+path = "/var/makiatto/admin.sock"
+
+[corrosion.db]
+path = "/var/makiatto/cluster.db"
+
+[corrosion.gossip]
+addr = "0.0.0.0:8787"
+external_addr = "127.0.0.1:8787"
+bootstrap = []
+plaintext = true
+
+[corrosion.api]
+addr = "127.0.0.1:8181"
+
+[consensus]
+enabled = false
+
+[certificate_renewal]
+enabled = false

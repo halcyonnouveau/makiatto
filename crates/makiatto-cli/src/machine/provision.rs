@@ -466,7 +466,7 @@ fn start_makiatto_background(ssh: &SshSession) -> Result<()> {
     ui::status("Starting makiatto in background...");
 
     ui::action("Launching background process");
-    ssh.exec("sudo -u makiatto nohup /usr/local/bin/makiatto > /var/makiatto/makiatto.log 2>&1 &")?;
+    ssh.exec("sudo -u makiatto nohup /usr/local/bin/makiatto --no-wireguard > /var/makiatto/makiatto.log 2>&1 &")?;
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let result = ssh.exec("pgrep -f '/usr/local/bin/makiatto'");

@@ -304,7 +304,7 @@ pub fn load() -> Result<Config> {
         Utf8PathBuf::from("/etc/makiatto/config.toml"),
         Utf8PathBuf::from("/etc/makiatto.toml"),
         #[cfg(debug_assertions)]
-        Utf8PathBuf::from("./tests/fixtures/makiatto-local.toml"),
+        Utf8PathBuf::from("./tests/fixtures/makiatto.local.toml"),
     ];
 
     for path in &config_paths {

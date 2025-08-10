@@ -28,7 +28,13 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio_rustls::TlsAcceptor;
 use tower::{Service, ServiceExt};
-use tower_http::{compression::CompressionLayer, services::ServeDir};
+use tower_http::{
+    compression::{
+        CompressionLayer, Predicate,
+        predicate::{NotForContentType, SizeAbove},
+    },
+    services::ServeDir,
+};
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
@@ -61,9 +67,15 @@ async fn handle_request(
     span.record("method", &method);
     span.record("uri", &uri);
 
+    let (hostname, _port) = host
+        .split_once(':')
+        .map_or((host.as_str(), 80u16), |(hostname, port_str)| {
+            (hostname.as_str(), port_str.parse::<u16>().unwrap())
+        });
+
     // resolve domain alias if exists
     let cache = state.cname_map.read().await;
-    let resolved_domain = resolve_cname(&cache, &host);
+    let resolved_domain = resolve_cname(&cache, hostname);
 
     let domain_path = state.static_dir.join(&resolved_domain);
 
@@ -72,7 +84,7 @@ async fn handle_request(
 
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::from(format!("'{host:?}' not found")))
+            .body(Body::from(format!("'{hostname:?}' not found")))
             .unwrap();
     }
 
@@ -257,6 +269,16 @@ pub async fn start(
         cname_map: cname_cache.clone(),
     };
 
+    let compression_predicate = SizeAbove::new(1024)
+        .and(NotForContentType::GRPC)
+        .and(NotForContentType::IMAGES)
+        .and(NotForContentType::SSE)
+        .and(NotForContentType::const_new("application/pdf"))
+        .and(NotForContentType::const_new("application/zip"))
+        .and(NotForContentType::const_new("application/octet-stream"))
+        .and(NotForContentType::const_new("audio/"))
+        .and(NotForContentType::const_new("video/"));
+
     let app = Router::new()
         .route(
             "/.well-known/acme-challenge/{token}",
@@ -265,7 +287,7 @@ pub async fn start(
         .fallback(handle_request)
         .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(caching_middleware))
-        .layer(CompressionLayer::new())
+        .layer(CompressionLayer::new().compress_when(compression_predicate))
         .with_state(state.clone());
 
     let http_addr: SocketAddr = config
@@ -313,7 +335,6 @@ pub async fn start(
                 get(handle_acme_challenge),
             )
             .fallback(https_redirect)
-            .layer(CompressionLayer::new())
             .with_state(state.clone())
     } else {
         app.clone()
