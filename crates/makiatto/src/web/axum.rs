@@ -25,7 +25,6 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use miette::Result;
 use opentelemetry::{KeyValue, global};
 use tokio::net::TcpListener;
-use tokio::sync::RwLock;
 use tokio_rustls::TlsAcceptor;
 use tower::{Service, ServiceExt};
 use tower_http::{
@@ -46,7 +45,7 @@ use crate::{
 #[derive(Clone)]
 struct WebState {
     static_dir: Arc<PathBuf>,
-    cname_map: Arc<RwLock<HashMap<String, String>>>,
+    cname_map: Arc<HashMap<String, String>>,
 }
 
 #[instrument(
@@ -74,8 +73,7 @@ async fn handle_request(
         });
 
     // resolve domain alias if exists
-    let cache = state.cname_map.read().await;
-    let resolved_domain = resolve_cname(&cache, hostname);
+    let resolved_domain = resolve_cname(&state.cname_map, hostname);
 
     let domain_path = state.static_dir.join(&resolved_domain);
 
@@ -247,26 +245,22 @@ pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
 ) -> Result<()> {
-    let cname_cache = Arc::new(RwLock::new(HashMap::new()));
+    let mut cname_cache = HashMap::new();
 
     // load initial domain aliases
-    // scope ensures write lock is dropped before cloning cname_cache below
-    {
-        let pool = corrosion::get_pool().await?;
-        let rows = sqlx::query!("SELECT alias, target FROM domain_aliases")
-            .fetch_all(pool)
-            .await
-            .map_err(|e| miette::miette!("Failed to query domain aliases: {e}"))?;
+    let pool = corrosion::get_pool().await?;
+    let rows = sqlx::query!("SELECT alias, target FROM domain_aliases")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query domain aliases: {e}"))?;
 
-        let mut cache = cname_cache.write().await;
-        for row in rows {
-            cache.insert(row.alias, row.target);
-        }
+    for row in rows {
+        cname_cache.insert(row.alias, row.target);
     }
 
     let state = WebState {
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
-        cname_map: cname_cache.clone(),
+        cname_map: Arc::new(cname_cache),
     };
 
     let compression_predicate = SizeAbove::new(1024)
