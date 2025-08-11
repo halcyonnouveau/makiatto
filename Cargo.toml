@@ -100,7 +100,7 @@ reqwest = { version = "0.12", features = [
 ], default-features = false }
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 url = "2.5"
-uuid = { version = "1.17", features = ["v7"] }
+uuid = { version = "1.18", features = ["v7"] }
 
 # Testing
 ctor = "0.4"
