@@ -14,8 +14,6 @@ dd if=/dev/zero of=/tmp/bench-files/1mb.bin bs=1024 count=1024 2>/dev/null
 dd if=/dev/zero of=/tmp/bench-files/10mb.bin bs=1024 count=10240 2>/dev/null
 echo "<html><body><h1>Hello World</h1></body></html>" > /tmp/bench-files/index.html
 
-mkdir -p /tmp/makiatto-bench
-
 echo "Starting Docker containers..."
 
 docker run -d --replace --name makiatto-bench \
