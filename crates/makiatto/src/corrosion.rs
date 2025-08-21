@@ -212,8 +212,8 @@ pub async fn run(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()
 
     let result = corro_agent::agent::start_with_config(cfg, tripwire.clone()).await;
 
-    let (_agent, _bookie, _transport) = match result {
-        Ok((agent, bookie, transport)) => {
+    let (_agent, _bookie, _transport, _handles) = match result {
+        Ok((agent, bookie, transport, handles)) => {
             info!("Corrosion agent started successfully");
 
             if let Err(e) = init_pool(&config.corrosion.db.path).await {
@@ -222,7 +222,7 @@ pub async fn run(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()
                 info!("Connection pool initialised after Corrosion startup");
             }
 
-            (agent, bookie, transport)
+            (agent, bookie, transport, handles)
         }
         Err(e) => {
             error!("Failed to start Corrosion agent: {}", e);
