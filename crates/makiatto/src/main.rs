@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use argh::FromArgs;
+use klukai_types::tripwire::Tripwire;
 use makiatto::{
     cache::CacheStore,
     config,
@@ -99,7 +100,7 @@ async fn main() -> Result<()> {
 
     info!("Starting makiatto...");
 
-    let (tripwire, tripwire_worker) = tripwire::Tripwire::new_signals();
+    let (tripwire, tripwire_worker) = Tripwire::new_signals();
     info!("Loaded config for node '{}'", config.node.name);
     info!(
         "Services enabled: wireguard={}, dns={}, web={}, corrosion={}, fs={}",

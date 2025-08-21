@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use klukai_types::tripwire::Tripwire;
 use miette::Result;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, interval};
@@ -42,7 +43,7 @@ impl DirectorElection {
     }
 
     /// Start the election loop
-    pub async fn run(&self, mut tripwire: tripwire::Tripwire) {
+    pub async fn run(&self, mut tripwire: Tripwire) {
         let heartbeat_interval = self.config.consensus.heartbeat_interval;
 
         let mut interval = interval(Duration::from_secs(heartbeat_interval));

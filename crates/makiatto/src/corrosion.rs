@@ -1,6 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use camino::Utf8Path;
+use klukai_types::tripwire;
 use miette::Result;
 use schema::{DnsRecord, Peer};
 use sqlx::SqlitePool;
@@ -210,7 +211,7 @@ pub async fn run(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()
         cfg.db.schema_paths = schema::setup_migrations(&config.node.data_dir)?;
     }
 
-    let result = corro_agent::agent::start_with_config(cfg, tripwire.clone()).await;
+    let result = klukai_agent::agent::start_with_config(cfg, tripwire.clone()).await;
 
     let (_agent, _bookie, _transport, _handles) = match result {
         Ok((agent, bookie, transport, handles)) => {

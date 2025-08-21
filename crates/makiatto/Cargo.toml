@@ -25,8 +25,8 @@ blake3 = { workspace = true }
 crc32fast = { workspace = true }
 defguard_wireguard_rs = { workspace = true }
 camino = { workspace = true }
-corro-agent = { workspace = true }
-corro-types = { workspace = true }
+klukai-agent = { workspace = true }
+klukai-types = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 geo = { workspace = true }
@@ -61,7 +61,6 @@ opentelemetry = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
-tripwire = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 

@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+use klukai_types::tripwire::Tripwire;
 use miette::Result;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info};
@@ -70,7 +71,7 @@ pub enum ServiceCommand {
 pub fn setup<F, S>(
     service_name: &'static str,
     config: Arc<crate::config::Config>,
-    tripwire: tripwire::Tripwire,
+    tripwire: Tripwire,
     start_fn: F,
 ) -> Result<(ServiceManager, tokio::task::JoinHandle<Result<()>>)>
 where

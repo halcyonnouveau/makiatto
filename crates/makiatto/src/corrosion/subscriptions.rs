@@ -1,8 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use corro_types::api::QueryEvent;
-use corro_types::pubsub::ChangeType;
 use futures_util::StreamExt;
+use klukai_types::{api::QueryEvent, pubsub::ChangeType, tripwire::Tripwire};
 use miette::Result;
 use tokio::time::{Duration, sleep};
 use tokio_util::{
@@ -53,7 +52,7 @@ impl SubscriptionWatcher {
 
     /// Start watching subscriptions
     #[allow(clippy::too_many_lines)]
-    pub async fn run(&self, mut tripwire: tripwire::Tripwire) {
+    pub async fn run(&self, mut tripwire: Tripwire) {
         let peers_handle = tokio::spawn({
             let watcher = self.clone();
             let tripwire = tripwire.clone();
@@ -258,7 +257,7 @@ impl SubscriptionWatcher {
     /// Generic watcher for table changes with backoff and retry logic
     async fn watch_table<F>(
         &self,
-        mut tripwire: tripwire::Tripwire,
+        mut tripwire: Tripwire,
         table_name: &str,
         query: &str,
         state_key: &str,

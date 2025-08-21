@@ -10,7 +10,7 @@ pub struct Config {
     pub node: NodeConfig,
 
     /// Corrosion configuration
-    pub corrosion: corro_types::config::Config,
+    pub corrosion: klukai_types::config::Config,
 
     /// Wireguard configuration
     pub wireguard: WireguardConfig,
