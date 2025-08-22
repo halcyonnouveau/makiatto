@@ -2168,7 +2168,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2580,7 +2580,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4000,7 +4000,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4425,7 +4425,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4506,7 +4506,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4527,7 +4527,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4974,7 +4974,7 @@ dependencies = [
 [[package]]
 name = "sqlx"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#ff93aa017ac25252367d66496751cb7025c81af8"
+source = "git+https://github.com/launchbadge/sqlx#c01f51330abc50dca6714bd73eff0313aa353b8c"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -4986,7 +4986,7 @@ dependencies = [
 [[package]]
 name = "sqlx-core"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#ff93aa017ac25252367d66496751cb7025c81af8"
+source = "git+https://github.com/launchbadge/sqlx#c01f51330abc50dca6714bd73eff0313aa353b8c"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -5018,7 +5018,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#ff93aa017ac25252367d66496751cb7025c81af8"
+source = "git+https://github.com/launchbadge/sqlx#c01f51330abc50dca6714bd73eff0313aa353b8c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5030,7 +5030,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros-core"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#ff93aa017ac25252367d66496751cb7025c81af8"
+source = "git+https://github.com/launchbadge/sqlx#c01f51330abc50dca6714bd73eff0313aa353b8c"
 dependencies = [
  "dotenvy",
  "either",
@@ -5053,7 +5053,7 @@ dependencies = [
 [[package]]
 name = "sqlx-mysql"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#ff93aa017ac25252367d66496751cb7025c81af8"
+source = "git+https://github.com/launchbadge/sqlx#c01f51330abc50dca6714bd73eff0313aa353b8c"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -5093,7 +5093,7 @@ dependencies = [
 [[package]]
 name = "sqlx-postgres"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#ff93aa017ac25252367d66496751cb7025c81af8"
+source = "git+https://github.com/launchbadge/sqlx#c01f51330abc50dca6714bd73eff0313aa353b8c"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -5128,7 +5128,7 @@ dependencies = [
 [[package]]
 name = "sqlx-sqlite"
 version = "0.9.0-alpha.1"
-source = "git+https://github.com/launchbadge/sqlx#ff93aa017ac25252367d66496751cb7025c81af8"
+source = "git+https://github.com/launchbadge/sqlx#c01f51330abc50dca6714bd73eff0313aa353b8c"
 dependencies = [
  "atoi",
  "flume",
