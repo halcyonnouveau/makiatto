@@ -4,8 +4,18 @@ resolver = "2"
 
 [workspace.package]
 version = "0.3.2"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/halcyonnouveau/makiatto"
+homepage = "https://halcyonnouveau.github.io/makiatto/"
+keywords = ["cdn", "cli", "deployment", "mesh", "infrastructure"]
+categories = ["command-line-utilities", "network-programming"]
 
 [workspace.dependencies]
+# Klukai Corrosion
+klukai-agent = { version = "0.1", git = "https://github.com/halcyonnouveau/klukai" }
+klukai-types = { version = "0.2", git = "https://github.com/halcyonnouveau/klukai" }
+
 # CLI
 argh = "0.1"
 console = "0.16"
@@ -33,10 +43,6 @@ base64 = "0.22"
 blake3 = "1.8"
 crc32fast = "1.5"
 x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
-
-# Klukai Corrosion
-klukai-agent = "0.1"
-klukai-types = "0.1"
 
 # Database
 sqlx = { git = "https://github.com/launchbadge/sqlx", features = [

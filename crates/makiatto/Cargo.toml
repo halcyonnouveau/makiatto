@@ -1,16 +1,15 @@
 [package]
 name = "makiatto"
-version = { workspace = true }
-edition = "2024"
 description = "A lightweight CDN for distributing content across multiple servers"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/halcyonnouveau/makiatto"
-homepage = "https://github.com/halcyonnouveau/makiatto"
-documentation = "https://halcyonnouveau.github.io/makiatto/"
 readme = "../../README.md"
-keywords = ["cdn", "wireguard", "distributed", "mesh", "geolocation"]
-categories = ["network-programming", "web-programming"]
 publish = false
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
 
 [dependencies]
 # used for hickory handler
