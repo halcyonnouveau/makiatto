@@ -1,26 +1,19 @@
-FROM docker.io/rustlang/rust:nightly-slim AS builder
+FROM debian:bookworm-slim AS builder
 
 WORKDIR /app
 RUN apt update && apt install -y \
+    curl build-essential \
     libssl-dev pkg-config sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 COPY Cargo.toml Cargo.lock ./
-COPY crates/makiatto ./crates/makiatto
+COPY crates ./crates
+COPY benches ./benches
+COPY tests ./tests
 
-RUN mkdir tests
-COPY <<EOF tests/Cargo.toml
-[package]
-name = "integration-tests"
-version = "0.0.0"
-edition = "2024"
-
-[[bin]]
-name = "docker-test-mock"
-path = "src/main.rs"
-EOF
-
-RUN mkdir tests/src && echo 'fn main() {}' > tests/src/main.rs
 RUN cargo build -p makiatto --release
 
 FROM debian:bookworm-slim

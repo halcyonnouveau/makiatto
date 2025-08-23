@@ -3,8 +3,9 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-echo "Building Makiatto Docker image..."
+echo "Building Docker images..."
 docker build -f benches/debian_bench.Dockerfile -t makiatto-debian-bench .
+docker build -f benches/axum_control.Dockerfile -t axum-control-bench .
 
 echo "Creating test files..."
 mkdir -p /tmp/bench-files
@@ -38,13 +39,18 @@ docker run -d --replace --name apache-bench \
     -p 8083:80 \
     httpd:alpine
 
+docker run -d --replace --name axum-control-bench \
+    -v /tmp/bench-files:/var/axum-control/files:ro \
+    -p 8084:80 \
+    axum-control-bench
+
 echo "Waiting for containers to start..."
 sleep 5
 
 echo "Running benchmarks..."
 
 echo "=== Different Concurrency Levels ==="
-for server in "makiatto:8080" "nginx:8081" "caddy:8082" "apache:8083"; do
+for server in "makiatto:8080" "axum-control:8084" "nginx:8081" "caddy:8082" "apache:8083"; do
     name="${server%%:*}"
     port="${server##*:}"
     echo "Testing $name with varying concurrency..."
@@ -61,7 +67,7 @@ files=("index.html" "1kb.bin" "100kb.bin" "1mb.bin" "10mb.bin")
 
 for file in "${files[@]}"; do
     echo "Testing file: $file"
-    for server in "makiatto:8080" "nginx:8081" "caddy:8082" "apache:8083"; do
+    for server in "makiatto:8080" "axum-control:8084" "nginx:8081" "caddy:8082" "apache:8083"; do
         name="${server%%:*}"
         port="${server##*:}"
         echo "- $name:"
@@ -70,4 +76,4 @@ for file in "${files[@]}"; do
     echo
 done
 
-docker rm -f makiatto-bench nginx-bench caddy-bench apache-bench
+docker rm -f makiatto-bench nginx-bench caddy-bench apache-bench axum-control-bench

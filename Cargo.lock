@@ -299,6 +299,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-control"
+version = "0.3.2"
+dependencies = [
+ "axum",
+ "tokio",
+ "tower",
+ "tower-http",
+]
+
+[[package]]
 name = "axum-core"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

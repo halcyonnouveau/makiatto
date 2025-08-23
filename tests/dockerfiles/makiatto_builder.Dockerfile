@@ -6,21 +6,10 @@ RUN apt update && apt install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
-COPY crates/makiatto ./crates/makiatto
+COPY crates ./crates
+COPY benches ./benches
+COPY tests ./tests
 
-RUN mkdir tests
-COPY <<EOF tests/Cargo.toml
-[package]
-name = "integration-tests"
-version = "0.0.0"
-edition = "2024"
-
-[[bin]]
-name = "docker-test-mock"
-path = "src/main.rs"
-EOF
-
-RUN mkdir tests/src && echo 'fn main() {}' > tests/src/main.rs
 RUN cargo build -p makiatto
 
 FROM busybox:stable AS export
