@@ -23,7 +23,7 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-nextest
@@ -39,7 +39,7 @@ jobs:
     name: Integration/e2e tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-nextest
@@ -66,7 +66,7 @@ jobs:
     name: Check for common code mistakes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
@@ -78,7 +78,7 @@ jobs:
     name: Check code format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
@@ -97,7 +97,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Install Rust toolchain
@@ -125,7 +125,7 @@ jobs:
       releases_created: ${{ steps.release.outputs.releases_created }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: rust-lang/crates-io-auth-action@v1
