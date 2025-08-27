@@ -422,7 +422,7 @@ dependencies = [
  "bitflags 2.9.3",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "lazy_static",
  "lazycell",
  "log",
@@ -2375,15 +2375,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -2483,7 +2474,7 @@ dependencies = [
 [[package]]
 name = "klukai-agent"
 version = "0.1.2"
-source = "git+https://github.com/halcyonnouveau/klukai#b68435d6e0cc3ddeda539e3a72039927f5fef3ed"
+source = "git+https://github.com/halcyonnouveau/klukai#0565710505e84a901950de50ddcaee34a641cf59"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -2540,7 +2531,7 @@ dependencies = [
 [[package]]
 name = "klukai-types"
 version = "0.2.1"
-source = "git+https://github.com/halcyonnouveau/klukai#b68435d6e0cc3ddeda539e3a72039927f5fef3ed"
+source = "git+https://github.com/halcyonnouveau/klukai#0565710505e84a901950de50ddcaee34a641cf59"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -3667,7 +3658,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn",
