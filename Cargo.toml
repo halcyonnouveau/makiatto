@@ -14,7 +14,7 @@ categories = ["command-line-utilities", "network-programming"]
 [workspace.dependencies]
 # Klukai Corrosion
 klukai-agent = { version = "0.1", git = "https://github.com/halcyonnouveau/klukai" }
-klukai-types = { version = "0.2", git = "https://github.com/halcyonnouveau/klukai" }
+klukai-types = { version = "0.3", git = "https://github.com/halcyonnouveau/klukai" }
 
 # CLI
 argh = "0.1"
