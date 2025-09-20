@@ -21,17 +21,17 @@ pub struct SyncCommand {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct DnsRecordKey {
-    name: String,
-    record_type: String,
+pub struct DnsRecordKey {
+    pub name: String,
+    pub record_type: String,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct DnsRecordData {
-    value: String,
-    ttl: u32,
-    priority: i32,
-    geo_enabled: bool,
+pub struct DnsRecordData {
+    pub value: String,
+    pub ttl: u32,
+    pub priority: i32,
+    pub geo_enabled: bool,
 }
 
 /// Sync project files and DNS configuration to the CDN
@@ -197,8 +197,12 @@ fn sync_domain_records(ssh: &SshSession, domain: &Domain, machines: &[Machine]) 
     let existing_records = get_existing_dns_records(ssh, &domain.name)?;
 
     let mut desired_records = Vec::new();
-    generate_dns_records(&domain.name, machines, &mut desired_records)?;
-    collect_dns_records(&domain.records, &mut desired_records);
+    generate_dns_records(
+        &domain.name,
+        machines,
+        &domain.records,
+        &mut desired_records,
+    )?;
 
     apply_dns_diff(ssh, &domain.name, &existing_records, &desired_records)?;
 
@@ -245,10 +249,18 @@ fn get_existing_dns_records(
     Ok(records)
 }
 
+/// Generate all DNS records for a domain including infrastructure and custom records
+///
+/// # Errors
+/// Returns an error if no nameservers are configured
+///
+/// # Panics
+/// May panic if a machine has `ipv6` set to `Some` but the value is accessed incorrectly
 #[allow(clippy::too_many_lines)]
-fn generate_dns_records(
+pub fn generate_dns_records(
     domain: &str,
     machines: &[Machine],
+    custom_records: &[DnsRecord],
     records: &mut Vec<(DnsRecordKey, DnsRecordData)>,
 ) -> Result<()> {
     let mut nameservers: Vec<_> = machines.iter().filter(|m| m.is_nameserver).collect();
@@ -383,14 +395,8 @@ fn generate_dns_records(
         },
     ));
 
-    Ok(())
-}
-
-fn collect_dns_records(
-    config_records: &[DnsRecord],
-    records: &mut Vec<(DnsRecordKey, DnsRecordData)>,
-) {
-    for record in config_records {
+    // Add custom records from config
+    for record in custom_records {
         records.push((
             DnsRecordKey {
                 name: record.name.to_string(),
@@ -404,6 +410,8 @@ fn collect_dns_records(
             },
         ));
     }
+
+    Ok(())
 }
 
 fn apply_dns_diff(

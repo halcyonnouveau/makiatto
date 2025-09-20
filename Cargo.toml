@@ -91,7 +91,7 @@ opentelemetry-otlp = { version = "0.30", features = [
 ] }
 
 # Utilities
-camino = "1.1"
+camino = "1.2"
 geo = "0.30"
 indoc = "2.0"
 jiff = "0.2"

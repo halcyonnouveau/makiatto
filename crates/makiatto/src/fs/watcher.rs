@@ -160,14 +160,14 @@ fn collect_file_deletions(
 
     for path in paths {
         match parse_domain_and_path(path, static_dir) {
-            Ok((domain, normalized_path)) => {
+            Ok((domain, normalised_path)) => {
                 info!(
                     "File removed: {} ({}{})",
                     path.display(),
                     domain,
-                    normalized_path
+                    normalised_path
                 );
-                delete_records.push((domain.to_string(), normalized_path));
+                delete_records.push((domain.to_string(), normalised_path));
             }
             Err(e) => warn!("Failed to process file removal for {}: {e}", path.display()),
         }

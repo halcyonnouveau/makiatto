@@ -12,7 +12,7 @@ use hickory_resolver::{
     TokioResolver,
     config::{NameServerConfig, ResolverConfig},
     name_server::TokioConnectionProvider,
-    proto::xfer::Protocol,
+    proto::{rr::RecordType, xfer::Protocol},
 };
 use miette::{Result, miette};
 use reqwest::header::{HOST, HeaderMap, HeaderValue};
@@ -21,6 +21,7 @@ use tokio::time::timeout;
 use crate::{
     config::{Config, Machine, Profile},
     ssh::SshSession,
+    sync::generate_dns_records,
     ui,
 };
 
@@ -63,6 +64,18 @@ struct SystemStatus {
 #[derive(Debug, Clone)]
 struct DnsStatus {
     healthy: bool,
+    total_records: usize,
+    verified_records: usize,
+    failed_records: Vec<DnsRecordVerification>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DnsRecordVerification {
+    name: String,
+    record_type: String,
+    expected: String,
+    actual: Option<String>,
     error: Option<String>,
 }
 
@@ -114,12 +127,20 @@ pub async fn check_health(
         .iter()
         .map(|machine| {
             let machine = machine.clone();
+            let profile_clone = profile.clone();
             let config = config.clone();
             let certificates = certificates.clone();
             let key_path = command.key_path.clone();
 
             tokio::spawn(async move {
-                check_node_health(&machine, &config, &certificates, key_path.as_ref()).await
+                check_node_health(
+                    &machine,
+                    &profile_clone,
+                    &config,
+                    &certificates,
+                    key_path.as_ref(),
+                )
+                .await
             })
         })
         .collect();
@@ -163,6 +184,7 @@ fn get_certs(sync_target: &Machine, key_path: Option<&PathBuf>) -> Result<HashMa
 
 async fn check_node_health(
     machine: &Machine,
+    profile: &Profile,
     config: &Config,
     certificates: &HashMap<String, i64>,
     key_path: Option<&PathBuf>,
@@ -173,7 +195,7 @@ async fn check_node_health(
     let system = check_system_health(&ssh).await;
 
     let dns = if machine.is_nameserver {
-        Some(check_dns_health(machine, config).await)
+        Some(check_dns_health(machine, profile, config).await)
     } else {
         None
     };
@@ -352,16 +374,179 @@ fn parse_load_average(output: &str) -> Option<f64> {
     }
 }
 
-async fn check_dns_health(machine: &Machine, config: &Config) -> DnsStatus {
+#[allow(clippy::too_many_lines)]
+async fn verify_dns_record(
+    resolver: &TokioResolver,
+    name: &str,
+    record_type: &str,
+    expected_value: &str,
+) -> Result<Option<String>, String> {
+    match record_type {
+        "A" => match timeout(Duration::from_secs(2), resolver.ipv4_lookup(name)).await {
+            Ok(Ok(lookup)) => {
+                let addresses: Vec<String> = lookup
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect();
+                if addresses.contains(&expected_value.to_string()) {
+                    Ok(Some(expected_value.to_string()))
+                } else {
+                    Ok(addresses.first().cloned())
+                }
+            }
+            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+            Err(_) => Err("Query timeout".to_string()),
+        },
+        "AAAA" => match timeout(Duration::from_secs(2), resolver.ipv6_lookup(name)).await {
+            Ok(Ok(lookup)) => {
+                let addresses: Vec<String> = lookup
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect();
+                if addresses.contains(&expected_value.to_string()) {
+                    Ok(Some(expected_value.to_string()))
+                } else {
+                    Ok(addresses.first().cloned())
+                }
+            }
+            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+            Err(_) => Err("Query timeout".to_string()),
+        },
+        "NS" => match timeout(Duration::from_secs(2), resolver.ns_lookup(name)).await {
+            Ok(Ok(lookup)) => {
+                let names: Vec<String> = lookup
+                    .iter()
+                    .map(|ns| ns.to_string().trim_end_matches('.').to_string())
+                    .collect();
+                let expected_normalised = expected_value.trim_end_matches('.');
+                if names.iter().any(|n| n == expected_normalised) {
+                    Ok(Some(expected_value.to_string()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+            Err(_) => Err("Query timeout".to_string()),
+        },
+        "SOA" => {
+            match timeout(Duration::from_secs(2), resolver.soa_lookup(name)).await {
+                Ok(Ok(lookup)) => {
+                    if let Some(soa) = lookup.iter().next() {
+                        let soa_string = format!(
+                            "{} {} {} {} {} {} {}",
+                            soa.mname().to_string().trim_end_matches('.'),
+                            soa.rname().to_string().trim_end_matches('.'),
+                            soa.serial(),
+                            soa.refresh(),
+                            soa.retry(),
+                            soa.expire(),
+                            soa.minimum()
+                        );
+                        // just check if it starts with the expected primary nameserver
+                        // always return the SOA string regardless of whether it matches
+                        Ok(Some(soa_string))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+                Err(_) => Err("Query timeout".to_string()),
+            }
+        }
+        "CAA" => {
+            match timeout(
+                Duration::from_secs(2),
+                resolver.lookup(name, RecordType::CAA),
+            )
+            .await
+            {
+                Ok(Ok(lookup)) => {
+                    // check that there's a CAA record allowing letsencrypt
+                    let has_letsencrypt = lookup
+                        .iter()
+                        .any(|record| record.to_string().contains("letsencrypt.org"));
+                    if has_letsencrypt {
+                        Ok(Some(expected_value.to_string()))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+                Err(_) => Err("Query timeout".to_string()),
+            }
+        }
+        "TXT" => match timeout(Duration::from_secs(2), resolver.txt_lookup(name)).await {
+            Ok(Ok(lookup)) => {
+                let values: Vec<String> = lookup
+                    .iter()
+                    .flat_map(|txt| txt.iter())
+                    .map(|data| String::from_utf8_lossy(data).to_string())
+                    .collect();
+                if values.contains(&expected_value.to_string()) {
+                    Ok(Some(expected_value.to_string()))
+                } else {
+                    Ok(values.first().cloned())
+                }
+            }
+            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+            Err(_) => Err("Query timeout".to_string()),
+        },
+        "MX" => match timeout(Duration::from_secs(2), resolver.mx_lookup(name)).await {
+            Ok(Ok(lookup)) => {
+                let exchanges: Vec<String> = lookup
+                    .iter()
+                    .map(|mx| {
+                        format!(
+                            "{} {}",
+                            mx.preference(),
+                            mx.exchange().to_string().trim_end_matches('.')
+                        )
+                    })
+                    .collect();
+                if exchanges.iter().any(|e| e.ends_with(expected_value)) {
+                    Ok(Some(expected_value.to_string()))
+                } else {
+                    Ok(exchanges.first().cloned())
+                }
+            }
+            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+            Err(_) => Err("Query timeout".to_string()),
+        },
+        "CNAME" => {
+            match timeout(
+                Duration::from_secs(2),
+                resolver.lookup(name, RecordType::CNAME),
+            )
+            .await
+            {
+                Ok(Ok(lookup)) => {
+                    let cnames: Vec<String> = lookup
+                        .iter()
+                        .map(|r| r.to_string().trim_end_matches('.').to_string())
+                        .collect();
+                    let expected_normalised = expected_value.trim_end_matches('.');
+                    if cnames.iter().any(|c| c == expected_normalised) {
+                        Ok(Some(expected_value.to_string()))
+                    } else {
+                        Ok(cnames.first().cloned())
+                    }
+                }
+                Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
+                Err(_) => Err("Query timeout".to_string()),
+            }
+        }
+        _ => Err(format!("Unsupported record type: {record_type}")),
+    }
+}
+
+async fn check_dns_health(machine: &Machine, profile: &Profile, config: &Config) -> DnsStatus {
     let ip: IpAddr = machine
         .ipv4
         .parse()
         .unwrap_or_else(|_| "127.0.0.1".parse().unwrap());
 
     let sock_addr = SocketAddr::new(ip, 53);
-
     let nameserver = NameServerConfig::new(sock_addr, Protocol::Udp);
-
     let mut resolver_config = ResolverConfig::new();
     resolver_config.add_name_server(nameserver);
 
@@ -369,23 +554,80 @@ async fn check_dns_health(machine: &Machine, config: &Config) -> DnsStatus {
         TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
             .build();
 
-    let test_domain = config
-        .domains
-        .first()
-        .map_or("invalid.domain", |d| d.name.as_ref());
+    let Some(domain_config) = config.domains.first() else {
+        return DnsStatus {
+            healthy: false,
+            total_records: 0,
+            verified_records: 0,
+            failed_records: vec![],
+            error: Some("No domains configured".to_string()),
+        };
+    };
 
-    match timeout(Duration::from_secs(5), resolver.lookup_ip(test_domain)).await {
-        Ok(Ok(_)) => DnsStatus {
-            healthy: true,
-            error: None,
-        },
-        Ok(Err(e)) => DnsStatus {
+    let domain = domain_config.name.as_ref();
+
+    let mut expected_records = Vec::new();
+    if let Err(e) = generate_dns_records(
+        domain,
+        &profile.machines,
+        &domain_config.records,
+        &mut expected_records,
+    ) {
+        return DnsStatus {
             healthy: false,
-            error: Some(format!("DNS query failed: {e}")),
-        },
-        Err(_) => DnsStatus {
-            healthy: false,
-            error: Some("DNS query timeout".to_string()),
+            total_records: 0,
+            verified_records: 0,
+            failed_records: vec![],
+            error: Some(format!("Failed to generate expected records: {e}")),
+        };
+    }
+
+    let total = expected_records.len();
+    let mut verified = 0;
+    let mut failed_records = Vec::new();
+
+    for (key, data) in &expected_records {
+        let query_name = if key.name == "@" {
+            domain.to_string()
+        } else {
+            format!("{}.{}", key.name, domain)
+        };
+
+        match verify_dns_record(&resolver, &query_name, &key.record_type, &data.value).await {
+            Ok(actual_value) => {
+                if actual_value.as_ref() == Some(&data.value) {
+                    verified += 1;
+                } else {
+                    failed_records.push(DnsRecordVerification {
+                        name: key.name.clone(),
+                        record_type: key.record_type.clone(),
+                        expected: data.value.clone(),
+                        actual: actual_value,
+                        error: None,
+                    });
+                }
+            }
+            Err(e) => {
+                failed_records.push(DnsRecordVerification {
+                    name: key.name.clone(),
+                    record_type: key.record_type.clone(),
+                    expected: data.value.clone(),
+                    actual: None,
+                    error: Some(e),
+                });
+            }
+        }
+    }
+
+    DnsStatus {
+        healthy: verified == total && total > 0,
+        total_records: total,
+        verified_records: verified,
+        failed_records,
+        error: if verified == 0 && total > 0 {
+            Some("DNS server not responding or not configured".to_string())
+        } else {
+            None
         },
     }
 }
@@ -618,20 +860,59 @@ fn display_health_results(results: &[NodeHealth]) {
         ui::header("DNS");
         for node in dns_servers {
             let dns = node.dns.as_ref().unwrap();
+
             let info = if dns.healthy {
-                "Responding"
+                format!("All {} records verified", dns.total_records)
+            } else if let Some(ref error) = dns.error {
+                error.clone()
             } else {
-                dns.error.as_deref().unwrap_or("Not responding")
+                format!(
+                    "{}/{} records verified",
+                    dns.verified_records, dns.total_records
+                )
             };
+
             let dns_symbol = if dns.healthy {
                 style("✓").green()
-            } else {
+            } else if dns.verified_records == 0 {
                 style("✗").red()
+            } else {
+                style("⚠").yellow()
             };
+
             ui::field(
                 &format!("├─ {}", node.name),
                 &format!("{dns_symbol} {info}"),
             );
+
+            // Show failed records if any
+            if !dns.failed_records.is_empty() && dns.failed_records.len() <= 10 {
+                for record in &dns.failed_records {
+                    let record_info = if let Some(ref actual) = record.actual {
+                        format!(
+                            "   {} {} - expected: {}, got: {}",
+                            record.name, record.record_type, record.expected, actual
+                        )
+                    } else if let Some(ref error) = record.error {
+                        format!(
+                            "   {} {} - expected: {} ({})",
+                            record.name, record.record_type, record.expected, error
+                        )
+                    } else {
+                        format!(
+                            "   {} {} - expected: {} (not found)",
+                            record.name, record.record_type, record.expected
+                        )
+                    };
+                    ui::text(&format!("│  {}", style(record_info).dim()));
+                }
+            } else if dns.failed_records.len() > 10 {
+                ui::text(&format!(
+                    "│  {} ({} records failed verification)",
+                    style("...").dim(),
+                    dns.failed_records.len()
+                ));
+            }
         }
     }
 

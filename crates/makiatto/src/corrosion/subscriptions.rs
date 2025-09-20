@@ -438,7 +438,7 @@ impl SubscriptionWatcher {
                 .set_subscription(state_key, state.clone())
                 .await;
 
-            info!("Subscription stream ended, reconnecting to {state_key}...");
+            debug!("Subscription stream ended, reconnecting to {state_key}...");
             sleep(Duration::from_secs(5)).await;
         }
     }
