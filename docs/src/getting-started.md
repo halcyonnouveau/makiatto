@@ -7,7 +7,7 @@ This guide will walk you through setting up your first CDN nodes with Makiatto.
 You'll need servers to run your CDN nodes. These can be VPS instances, dedicated servers, or cloud VMs. Each server should have:
 - A public IPv4 address (IPv6 is recommended but optional)
 - A supported Linux distribution (Ubuntu, Debian, or similar)
-- SSH access (any port)
+- SSH access with sudo privileges (any port)
 - These ports open:
   - 53 (DNS)
   - 80 (HTTP)
