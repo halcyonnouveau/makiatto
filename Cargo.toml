@@ -95,7 +95,7 @@ camino = "1.2"
 geo = "0.30"
 indoc = "2.0"
 jiff = "0.2"
-notify-debouncer-full = "0.5"
+notify-debouncer-full = "0.6"
 rand = "0.9"
 reqwest = { version = "0.12", features = [
     "json",
