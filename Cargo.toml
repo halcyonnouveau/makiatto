@@ -12,21 +12,21 @@ keywords = ["cdn", "cli", "deployment", "mesh", "infrastructure"]
 categories = ["command-line-utilities", "network-programming"]
 
 [workspace.dependencies]
-# Klukai Corrosion
-klukai-agent = { version = "0.1", git = "https://github.com/halcyonnouveau/klukai" }
-klukai-types = { version = "0.3", git = "https://github.com/halcyonnouveau/klukai" }
+corro-agent = { git = "https://github.com/superfly/corrosion" }
+corro-types = { git = "https://github.com/superfly/corrosion" }
+tripwire = { git = "https://github.com/superfly/corrosion" }
 
 # CLI
 argh = "0.1"
 console = "0.16"
-dialoguer = "0.11"
+dialoguer = "0.12"
 dirs = "6"
 indicatif = "0.18"
 
 # Async runtime
 futures = "0.3"
 futures-util = "0.3"
-tokio = { version = "1.46", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
 tokio-util = "0.7"
 
 # Error handling
@@ -76,15 +76,15 @@ tower-http = { version = "0.6", features = ["fs", "compression-full"] }
 # O11y
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-opentelemetry = "0.31"
-opentelemetry = { version = "0.30", features = ["metrics", "logs"] }
-opentelemetry-appender-tracing = "0.30"
-opentelemetry_sdk = { version = "0.30", features = [
+tracing-opentelemetry = "0.32"
+opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
+opentelemetry-appender-tracing = "0.31"
+opentelemetry_sdk = { version = "0.31", features = [
     "rt-tokio",
     "metrics",
     "logs",
 ] }
-opentelemetry-otlp = { version = "0.30", features = [
+opentelemetry-otlp = { version = "0.31", features = [
     "metrics",
     "logs",
     "grpc-tonic",
@@ -92,10 +92,10 @@ opentelemetry-otlp = { version = "0.30", features = [
 
 # Utilities
 camino = "1.2"
-geo = "0.30"
+geo = "0.31"
 indoc = "2.0"
 jiff = "0.2"
-notify-debouncer-full = "0.5"
+notify-debouncer-full = "0.6"
 rand = "0.9"
 reqwest = { version = "0.12", features = [
     "json",
@@ -108,8 +108,8 @@ url = "2.5"
 uuid = { version = "1.18", features = ["v7"] }
 
 # Testing
-ctor = "0.4"
-testcontainers = "0.24"
+ctor = "0.6"
+testcontainers = "0.25"
 tokio-test = "0.4"
 
 [profile.release]

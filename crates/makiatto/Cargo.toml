@@ -16,6 +16,10 @@ categories = { workspace = true }
 # TODO: remove as soon as possible
 async-trait = "0.1"
 
+corro-agent = { workspace = true }
+corro-types = { workspace = true }
+tripwire = { workspace = true }
+
 argh = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
@@ -24,8 +28,6 @@ blake3 = { workspace = true }
 crc32fast = { workspace = true }
 defguard_wireguard_rs = { workspace = true }
 camino = { workspace = true }
-klukai-agent = { workspace = true }
-klukai-types = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 geo = { workspace = true }

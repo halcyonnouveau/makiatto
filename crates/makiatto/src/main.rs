@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use argh::FromArgs;
-use klukai_types::tripwire::Tripwire;
 use makiatto::{
     cache::CacheStore,
     config,
@@ -19,6 +18,7 @@ use tokio::{
     sync::mpsc,
 };
 use tracing::{error, info};
+use tripwire::Tripwire;
 
 #[derive(FromArgs)]
 #[allow(clippy::struct_excessive_bools)]
