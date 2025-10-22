@@ -3,10 +3,10 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use klukai_types::tripwire::Tripwire;
 use miette::Result;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info};
+use tripwire::Tripwire;
 
 /// Simple service manager for handling service lifecycle
 #[derive(Clone)]

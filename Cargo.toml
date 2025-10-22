@@ -12,9 +12,9 @@ keywords = ["cdn", "cli", "deployment", "mesh", "infrastructure"]
 categories = ["command-line-utilities", "network-programming"]
 
 [workspace.dependencies]
-# Klukai Corrosion
-klukai-agent = { version = "0.1", git = "https://github.com/halcyonnouveau/klukai" }
-klukai-types = { version = "0.3", git = "https://github.com/halcyonnouveau/klukai" }
+corro-agent = { git = "https://github.com/superfly/corrosion" }
+corro-types = { git = "https://github.com/superfly/corrosion" }
+tripwire = { git = "https://github.com/superfly/corrosion" }
 
 # CLI
 argh = "0.1"

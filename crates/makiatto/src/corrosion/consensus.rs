@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use klukai_types::tripwire::Tripwire;
 use miette::Result;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, interval};
 use tracing::{debug, error, info, warn};
+use tripwire::Tripwire;
 
 use crate::config::Config;
 use crate::corrosion::{self, schema::ClusterLeadership};

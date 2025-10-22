@@ -9,11 +9,11 @@ pub use acme::AcmeClient;
 use hickory_proto::runtime::TokioRuntimeProvider;
 use hickory_resolver::name_server::{GenericConnector, TokioConnectionProvider};
 use hickory_resolver::{Resolver, TokioResolver};
-use klukai_types::tripwire;
 use miette::Result;
 pub use store::CertificateStore;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
+use tripwire;
 
 use crate::{
     config::Config,

@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
+use corro_types::{api::QueryEvent, pubsub::ChangeType};
 use futures_util::StreamExt;
-use klukai_types::{api::QueryEvent, pubsub::ChangeType, tripwire::Tripwire};
 use miette::Result;
 use tokio::time::{Duration, sleep};
 use tokio_util::{
@@ -9,6 +9,7 @@ use tokio_util::{
     io::StreamReader,
 };
 use tracing::{debug, error, info, warn};
+use tripwire::Tripwire;
 
 use crate::{
     cache::{CacheStore, SubscriptionState},
