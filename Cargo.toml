@@ -76,7 +76,7 @@ tower-http = { version = "0.6", features = ["fs", "compression-full"] }
 # O11y
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-opentelemetry = "0.31"
+tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.30", features = ["metrics", "logs"] }
 opentelemetry-appender-tracing = "0.30"
 opentelemetry_sdk = { version = "0.30", features = [
