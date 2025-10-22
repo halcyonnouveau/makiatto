@@ -109,7 +109,7 @@ uuid = { version = "1.18", features = ["v7"] }
 
 # Testing
 ctor = "0.4"
-testcontainers = "0.24"
+testcontainers = "0.25"
 tokio-test = "0.4"
 
 [profile.release]
