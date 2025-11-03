@@ -148,3 +148,25 @@ makiatto-cli sync
 ```
 
 The `--profile` flag takes precedence over the environment variable when both are set.
+
+## Dynamic Image Processing
+
+Makiatto includes built-in dynamic image processing powered by [Imageflow](https://github.com/imazen/imageflow). Transform images on-the-fly by adding query parameters to your image URLs:
+
+```
+https://zuccherocat.cafe/photos/springfield.jpg?w=800&fmt=webp&q=85
+```
+
+### Available Parameters
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `w` | integer | Width in pixels | `?w=800` |
+| `h` | integer | Height in pixels | `?h=600` |
+| `fit` | string | Fit mode: `max`, `pad`, `crop`, `stretch` | `?fit=crop` |
+| `fmt` | string | Output format: `webp`, `jpg`, `png` | `?fmt=webp` |
+| `q` | integer | Quality (1-100) | `?q=85` |
+
+**Fit modes:** `max` (default, shrink only), `pad` (letterbox), `crop` (fill), `stretch` (distort)
+
+**Caching:** Processed images are cached in memory (500MB LRU by default) and automatically invalidated when source files change. Images without query parameters are served as static files with no processing overhead.

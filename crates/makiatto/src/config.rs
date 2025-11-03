@@ -21,6 +21,10 @@ pub struct Config {
     /// Web server configuration
     pub web: WebConfig,
 
+    /// Image processing configuration
+    #[serde(default)]
+    pub images: ImageConfig,
+
     /// Observability configuration
     #[serde(default)]
     pub o11y: ObservabilityConfig,
@@ -97,6 +101,58 @@ pub struct WebConfig {
 
     /// Directory to serve static files from
     pub static_dir: Arc<Utf8PathBuf>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ImageConfig {
+    /// Enable dynamic image processing
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Maximum cache size in megabytes
+    #[serde(default = "default_cache_size_mb")]
+    pub cache_size_mb: usize,
+
+    /// Maximum image width in pixels
+    #[serde(default = "default_max_dimension")]
+    pub max_width: u32,
+
+    /// Maximum image height in pixels
+    #[serde(default = "default_max_dimension")]
+    pub max_height: u32,
+
+    /// Allowed output formats
+    #[serde(default = "default_allowed_formats")]
+    pub allowed_formats: Vec<String>,
+}
+
+impl Default for ImageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            cache_size_mb: default_cache_size_mb(),
+            max_width: default_max_dimension(),
+            max_height: default_max_dimension(),
+            allowed_formats: default_allowed_formats(),
+        }
+    }
+}
+
+fn default_cache_size_mb() -> usize {
+    500
+}
+
+fn default_max_dimension() -> u32 {
+    4096
+}
+
+fn default_allowed_formats() -> Vec<String> {
+    vec![
+        "webp".to_string(),
+        "jpg".to_string(),
+        "jpeg".to_string(),
+        "png".to_string(),
+    ]
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

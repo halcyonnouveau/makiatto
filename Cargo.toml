@@ -106,11 +106,21 @@ reqwest = { version = "0.12", features = [
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 url = "2.5"
 uuid = { version = "1.18", features = ["v7"] }
+serde_urlencoded = "0.7"
+
+# Image processing
+imageflow_core = { git = "https://github.com/imazen/imageflow" }
+imageflow_types = { git = "https://github.com/imazen/imageflow" }
+moka = { version = "0.12", features = ["future"] }
 
 # Testing
 ctor = "0.6"
 testcontainers = "0.25"
 tokio-test = "0.4"
+
+[patch.crates-io]
+# Patch dependencies for imageflow
+rgb = { git = "https://github.com/kornelski/rust-rgb" }
 
 [profile.release]
 codegen-units = 1

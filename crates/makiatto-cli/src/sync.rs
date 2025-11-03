@@ -141,7 +141,6 @@ fn sync_domain_files(
         .arg("-avz")
         .arg("--delete-after")
         .arg("--progress")
-        .arg("--chown=makiatto:makiatto")
         .arg("-e")
         .arg(&ssh_args)
         .arg("--rsync-path")
@@ -159,6 +158,9 @@ fn sync_domain_files(
     }
 
     spinner.finish_with_message("✓ rsync completed");
+
+    // fix ownership (`rsync --chown` not available in older rsync on macOS)
+    ssh.exec(&format!("sudo chown -R makiatto:makiatto {target_dir}"))?;
 
     // trigger a manual directory scan to catch any files missed by the watcher
     ui::status("Scanning synced files...");

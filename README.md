@@ -16,13 +16,7 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 - **No single point of failure**: Decentralised architecture with no control plane
 - **Automatic SSL certificates**: Built-in Let's Encrypt integration
 - **Simple content management**: Easy file uploads and website deployments
-
-### Who is this for?
-
-- **Developers** who want their own CDN infrastructure instead of using commercial providers
-- **Privacy-conscious users** who prefer self-hosted solutions
-- **Small teams** serving static sites that need global performance without vendor lock-in
-- **Hobbyists** who enjoy building their own infrastructure
+- **Dynamic image processing**: On-the-fly image resizing, format conversion, and optimisation with query parameters
 
 ## Quick Start
 

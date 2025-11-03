@@ -37,9 +37,12 @@ hickory-server = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+imageflow_core = { workspace = true }
+imageflow_types = { workspace = true }
 instant-acme = { workspace = true }
 maxminddb = { workspace = true }
 miette = { workspace = true }
+moka = { workspace = true }
 notify-debouncer-full = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
@@ -47,6 +50,7 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

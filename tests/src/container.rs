@@ -62,7 +62,7 @@ impl ContainerContext {
         })
     }
 
-    fn detect_container_runtime() -> Result<&'static str> {
+    pub fn detect_container_runtime() -> Result<&'static str> {
         if Command::new("docker").arg("--version").output().is_ok() {
             return Ok("docker");
         }

@@ -12,7 +12,7 @@ use axum::{
     extract::{Path as ExtractPath, Request, State},
     http::{
         HeaderMap, HeaderValue, StatusCode, Uri,
-        header::{CACHE_CONTROL, ETAG, IF_NONE_MATCH},
+        header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH},
     },
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -39,13 +39,14 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::{
     config::Config,
     corrosion::{self, schema::AcmeChallenge},
-    web::certificate::CertificateStore,
+    web::{certificate::CertificateStore, images::ImageProcessor},
 };
 
 #[derive(Clone)]
 struct WebState {
     static_dir: Arc<PathBuf>,
     cname_map: Arc<HashMap<String, String>>,
+    image_processor: Option<Arc<ImageProcessor>>,
 }
 
 #[instrument(
@@ -74,7 +75,6 @@ async fn handle_request(
 
     // resolve domain alias if exists
     let resolved_domain = resolve_cname(&state.cname_map, hostname);
-
     let domain_path = state.static_dir.join(&resolved_domain);
 
     if !domain_path.exists() {
@@ -151,6 +151,95 @@ async fn handle_request(
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from("Error serving file"))
                 .unwrap()
+        }
+    }
+}
+
+#[instrument(
+    name = "image_processing",
+    skip(state, request, next),
+    fields(path, has_params, processed, error)
+)]
+async fn image_middleware(
+    State(state): State<WebState>,
+    Host(host): Host,
+    request: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    let span = tracing::Span::current();
+
+    let Some(ref processor) = state.image_processor else {
+        return next.run(request).await;
+    };
+
+    let query = request.uri().query().unwrap_or("");
+    if query.is_empty() || !ImageProcessor::has_transform_params(query) {
+        return next.run(request).await;
+    }
+
+    span.record("has_params", true);
+
+    let (hostname, _port) = host
+        .split_once(':')
+        .map_or((host.as_str(), 80u16), |(hostname, port_str)| {
+            (hostname, port_str.parse::<u16>().unwrap_or(80))
+        });
+
+    let resolved_domain = resolve_cname(&state.cname_map, hostname);
+    let domain_path = state.static_dir.join(&resolved_domain);
+
+    if !domain_path.exists() {
+        return next.run(request).await;
+    }
+
+    let uri_path = request.uri().path();
+    let file_path = domain_path.join(uri_path.trim_start_matches('/'));
+
+    span.record("path", uri_path);
+
+    if !file_path.exists() || !file_path.is_file() {
+        return next.run(request).await;
+    }
+
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_lowercase);
+
+    let is_image = matches!(
+        ext.as_deref(),
+        Some("jpg" | "jpeg" | "png" | "webp" | "avif" | "gif")
+    );
+
+    if !is_image {
+        return next.run(request).await;
+    }
+
+    // parse query parameters
+    let params: crate::web::images::ImageParams = match serde_urlencoded::from_str(query) {
+        Ok(p) => p,
+        Err(e) => {
+            span.record("error", format!("Failed to parse params: {e}"));
+            return next.run(request).await;
+        }
+    };
+
+    match processor.process_image(&file_path, params).await {
+        Ok((image_data, content_type)) => {
+            span.record("processed", true);
+            debug!("Processed image: {} ({} bytes)", uri_path, image_data.len());
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, content_type)
+                .body(Body::from(image_data))
+                .unwrap()
+        }
+        Err(e) => {
+            span.record("error", e.to_string());
+            error!("Failed to process image: {e}");
+            // Fall back to serving original file
+            next.run(request).await
         }
     }
 }
@@ -258,9 +347,16 @@ pub async fn start(
         cname_cache.insert(row.alias, row.target);
     }
 
+    let image_processor = if config.images.enabled {
+        Some(Arc::new(ImageProcessor::new(config.images.clone())))
+    } else {
+        None
+    };
+
     let state = WebState {
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
         cname_map: Arc::new(cname_cache),
+        image_processor,
     };
 
     let compression_predicate = SizeAbove::new(1024)
@@ -279,6 +375,10 @@ pub async fn start(
             get(handle_acme_challenge),
         )
         .fallback(handle_request)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            image_middleware,
+        ))
         .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(caching_middleware))
         .layer(CompressionLayer::new().compress_when(compression_predicate))

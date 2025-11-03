@@ -5,3 +5,4 @@ mod consensus;
 mod corrosion;
 mod dns;
 mod fs;
+mod images;
