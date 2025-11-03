@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4](https://github.com/halcyonnouveau/makiatto/compare/v0.3.3...v0.3.4) - 2025-11-03
+
+### Added
+
+- add dynamic image processing
+
 ## [0.3.3](https://github.com/halcyonnouveau/makiatto/compare/v0.3.2...v0.3.3) - 2025-10-22
 
 ### Added
