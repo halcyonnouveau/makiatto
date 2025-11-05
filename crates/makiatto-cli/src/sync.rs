@@ -53,7 +53,10 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
     for domain in config.domains.iter() {
         for function in domain.functions.iter() {
             let path_str = function.path.display().to_string();
-            if !path_str.ends_with(".wasm") {
+            if !std::path::Path::new(&path_str)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wasm"))
+            {
                 return Err(miette::miette!(
                     "Domain '{}': Function path '{}' must end with .wasm extension",
                     domain.name,
@@ -64,7 +67,10 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
 
         for transform in domain.transforms.iter() {
             let path_str = transform.path.display().to_string();
-            if !path_str.ends_with(".wasm") {
+            if !std::path::Path::new(&path_str)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wasm"))
+            {
                 return Err(miette::miette!(
                     "Domain '{}': Transform path '{}' must end with .wasm extension",
                     domain.name,

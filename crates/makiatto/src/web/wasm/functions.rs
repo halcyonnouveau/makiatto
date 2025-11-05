@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 use axum::{
@@ -29,14 +29,14 @@ pub struct DomainFunction {
 
 /// Convert Axum Method to WIT Method enum
 fn convert_method(method: &Method) -> WitMethod {
-    match method {
-        &Method::GET => WitMethod::Get,
-        &Method::POST => WitMethod::Post,
-        &Method::PUT => WitMethod::Put,
-        &Method::DELETE => WitMethod::Delete,
-        &Method::PATCH => WitMethod::Patch,
-        &Method::HEAD => WitMethod::Head,
-        &Method::OPTIONS => WitMethod::Options,
+    match *method {
+        Method::GET => WitMethod::Get,
+        Method::POST => WitMethod::Post,
+        Method::PUT => WitMethod::Put,
+        Method::DELETE => WitMethod::Delete,
+        Method::PATCH => WitMethod::Patch,
+        Method::HEAD => WitMethod::Head,
+        Method::OPTIONS => WitMethod::Options,
         _ => WitMethod::Get, // Default fallback
     }
 }
@@ -58,13 +58,13 @@ fn convert_headers(headers: &HeaderMap) -> Vec<(String, String)> {
 pub async fn execute_function(
     runtime: &WasmRuntime,
     function: &DomainFunction,
-    wasm_path: &PathBuf,
+    wasm_path: &Path,
     request: Request<Body>,
 ) -> Result<Response<Body>> {
     let (parts, body) = request.into_parts();
     let method = convert_method(&parts.method);
     let path = parts.uri.path().to_string();
-    let query = parts.uri.query().map(|q| q.to_string());
+    let query = parts.uri.query().map(std::string::ToString::to_string);
     let headers = convert_headers(&parts.headers);
 
     let body_bytes = axum::body::to_bytes(body, usize::MAX)
@@ -92,7 +92,7 @@ pub async fn execute_function(
         let memory_limit = runtime.effective_memory_limit(function.max_memory_mb);
         let memory_bytes = (memory_limit * 1024 * 1024) as usize;
 
-        let store_data = create_store_data(function.env.clone(), memory_bytes)?;
+        let store_data = create_store_data(function.env.clone(), memory_bytes);
         let mut store = Store::new(component.engine(), store_data);
         store.limiter(|data| &mut data.limits);
 
@@ -126,10 +126,7 @@ pub async fn execute_function(
         response = response.header(name, value);
     }
 
-    let body = wit_response
-        .body
-        .map(Body::from)
-        .unwrap_or_else(Body::empty);
+    let body = wit_response.body.map_or_else(Body::empty, Body::from);
 
     Ok(response.body(body).unwrap())
 }
@@ -203,8 +200,8 @@ pub(crate) async fn wasm_function_middleware(
     let env: HashMap<String, String> = serde_json::from_str(&row.env).unwrap_or_default();
     let function = DomainFunction {
         env,
-        timeout_ms: row.timeout_ms.map(|t| t as u64),
-        max_memory_mb: row.max_memory_mb.map(|m| m as u64),
+        timeout_ms: row.timeout_ms.map(i64::cast_unsigned),
+        max_memory_mb: row.max_memory_mb.map(i64::cast_unsigned),
     };
 
     let wasm_path = state.static_dir.join(&resolved_domain).join(&row.path);

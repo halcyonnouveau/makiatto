@@ -64,7 +64,7 @@ jobs:
           ref: ${{ github.event.inputs.tag && format('refs/tags/{0}', github.event.inputs.tag) || github.ref }}
 
   upload-wit-files:
-    name: Upload WIT interface files
+    name: Upload Wasm Interface Type files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

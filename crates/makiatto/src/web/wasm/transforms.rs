@@ -27,10 +27,10 @@ pub async fn execute_transform(
     _file_path: &str,
 ) -> Result<Bytes> {
     // Check file size limit
-    if let Some(max_kb) = transform.max_file_size_kb {
-        if content.len() > (max_kb as usize * 1024) {
-            return Ok(content); // Skip transform for large files
-        }
+    if let Some(max_kb) = transform.max_file_size_kb
+        && content.len() > (max_kb as usize * 1024)
+    {
+        return Ok(content); // Skip transform for large files
     }
 
     // TODO: Implement transform execution
@@ -59,9 +59,6 @@ pub(crate) async fn wasm_transform_middleware(
         return next.run(request).await;
     };
 
-    // Let request pass through to get response
-    let response = next.run(request).await;
-
     // TODO: Implement middleware
     // 1. Extract hostname from request
     // 2. Extract response path
@@ -72,5 +69,5 @@ pub(crate) async fn wasm_transform_middleware(
     //    c. Replace response body with transformed content
     // 5. Return transformed response
 
-    response
+    next.run(request).await
 }

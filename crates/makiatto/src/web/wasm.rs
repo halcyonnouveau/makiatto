@@ -8,7 +8,7 @@ pub(crate) use functions::wasm_function_middleware;
 use miette::{Context, IntoDiagnostic, Result, miette};
 pub(crate) use transforms::wasm_transform_middleware;
 use wasmtime::component::{Component, ResourceTable};
-use wasmtime::*;
+use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::config::WasmConfig;
@@ -120,7 +120,7 @@ impl WasiView for StoreData {
 pub(crate) fn create_store_data(
     env: std::collections::HashMap<String, String>,
     memory_bytes: usize,
-) -> Result<StoreData> {
+) -> StoreData {
     let mut builder = WasiCtxBuilder::new();
 
     for (key, value) in env {
@@ -135,9 +135,9 @@ pub(crate) fn create_store_data(
         .memory_size(memory_bytes)
         .build();
 
-    Ok(StoreData {
+    StoreData {
         wasi,
         table,
         limits,
-    })
+    }
 }
