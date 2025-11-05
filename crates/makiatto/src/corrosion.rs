@@ -162,17 +162,8 @@ pub async fn execute_transactions(sqls: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    let escaped_sqls: Vec<String> = sqls
-        .iter()
-        .map(|sql| {
-            sql.replace('"', "\\\"")
-                .replace('\n', " ")
-                .trim()
-                .to_string()
-        })
-        .collect();
-
-    let json_payload = format!("[\"{}\"]", escaped_sqls.join("\", \""));
+    let json_payload = serde_json::to_string(sqls)
+        .map_err(|e| miette::miette!("Failed to serialise SQL statements: {e}"))?;
 
     let client = reqwest::Client::new();
     let response = client
