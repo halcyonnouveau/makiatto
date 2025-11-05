@@ -1,0 +1,38 @@
+package makiatto:transform@0.1.0;
+
+/// Transform interface for processing files in Makiatto
+interface transform {
+    /// File metadata
+    record file-info {
+        /// File path relative to domain root
+        path: string,
+        /// MIME type of the file
+        mime-type: string,
+        /// File size in bytes
+        size: u64,
+    }
+
+    /// Transform result
+    record transform-result {
+        /// Transformed file content
+        content: list<u8>,
+        /// Optional new MIME type (if transformation changes the type)
+        mime-type: option<string>,
+        /// Optional additional headers to set
+        headers: list<tuple<string, string>>,
+    }
+
+    /// Main transform function - processes a file and returns transformed content
+    /// This is the function that WASM components must export
+    ///
+    /// Returns option<transform-result>:
+    /// - some(result) if the file should be transformed
+    /// - none if the file should pass through unchanged
+    transform: func(info: file-info, content: list<u8>) -> option<transform-result>;
+}
+
+/// World for transform components
+world file-transformer {
+    /// Components export the transform interface
+    export transform;
+}

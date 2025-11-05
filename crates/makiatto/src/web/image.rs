@@ -1,6 +1,8 @@
 use std::{path::Path, sync::Arc, time::SystemTime};
 
 use blake3::Hasher;
+use imageflow_core::clients::stateless::{BuildInput, BuildRequest, LibClient};
+use imageflow_types::{Constraint, ConstraintMode, EncoderPreset, Framewise, Node, ResampleHints};
 use moka::future::Cache;
 use serde::Deserialize;
 use tracing::debug;
@@ -188,11 +190,6 @@ impl ImageProcessor {
 
     #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     fn transform_image(image_data: &[u8], params: &ImageParams) -> Result<Vec<u8>, ProcessError> {
-        use imageflow_core::clients::stateless::{BuildInput, BuildRequest, LibClient};
-        use imageflow_types::{
-            Constraint, ConstraintMode, EncoderPreset, Framewise, Node, ResampleHints,
-        };
-
         let mut steps = Vec::new();
 
         steps.push(Node::Decode {

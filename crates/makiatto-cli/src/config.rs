@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use miette::{Result, miette};
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,10 @@ pub struct Domain {
     pub aliases: Arc<[Arc<str>]>,
     #[serde(default)]
     pub records: Arc<[DnsRecord]>,
+    #[serde(default)]
+    pub functions: Arc<[WasmFunction]>,
+    #[serde(default)]
+    pub transforms: Arc<[WasmTransform]>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -61,6 +65,37 @@ fn default_record_name() -> Arc<str> {
 
 fn default_ttl() -> u32 {
     300
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WasmFunction {
+    pub path: PathBuf,
+    #[serde(default)]
+    pub methods: Option<Arc<[Arc<str>]>>,
+    #[serde(default)]
+    pub env_file: Option<PathBuf>,
+    #[serde(default)]
+    pub env: HashMap<Arc<str>, Arc<str>>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub max_memory_mb: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WasmTransform {
+    pub path: PathBuf,
+    pub files: Arc<str>, // glob pattern
+    #[serde(default)]
+    pub env_file: Option<PathBuf>,
+    #[serde(default)]
+    pub env: HashMap<Arc<str>, Arc<str>>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub max_memory_mb: Option<u64>,
+    #[serde(default)]
+    pub max_file_size_kb: Option<u64>,
 }
 
 impl Profile {

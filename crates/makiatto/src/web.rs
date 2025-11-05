@@ -1,4 +1,5 @@
 pub mod axum;
 pub mod certificate;
 pub mod dns;
-pub mod images;
+pub mod image;
+pub mod wasm;

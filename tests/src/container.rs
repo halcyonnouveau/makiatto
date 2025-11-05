@@ -36,6 +36,7 @@ pub struct ContainerContext {
     pub gateway_ip: Arc<str>,
     pub root: path::PathBuf,
     pub target: path::PathBuf,
+    pub runtime: &'static str,
     containers: Vec<TestContainer>,
 }
 
@@ -58,6 +59,7 @@ impl ContainerContext {
             gateway_ip: Arc::from(Self::get_gateway_ip(runtime)?),
             root: root.to_owned(),
             target,
+            runtime,
             containers: Vec::new(),
         })
     }
@@ -572,9 +574,8 @@ pub mod util {
             return Ok(());
         }
 
-        let escaped_sqls: Vec<String> = sqls.iter().map(|sql| sql.replace('"', "\\\"")).collect();
-
-        let json_payload = format!("[\"{}\"]", escaped_sqls.join("\", \""));
+        let json_payload =
+            serde_json::to_string(sqls).map_err(|e| miette!("Failed to serialise SQL: {e}"))?;
 
         let mut result = daemon
             .exec(ExecCommand::new(vec![

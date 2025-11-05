@@ -62,3 +62,20 @@ jobs:
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ github.event.inputs.tag && format('refs/tags/{0}', github.event.inputs.tag) || github.ref }}
+
+  upload-wit-files:
+    name: Upload WIT interface files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Package WIT files
+        run: |
+          mkdir -p makiatto-wit
+          cp -r crates/makiatto/wit makiatto-wit/
+          tar -czf makiatto-wit.tar.gz makiatto-wit
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: makiatto-wit.tar.gz
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}

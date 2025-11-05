@@ -6,3 +6,4 @@ mod corrosion;
 mod dns;
 mod fs;
 mod images;
+mod wasm;

@@ -3,7 +3,10 @@ use std::{fs, sync::Arc};
 use miette::Result;
 use tracing::info;
 
-const MIGRATIONS: &[&str] = &[include_str!("../../migrations/001_initial_schema.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../../migrations/001_initial_schema.sql"),
+    include_str!("../../migrations/002_wasm_support.sql"),
+];
 
 #[derive(Debug, Clone)]
 pub struct Peer {

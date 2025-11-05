@@ -1,0 +1,49 @@
+package makiatto:http@0.1.0;
+
+/// HTTP handler interface for Makiatto WASM functions
+interface handler {
+    /// HTTP method
+    enum method {
+        get,
+        post,
+        put,
+        delete,
+        patch,
+        head,
+        options,
+    }
+
+    /// HTTP request passed to the function
+    record request {
+        /// HTTP method
+        method: method,
+        /// Request path (e.g., "/api/users")
+        path: string,
+        /// Query string without the '?' (e.g., "foo=bar&baz=qux")
+        query: option<string>,
+        /// HTTP headers as key-value pairs
+        headers: list<tuple<string, string>>,
+        /// Request body bytes
+        body: option<list<u8>>,
+    }
+
+    /// HTTP response returned by the function
+    record response {
+        /// HTTP status code (e.g., 200, 404, 500)
+        status: u16,
+        /// Response headers as key-value pairs
+        headers: list<tuple<string, string>>,
+        /// Response body bytes
+        body: option<list<u8>>,
+    }
+
+    /// Main handler function - processes an HTTP request and returns a response
+    /// This is the function that WASM components must export
+    handle-request: func(req: request) -> response;
+}
+
+/// World for HTTP handler components
+world http-handler {
+    /// Components export the handler interface
+    export handler;
+}

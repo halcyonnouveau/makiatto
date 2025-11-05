@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use miette::{Result, miette};
+use miette::{IntoDiagnostic, Result, miette};
 
 use crate::{config::Machine, ssh::SshSession};
 
@@ -160,20 +160,12 @@ pub fn execute_transactions(ssh: &SshSession, sqls: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    let escaped_sqls: Vec<String> = sqls
-        .iter()
-        .map(|sql| {
-            sql.replace('"', "\\\"")
-                .replace('\n', " ")
-                .trim()
-                .to_string()
-        })
-        .collect();
-
-    let json_payload = format!("[\\\"{}\\\"]", escaped_sqls.join("\\\", \\\""));
+    let json_payload = serde_json::to_string(sqls).into_diagnostic()?;
+    // need to escape backslashes and quotes for passing through SSH
+    let escaped_payload = json_payload.replace('\\', "\\\\").replace('"', "\\\"");
 
     let cmd = format!(
-        "curl -s -X POST -H 'Content-Type: application/json' -d \"{json_payload}\" http://127.0.0.1:8181/v1/transactions",
+        "curl -s -X POST -H 'Content-Type: application/json' -d \"{escaped_payload}\" http://127.0.0.1:8181/v1/transactions",
     );
 
     let response = ssh
