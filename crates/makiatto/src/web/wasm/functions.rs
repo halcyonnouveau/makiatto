@@ -118,9 +118,7 @@ pub async fn execute_function(
     let status =
         StatusCode::from_u16(wit_response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
-    let mut response = Response::builder()
-        .status(status)
-        .header("X-Powered-By", "Makiatto-WASM");
+    let mut response = Response::builder().status(status);
 
     for (name, value) in wit_response.headers {
         response = response.header(name, value);

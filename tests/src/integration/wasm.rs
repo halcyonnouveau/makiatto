@@ -67,10 +67,6 @@ async fn test_wasm_function_basic_execution() -> Result<()> {
         .into_diagnostic()?;
 
     assert_eq!(response.status(), 200);
-    assert_eq!(
-        response.headers().get("x-powered-by").unwrap(),
-        "Makiatto-WASM"
-    );
 
     let body = response.text().await.into_diagnostic()?;
     assert!(body.contains("Method::Get"));
