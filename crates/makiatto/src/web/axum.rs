@@ -360,7 +360,24 @@ pub async fn start(
     };
 
     let wasm_runtime = if config.wasm.enabled {
-        match WasmRuntime::new(config.wasm) {
+        let node_info = sqlx::query!(
+            "SELECT latitude, longitude FROM peers WHERE name = ?",
+            config.node.name.as_ref()
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query node info: {e}"))?;
+
+        let (latitude, longitude) = node_info
+            .map_or((0.0, 0.0), |row| (row.latitude, row.longitude));
+
+        let node_context = crate::web::wasm::NodeContext {
+            name: config.node.name.to_string(),
+            latitude,
+            longitude,
+        };
+
+        match WasmRuntime::new(config.wasm, node_context) {
             Ok(runtime) => Some(Arc::new(runtime)),
             Err(e) => {
                 warn!("Failed to initialise WASM runtime: {e}");

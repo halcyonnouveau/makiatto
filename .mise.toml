@@ -3,9 +3,9 @@
 
 [tasks.build-wasm-fixtures]
 description = "Build WASM component test fixtures"
-dir = "{{cwd}}/tests/fixtures/wasm-components"
+dir = "{{cwd}}/tests/fixtures/wasm"
 run = [
-    "cargo component build --release",
-    "mkdir -p ../wasm",
-    "cp target/wasm32-wasip1/release/wasm_test_fixtures.wasm ../wasm/simple-handler.wasm"
+    "cargo component build --release --workspace",
+    "cp target/wasm32-wasip1/release/simple_handler.wasm simple-handler.wasm",
+    "cp target/wasm32-wasip1/release/simple_transformer.wasm simple-transformer.wasm"
 ]

@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "simple-handler-component",
+    "simple-transformer-component",
+]
+resolver = "2"
+
+[workspace.dependencies]
+wit-bindgen = "0.34"

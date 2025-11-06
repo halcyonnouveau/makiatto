@@ -13,6 +13,28 @@ pub mod exports {
                 #[doc(hidden)]
                 static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
                 use super::super::super::super::_rt;
+                /// Node context information
+                #[derive(Clone)]
+                pub struct NodeContext {
+                    /// Node name/identifier
+                    pub name: _rt::String,
+                    /// Node latitude
+                    pub latitude: f64,
+                    /// Node longitude
+                    pub longitude: f64,
+                }
+                impl ::core::fmt::Debug for NodeContext {
+                    fn fmt(
+                        &self,
+                        f: &mut ::core::fmt::Formatter<'_>,
+                    ) -> ::core::fmt::Result {
+                        f.debug_struct("NodeContext")
+                            .field("name", &self.name)
+                            .field("latitude", &self.latitude)
+                            .field("longitude", &self.longitude)
+                            .finish()
+                    }
+                }
                 /// HTTP method
                 #[repr(u8)]
                 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -112,157 +134,170 @@ pub mod exports {
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn _export_handle_request_cabi<T: Guest>(
-                    arg0: i32,
-                    arg1: *mut u8,
-                    arg2: usize,
-                    arg3: i32,
-                    arg4: *mut u8,
-                    arg5: usize,
-                    arg6: *mut u8,
-                    arg7: usize,
-                    arg8: i32,
-                    arg9: *mut u8,
-                    arg10: usize,
+                    arg0: *mut u8,
+                    arg1: usize,
+                    arg2: f64,
+                    arg3: f64,
+                    arg4: i32,
+                    arg5: *mut u8,
+                    arg6: usize,
+                    arg7: i32,
+                    arg8: *mut u8,
+                    arg9: usize,
+                    arg10: *mut u8,
+                    arg11: usize,
+                    arg12: i32,
+                    arg13: *mut u8,
+                    arg14: usize,
                 ) -> *mut u8 {
                     #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
-                    let len0 = arg2;
-                    let bytes0 = _rt::Vec::from_raw_parts(arg1.cast(), len0, len0);
-                    let base8 = arg6;
-                    let len8 = arg7;
-                    let mut result8 = _rt::Vec::with_capacity(len8);
-                    for i in 0..len8 {
-                        let base = base8
+                    let len0 = arg1;
+                    let bytes0 = _rt::Vec::from_raw_parts(arg0.cast(), len0, len0);
+                    let len1 = arg6;
+                    let bytes1 = _rt::Vec::from_raw_parts(arg5.cast(), len1, len1);
+                    let base9 = arg10;
+                    let len9 = arg11;
+                    let mut result9 = _rt::Vec::with_capacity(len9);
+                    for i in 0..len9 {
+                        let base = base9
                             .add(i * (4 * ::core::mem::size_of::<*const u8>()));
-                        let e8 = {
-                            let l2 = *base.add(0).cast::<*mut u8>();
-                            let l3 = *base
+                        let e9 = {
+                            let l3 = *base.add(0).cast::<*mut u8>();
+                            let l4 = *base
                                 .add(::core::mem::size_of::<*const u8>())
                                 .cast::<usize>();
-                            let len4 = l3;
-                            let bytes4 = _rt::Vec::from_raw_parts(l2.cast(), len4, len4);
-                            let l5 = *base
+                            let len5 = l4;
+                            let bytes5 = _rt::Vec::from_raw_parts(l3.cast(), len5, len5);
+                            let l6 = *base
                                 .add(2 * ::core::mem::size_of::<*const u8>())
                                 .cast::<*mut u8>();
-                            let l6 = *base
+                            let l7 = *base
                                 .add(3 * ::core::mem::size_of::<*const u8>())
                                 .cast::<usize>();
-                            let len7 = l6;
-                            let bytes7 = _rt::Vec::from_raw_parts(l5.cast(), len7, len7);
-                            (_rt::string_lift(bytes4), _rt::string_lift(bytes7))
+                            let len8 = l7;
+                            let bytes8 = _rt::Vec::from_raw_parts(l6.cast(), len8, len8);
+                            (_rt::string_lift(bytes5), _rt::string_lift(bytes8))
                         };
-                        result8.push(e8);
+                        result9.push(e9);
                     }
                     _rt::cabi_dealloc(
-                        base8,
-                        len8 * (4 * ::core::mem::size_of::<*const u8>()),
+                        base9,
+                        len9 * (4 * ::core::mem::size_of::<*const u8>()),
                         ::core::mem::size_of::<*const u8>(),
                     );
-                    let result10 = T::handle_request(Request {
-                        method: Method::_lift(arg0 as u8),
-                        path: _rt::string_lift(bytes0),
-                        query: match arg3 {
-                            0 => None,
-                            1 => {
-                                let e = {
-                                    let len1 = arg5;
-                                    let bytes1 = _rt::Vec::from_raw_parts(
-                                        arg4.cast(),
-                                        len1,
-                                        len1,
-                                    );
-                                    _rt::string_lift(bytes1)
-                                };
-                                Some(e)
-                            }
-                            _ => _rt::invalid_enum_discriminant(),
+                    let result11 = T::handle_request(
+                        NodeContext {
+                            name: _rt::string_lift(bytes0),
+                            latitude: arg2,
+                            longitude: arg3,
                         },
-                        headers: result8,
-                        body: match arg8 {
-                            0 => None,
-                            1 => {
-                                let e = {
-                                    let len9 = arg10;
-                                    _rt::Vec::from_raw_parts(arg9.cast(), len9, len9)
-                                };
-                                Some(e)
-                            }
-                            _ => _rt::invalid_enum_discriminant(),
+                        Request {
+                            method: Method::_lift(arg4 as u8),
+                            path: _rt::string_lift(bytes1),
+                            query: match arg7 {
+                                0 => None,
+                                1 => {
+                                    let e = {
+                                        let len2 = arg9;
+                                        let bytes2 = _rt::Vec::from_raw_parts(
+                                            arg8.cast(),
+                                            len2,
+                                            len2,
+                                        );
+                                        _rt::string_lift(bytes2)
+                                    };
+                                    Some(e)
+                                }
+                                _ => _rt::invalid_enum_discriminant(),
+                            },
+                            headers: result9,
+                            body: match arg12 {
+                                0 => None,
+                                1 => {
+                                    let e = {
+                                        let len10 = arg14;
+                                        _rt::Vec::from_raw_parts(arg13.cast(), len10, len10)
+                                    };
+                                    Some(e)
+                                }
+                                _ => _rt::invalid_enum_discriminant(),
+                            },
                         },
-                    });
-                    let ptr11 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    );
+                    let ptr12 = (&raw mut _RET_AREA.0).cast::<u8>();
                     let Response {
-                        status: status12,
-                        headers: headers12,
-                        body: body12,
-                    } = result10;
-                    *ptr11.add(0).cast::<u16>() = (_rt::as_i32(status12)) as u16;
-                    let vec16 = headers12;
-                    let len16 = vec16.len();
-                    let layout16 = _rt::alloc::Layout::from_size_align_unchecked(
-                        vec16.len() * (4 * ::core::mem::size_of::<*const u8>()),
+                        status: status13,
+                        headers: headers13,
+                        body: body13,
+                    } = result11;
+                    *ptr12.add(0).cast::<u16>() = (_rt::as_i32(status13)) as u16;
+                    let vec17 = headers13;
+                    let len17 = vec17.len();
+                    let layout17 = _rt::alloc::Layout::from_size_align_unchecked(
+                        vec17.len() * (4 * ::core::mem::size_of::<*const u8>()),
                         ::core::mem::size_of::<*const u8>(),
                     );
-                    let result16 = if layout16.size() != 0 {
-                        let ptr = _rt::alloc::alloc(layout16).cast::<u8>();
+                    let result17 = if layout17.size() != 0 {
+                        let ptr = _rt::alloc::alloc(layout17).cast::<u8>();
                         if ptr.is_null() {
-                            _rt::alloc::handle_alloc_error(layout16);
+                            _rt::alloc::handle_alloc_error(layout17);
                         }
                         ptr
                     } else {
                         ::core::ptr::null_mut()
                     };
-                    for (i, e) in vec16.into_iter().enumerate() {
-                        let base = result16
+                    for (i, e) in vec17.into_iter().enumerate() {
+                        let base = result17
                             .add(i * (4 * ::core::mem::size_of::<*const u8>()));
                         {
-                            let (t13_0, t13_1) = e;
-                            let vec14 = (t13_0.into_bytes()).into_boxed_slice();
-                            let ptr14 = vec14.as_ptr().cast::<u8>();
-                            let len14 = vec14.len();
-                            ::core::mem::forget(vec14);
-                            *base
-                                .add(::core::mem::size_of::<*const u8>())
-                                .cast::<usize>() = len14;
-                            *base.add(0).cast::<*mut u8>() = ptr14.cast_mut();
-                            let vec15 = (t13_1.into_bytes()).into_boxed_slice();
+                            let (t14_0, t14_1) = e;
+                            let vec15 = (t14_0.into_bytes()).into_boxed_slice();
                             let ptr15 = vec15.as_ptr().cast::<u8>();
                             let len15 = vec15.len();
                             ::core::mem::forget(vec15);
                             *base
-                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .add(::core::mem::size_of::<*const u8>())
                                 .cast::<usize>() = len15;
+                            *base.add(0).cast::<*mut u8>() = ptr15.cast_mut();
+                            let vec16 = (t14_1.into_bytes()).into_boxed_slice();
+                            let ptr16 = vec16.as_ptr().cast::<u8>();
+                            let len16 = vec16.len();
+                            ::core::mem::forget(vec16);
+                            *base
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len16;
                             *base
                                 .add(2 * ::core::mem::size_of::<*const u8>())
-                                .cast::<*mut u8>() = ptr15.cast_mut();
+                                .cast::<*mut u8>() = ptr16.cast_mut();
                         }
                     }
-                    *ptr11
+                    *ptr12
                         .add(2 * ::core::mem::size_of::<*const u8>())
-                        .cast::<usize>() = len16;
-                    *ptr11.add(::core::mem::size_of::<*const u8>()).cast::<*mut u8>() = result16;
-                    match body12 {
+                        .cast::<usize>() = len17;
+                    *ptr12.add(::core::mem::size_of::<*const u8>()).cast::<*mut u8>() = result17;
+                    match body13 {
                         Some(e) => {
-                            *ptr11
+                            *ptr12
                                 .add(3 * ::core::mem::size_of::<*const u8>())
                                 .cast::<u8>() = (1i32) as u8;
-                            let vec17 = (e).into_boxed_slice();
-                            let ptr17 = vec17.as_ptr().cast::<u8>();
-                            let len17 = vec17.len();
-                            ::core::mem::forget(vec17);
-                            *ptr11
+                            let vec18 = (e).into_boxed_slice();
+                            let ptr18 = vec18.as_ptr().cast::<u8>();
+                            let len18 = vec18.len();
+                            ::core::mem::forget(vec18);
+                            *ptr12
                                 .add(5 * ::core::mem::size_of::<*const u8>())
-                                .cast::<usize>() = len17;
-                            *ptr11
+                                .cast::<usize>() = len18;
+                            *ptr12
                                 .add(4 * ::core::mem::size_of::<*const u8>())
-                                .cast::<*mut u8>() = ptr17.cast_mut();
+                                .cast::<*mut u8>() = ptr18.cast_mut();
                         }
                         None => {
-                            *ptr11
+                            *ptr12
                                 .add(3 * ::core::mem::size_of::<*const u8>())
                                 .cast::<u8>() = (0i32) as u8;
                         }
                     };
-                    ptr11
+                    ptr12
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
@@ -319,20 +354,20 @@ pub mod exports {
                 pub trait Guest {
                     /// Main handler function - processes an HTTP request and returns a response
                     /// This is the function that WASM components must export
-                    fn handle_request(req: Request) -> Response;
+                    fn handle_request(ctx: NodeContext, req: Request) -> Response;
                 }
                 #[doc(hidden)]
                 macro_rules! __export_makiatto_http_handler_0_1_0_cabi {
                     ($ty:ident with_types_in $($path_to_types:tt)*) => {
                         const _ : () = { #[unsafe (export_name =
                         "makiatto:http/handler@0.1.0#handle-request")] unsafe extern "C"
-                        fn export_handle_request(arg0 : i32, arg1 : * mut u8, arg2 :
-                        usize, arg3 : i32, arg4 : * mut u8, arg5 : usize, arg6 : * mut
-                        u8, arg7 : usize, arg8 : i32, arg9 : * mut u8, arg10 : usize,) ->
-                        * mut u8 { unsafe { $($path_to_types)*::
-                        _export_handle_request_cabi::<$ty > (arg0, arg1, arg2, arg3,
-                        arg4, arg5, arg6, arg7, arg8, arg9, arg10) } } #[unsafe
-                        (export_name =
+                        fn export_handle_request(arg0 : * mut u8, arg1 : usize, arg2 :
+                        f64, arg3 : f64, arg4 : i32, arg5 : * mut u8, arg6 : usize, arg7
+                        : i32, arg8 : * mut u8, arg9 : usize, arg10 : * mut u8, arg11 :
+                        usize, arg12 : i32, arg13 : * mut u8, arg14 : usize,) -> * mut u8
+                        { unsafe { $($path_to_types)*:: _export_handle_request_cabi::<$ty
+                        > (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9,
+                        arg10, arg11, arg12, arg13, arg14) } } #[unsafe (export_name =
                         "cabi_post_makiatto:http/handler@0.1.0#handle-request")] unsafe
                         extern "C" fn _post_return_handle_request(arg0 : * mut u8,) {
                         unsafe { $($path_to_types)*:: __post_return_handle_request::<$ty
@@ -466,7 +501,7 @@ mod _rt {
 /// ```
 #[allow(unused_macros)]
 #[doc(hidden)]
-macro_rules! __export_http_handler_impl {
+macro_rules! __export_http_impl {
     ($ty:ident) => {
         self::export!($ty with_types_in self);
     };
@@ -477,23 +512,24 @@ macro_rules! __export_http_handler_impl {
     };
 }
 #[doc(inline)]
-pub(crate) use __export_http_handler_impl as export;
+pub(crate) use __export_http_impl as export;
 #[cfg(target_arch = "wasm32")]
 #[unsafe(
-    link_section = "component-type:wit-bindgen:0.41.0:makiatto:http@0.1.0:http-handler:encoded world"
+    link_section = "component-type:wit-bindgen:0.41.0:makiatto:http@0.1.0:http:encoded world"
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 401] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x8e\x02\x01A\x02\x01\
-A\x02\x01B\x0d\x01m\x07\x03get\x04post\x03put\x06delete\x05patch\x04head\x07opti\
-ons\x04\0\x06method\x03\0\0\x01ks\x01o\x02ss\x01p\x03\x01p}\x01k\x05\x01r\x05\x06\
-method\x01\x04paths\x05query\x02\x07headers\x04\x04body\x06\x04\0\x07request\x03\
-\0\x07\x01r\x03\x06status{\x07headers\x04\x04body\x06\x04\0\x08response\x03\0\x09\
-\x01@\x01\x03req\x08\0\x0a\x04\0\x0ehandle-request\x01\x0b\x04\0\x1bmakiatto:htt\
-p/handler@0.1.0\x05\0\x04\0\x20makiatto:http/http-handler@0.1.0\x04\0\x0b\x12\x01\
-\0\x0chttp-handler\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-compon\
-ent\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 438] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xbb\x02\x01A\x02\x01\
+A\x02\x01B\x0f\x01r\x03\x04names\x08latitudeu\x09longitudeu\x04\0\x0cnode-contex\
+t\x03\0\0\x01m\x07\x03get\x04post\x03put\x06delete\x05patch\x04head\x07options\x04\
+\0\x06method\x03\0\x02\x01ks\x01o\x02ss\x01p\x05\x01p}\x01k\x07\x01r\x05\x06meth\
+od\x03\x04paths\x05query\x04\x07headers\x06\x04body\x08\x04\0\x07request\x03\0\x09\
+\x01r\x03\x06status{\x07headers\x06\x04body\x08\x04\0\x08response\x03\0\x0b\x01@\
+\x02\x03ctx\x01\x03req\x0a\0\x0c\x04\0\x0ehandle-request\x01\x0d\x04\0\x1bmakiat\
+to:http/handler@0.1.0\x05\0\x04\0\x18makiatto:http/http@0.1.0\x04\0\x0b\x0a\x01\0\
+\x04http\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.2\
+27.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

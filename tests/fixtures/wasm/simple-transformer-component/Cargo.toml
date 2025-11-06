@@ -1,7 +1,5 @@
-[workspace]
-
 [package]
-name = "wasm-test-fixtures"
+name = "simple-transformer"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,10 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = "0.34"
-
-[package.metadata.component]
-package = "makiatto:http-handler"
+wit-bindgen = { workspace = true }
 
 [package.metadata.component.target]
 path = "wit"

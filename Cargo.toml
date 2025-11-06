@@ -1,6 +1,6 @@
 [workspace]
 members = ["benches/*", "crates/*", "tests"]
-exclude = ["tests/fixtures/wasm-components"]
+exclude = ["tests/fixtures/*"]
 resolver = "2"
 
 [workspace.package]
@@ -101,6 +101,7 @@ camino = "1.2"
 dashmap = "6.1"
 flate2 = "1.0"
 geo = "0.31"
+globset = "0.4"
 indoc = "2.0"
 jiff = "0.2"
 notify-debouncer-full = "0.6"

@@ -15,9 +15,9 @@ use wasmtime::Store;
 use wasmtime::component::Linker;
 
 use super::{
-    WasmRuntime, create_store_data, http_handler_bindings,
-    http_handler_bindings::exports::makiatto::http::handler::{
-        Method as WitMethod, Request as WitRequest,
+    WasmRuntime, create_store_data, http_bindings,
+    http_bindings::exports::makiatto::http::handler::{
+        Method as WitMethod, NodeContext as WitNodeContext, Request as WitRequest,
     },
 };
 
@@ -100,14 +100,19 @@ pub async fn execute_function(
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)
             .map_err(|e| miette!("Failed to add WASI to linker: {e}"))?;
 
-        let instance =
-            http_handler_bindings::HttpHandler::instantiate_async(&mut store, &component, &linker)
-                .await
-                .map_err(|e| miette!("Failed to instantiate component: {e}"))?;
+        let instance = http_bindings::Http::instantiate_async(&mut store, &component, &linker)
+            .await
+            .map_err(|e| miette!("Failed to instantiate component: {e}"))?;
+
+        let node_context = WitNodeContext {
+            name: runtime.node_context.name.clone(),
+            latitude: runtime.node_context.latitude,
+            longitude: runtime.node_context.longitude,
+        };
 
         let handler = instance.makiatto_http_handler();
         handler
-            .call_handle_request(&mut store, &wit_request)
+            .call_handle_request(&mut store, &node_context, &wit_request)
             .await
             .map_err(|e| miette!("Failed to execute WASM function: {e}"))
     })

@@ -8,15 +8,15 @@ pub(crate) use functions::wasm_function_middleware;
 use miette::{Context, IntoDiagnostic, Result, miette};
 pub(crate) use transforms::wasm_transform_middleware;
 use wasmtime::component::{Component, ResourceTable};
-use wasmtime::{Config, Engine, Store};
+use wasmtime::{Config, Engine};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::config::WasmConfig;
 
-pub mod http_handler_bindings {
+pub mod http_bindings {
     wasmtime::component::bindgen!({
-        world: "http-handler",
-        path: "wit/http/http-handler.wit",
+        world: "http",
+        path: "wit/http.wit",
         imports: {
             default: async,
         },
@@ -28,12 +28,23 @@ pub mod http_handler_bindings {
 
 pub mod transformer_bindings {
     wasmtime::component::bindgen!({
-        world: "file-transformer",
-        path: "wit/transform/transform.wit",
+        world: "transform",
+        path: "wit/transform.wit",
         imports: {
             default: async,
         },
+        exports: {
+            default: async,
+        },
     });
+}
+
+/// Node context information
+#[derive(Debug, Clone)]
+pub struct NodeContext {
+    pub name: String,
+    pub latitude: f64,
+    pub longitude: f64,
 }
 
 /// Global WASM engine shared across all requests
@@ -41,10 +52,11 @@ pub struct WasmRuntime {
     engine: Engine,
     components: DashMap<String, Component>,
     config: WasmConfig,
+    pub node_context: NodeContext,
 }
 
 impl WasmRuntime {
-    pub fn new(config: WasmConfig) -> Result<Self> {
+    pub fn new(config: WasmConfig, node_context: NodeContext) -> Result<Self> {
         let mut engine_config = Config::new();
         engine_config.async_support(true);
         engine_config.wasm_component_model(true);
@@ -57,6 +69,7 @@ impl WasmRuntime {
             engine,
             components: DashMap::new(),
             config,
+            node_context,
         })
     }
 

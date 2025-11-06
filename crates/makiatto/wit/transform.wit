@@ -1,7 +1,17 @@
 package makiatto:transform@0.1.0;
 
-/// Transform interface for processing files in Makiatto
-interface transform {
+/// Transformer interface for processing files in Makiatto
+interface transformer {
+    /// Node context information
+    record node-context {
+        /// Node name/identifier
+        name: string,
+        /// Node latitude
+        latitude: f64,
+        /// Node longitude
+        longitude: f64,
+    }
+
     /// File metadata
     record file-info {
         /// File path relative to domain root
@@ -28,11 +38,11 @@ interface transform {
     /// Returns option<transform-result>:
     /// - some(result) if the file should be transformed
     /// - none if the file should pass through unchanged
-    transform: func(info: file-info, content: list<u8>) -> option<transform-result>;
+    transform: func(ctx: node-context, info: file-info, content: list<u8>) -> option<transform-result>;
 }
 
 /// World for transform components
-world file-transformer {
-    /// Components export the transform interface
-    export transform;
+world transform {
+    /// Components export the transformer interface
+    export transformer;
 }

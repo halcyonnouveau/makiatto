@@ -2,6 +2,16 @@ package makiatto:http@0.1.0;
 
 /// HTTP handler interface for Makiatto WASM functions
 interface handler {
+    /// Node context information
+    record node-context {
+        /// Node name/identifier
+        name: string,
+        /// Node latitude
+        latitude: f64,
+        /// Node longitude
+        longitude: f64,
+    }
+
     /// HTTP method
     enum method {
         get,
@@ -39,11 +49,11 @@ interface handler {
 
     /// Main handler function - processes an HTTP request and returns a response
     /// This is the function that WASM components must export
-    handle-request: func(req: request) -> response;
+    handle-request: func(ctx: node-context, req: request) -> response;
 }
 
 /// World for HTTP handler components
-world http-handler {
+world http {
     /// Components export the handler interface
     export handler;
 }
