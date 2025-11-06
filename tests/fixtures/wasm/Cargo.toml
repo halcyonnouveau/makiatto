@@ -1,9 +1,12 @@
 [workspace]
 members = [
     "simple-handler-component",
-    "simple-transformer-component",
+    "simple-transformer-component", "ssrf-test-component",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 wit-bindgen = "0.34"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "allow"

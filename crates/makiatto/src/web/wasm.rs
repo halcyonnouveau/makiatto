@@ -1,6 +1,7 @@
 mod functions;
 mod transforms;
 
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 
 use dashmap::DashMap;
@@ -9,6 +10,7 @@ use miette::{Context, IntoDiagnostic, Result, miette};
 pub(crate) use transforms::wasm_transform_middleware;
 use wasmtime::component::{Component, ResourceTable};
 use wasmtime::{Config, Engine};
+use wasmtime_wasi::sockets::SocketAddrUse;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::config::WasmConfig;
@@ -138,6 +140,23 @@ impl WasiView for StoreData {
     }
 }
 
+/// Check if an IP address is private or reserved (for SSRF protection)
+fn is_private_or_reserved_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => {
+            ipv4.is_loopback()
+                || ipv4.is_private()
+                || ipv4.is_link_local()
+                || ipv4.is_broadcast()
+                || ipv4.is_documentation()
+                || ipv4.is_unspecified()
+                // AWS/cloud metadata endpoints
+                || ipv4.octets() == [169, 254, 169, 254]
+        }
+        IpAddr::V6(ipv6) => ipv6.is_loopback() || ipv6.is_unspecified() || ipv6.is_multicast(),
+    }
+}
+
 /// Create store data with WASI context, resource table, and limits
 pub(crate) fn create_store_data(
     env: std::collections::HashMap<String, String>,
@@ -150,7 +169,19 @@ pub(crate) fn create_store_data(
         builder.env(&key, &value);
     }
 
-    builder.inherit_network();
+    // Configure network access with SSRF protection
+    builder.socket_addr_check(|addr: SocketAddr, _use: SocketAddrUse| {
+        Box::pin(async move {
+            let allowed = !is_private_or_reserved_ip(addr.ip());
+            if !allowed {
+                tracing::warn!(
+                    "WASM: Blocked connection attempt to private/reserved IP: {}",
+                    addr.ip()
+                );
+            }
+            allowed
+        })
+    });
 
     // Preopen domain directory for file system access (sandboxed to domain, read-only)
     if let Some(dir) = domain_dir {

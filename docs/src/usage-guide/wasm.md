@@ -15,8 +15,8 @@ Both component types receive **node context** information, allowing you to write
 
 The WASM runtime uses WASI (WebAssembly System Interface) with the following capabilities:
 
-- **Network access** - Full network I/O for making HTTP requests, connecting to databases, etc.
-- **File system access** - Read-only access to files within the domain directory 
+- **Network access** - HTTP requests and database connections to public endpoints (private IPs blocked for SSRF protection)
+- **File system access** - Read-only access to files within the domain directory
 - **Environment variables** - Access to configured env vars via WASI
 - **Memory limits** - Configurable per-function memory limits
 - **Execution timeouts** - Configurable per-function timeouts

@@ -7,5 +7,6 @@ dir = "{{cwd}}/tests/fixtures/wasm"
 run = [
     "cargo component build --release --workspace",
     "cp target/wasm32-wasip1/release/simple_handler.wasm simple-handler.wasm",
-    "cp target/wasm32-wasip1/release/simple_transformer.wasm simple-transformer.wasm"
+    "cp target/wasm32-wasip1/release/simple_transformer.wasm simple-transformer.wasm",
+    "cp target/wasm32-wasip1/release/ssrf_test.wasm ssrf-test.wasm"
 ]

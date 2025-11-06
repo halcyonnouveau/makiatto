@@ -562,3 +562,113 @@ async fn test_wasm_transform_sequential_execution() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_wasm_ssrf_protection() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+
+    let TestContainer {
+        container: daemon_container,
+        ports,
+        ..
+    } = context.make_daemon().await?;
+
+    let daemon = daemon_container.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Setup directories and copy SSRF test WASM file
+    util::execute_command(&daemon, "sudo mkdir -p /var/makiatto/sites/localhost/api").await?;
+
+    let wasm_copy_cmd = format!(
+        "{} cp {}/tests/fixtures/wasm/ssrf-test.wasm {}:/var/makiatto/sites/localhost/api/ssrf.wasm",
+        context.runtime,
+        context.root.display(),
+        daemon.id()
+    );
+    tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(&wasm_copy_cmd)
+        .output()
+        .await
+        .into_diagnostic()?;
+
+    util::execute_command(
+        &daemon,
+        "sudo chown -R makiatto:makiatto /var/makiatto/sites/localhost",
+    )
+    .await?;
+
+    // Insert function metadata
+    let env_json = serde_json::to_string(&serde_json::json!({})).unwrap();
+    let timestamp = util::current_timestamp();
+
+    let function_sql = format!(
+        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/ssrf', 'localhost', 'api/ssrf.wasm', NULL, '{env_json}', 5000, 128, {timestamp})"
+    );
+
+    util::execute_transactions(&daemon, &[function_sql]).await?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Attempt to connect to localhost (should be blocked)
+    let localhost_response = reqwest::Client::new()
+        .get(format!(
+            "http://127.0.0.1:{}/api/ssrf?target=127.0.0.1:80",
+            ports.http
+        ))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(localhost_response.status(), 200);
+    let localhost_body = localhost_response.text().await.into_diagnostic()?;
+    assert!(localhost_body.contains("BLOCKED"));
+
+    // Attempt to connect to private IP (should be blocked)
+    let private_response = reqwest::Client::new()
+        .get(format!(
+            "http://127.0.0.1:{}/api/ssrf?target=192.168.1.1:80",
+            ports.http
+        ))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(private_response.status(), 200);
+    let private_body = private_response.text().await.into_diagnostic()?;
+    assert!(private_body.contains("BLOCKED"));
+
+    // Attempt to connect to AWS metadata endpoint (should be blocked)
+    let metadata_response = reqwest::Client::new()
+        .get(format!(
+            "http://127.0.0.1:{}/api/ssrf?target=169.254.169.254:80",
+            ports.http
+        ))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(metadata_response.status(), 200);
+    let metadata_body = metadata_response.text().await.into_diagnostic()?;
+    assert!(metadata_body.contains("BLOCKED"));
+
+    // Connect to public IP should work (or at least not be blocked by SSRF protection)
+    // Using 8.8.8.8:80 (Google DNS) - might fail for other reasons but shouldn't be blocked
+    let public_response = reqwest::Client::new()
+        .get(format!(
+            "http://127.0.0.1:{}/api/ssrf?target=8.8.8.8:80",
+            ports.http
+        ))
+        .header("Host", "localhost")
+        .send()
+        .await
+        .into_diagnostic()?;
+
+    assert_eq!(public_response.status(), 200);
+
+    Ok(())
+}
