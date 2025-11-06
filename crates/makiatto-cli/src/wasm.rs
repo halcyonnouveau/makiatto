@@ -32,6 +32,10 @@ pub struct FetchWit {
     pub version: Option<String>,
 }
 
+/// Fetch WIT interface files from GitHub releases
+///
+/// # Errors
+/// Returns an error if the download fails or the output directory cannot be created
 pub async fn fetch_wit(fetch: &FetchWit) -> Result<()> {
     ui::status("Fetching WIT interface files");
 

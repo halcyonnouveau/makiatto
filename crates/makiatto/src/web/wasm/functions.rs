@@ -30,14 +30,13 @@ pub struct DomainFunction {
 /// Convert Axum Method to WIT Method enum
 fn convert_method(method: &Method) -> WitMethod {
     match *method {
-        Method::GET => WitMethod::Get,
         Method::POST => WitMethod::Post,
         Method::PUT => WitMethod::Put,
         Method::DELETE => WitMethod::Delete,
         Method::PATCH => WitMethod::Patch,
         Method::HEAD => WitMethod::Head,
         Method::OPTIONS => WitMethod::Options,
-        _ => WitMethod::Get, // Default fallback
+        _ => WitMethod::Get, // Default fallback for GET and other methods
     }
 }
 
@@ -90,6 +89,7 @@ pub async fn execute_function(
     let wit_response = tokio::time::timeout(timeout_duration, async {
         let component = runtime.get_component(wasm_path).await?;
         let memory_limit = runtime.effective_memory_limit(function.max_memory_mb);
+        #[allow(clippy::cast_possible_truncation)]
         let memory_bytes = (memory_limit * 1024 * 1024) as usize;
 
         let store_data = create_store_data(function.env.clone(), memory_bytes);

@@ -368,8 +368,8 @@ pub async fn start(
         .await
         .map_err(|e| miette::miette!("Failed to query node info: {e}"))?;
 
-        let (latitude, longitude) = node_info
-            .map_or((0.0, 0.0), |row| (row.latitude, row.longitude));
+        let (latitude, longitude) =
+            node_info.map_or((0.0, 0.0), |row| (row.latitude, row.longitude));
 
         let node_context = crate::web::wasm::NodeContext {
             name: config.node.name.to_string(),

@@ -56,6 +56,10 @@ pub struct WasmRuntime {
 }
 
 impl WasmRuntime {
+    /// Create a new WASM runtime with the given configuration and node context
+    ///
+    /// # Errors
+    /// Returns an error if the WASM engine fails to initialize
     pub fn new(config: WasmConfig, node_context: NodeContext) -> Result<Self> {
         let mut engine_config = Config::new();
         engine_config.async_support(true);
@@ -75,6 +79,7 @@ impl WasmRuntime {
 
     /// Get the effective memory limit for a function/transform
     /// Returns the requested limit, capped at the global max
+    #[must_use]
     pub fn effective_memory_limit(&self, requested_mb: Option<u64>) -> u64 {
         let limit = requested_mb.unwrap_or(self.config.default_max_memory_mb);
         limit.min(self.config.max_memory_mb)
@@ -82,19 +87,23 @@ impl WasmRuntime {
 
     /// Get the effective timeout for a function/transform
     /// Returns the requested timeout, capped at the global max
+    #[must_use]
     pub fn effective_timeout(&self, requested_ms: Option<u64>) -> u64 {
         let timeout = requested_ms.unwrap_or(self.config.default_timeout_ms);
         timeout.min(self.config.max_timeout_ms)
     }
 
     /// Load or get cached component
+    ///
+    /// # Errors
+    /// Returns an error if the component file cannot be read or compiled
     pub async fn get_component(&self, path: &Path) -> Result<Component> {
         let path_str = path.to_string_lossy().to_string();
 
-        if self.config.cache_modules {
-            if let Some(component) = self.components.get(&path_str) {
-                return Ok(component.clone());
-            }
+        if self.config.cache_modules
+            && let Some(component) = self.components.get(&path_str)
+        {
+            return Ok(component.clone());
         }
 
         let component_bytes = tokio::fs::read(path)

@@ -50,8 +50,7 @@ async fn test_wasm_function_basic_execution() -> Result<()> {
     let timestamp = util::current_timestamp();
 
     let function_sql = format!(
-        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/hello', 'localhost', 'api/hello.wasm', '{}', '{}', 5000, 128, {})",
-        methods_json, env_json, timestamp
+        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/hello', 'localhost', 'api/hello.wasm', '{methods_json}', '{env_json}', 5000, 128, {timestamp})"
     );
 
     util::execute_transactions(&daemon, &[function_sql]).await?;
@@ -142,8 +141,7 @@ async fn test_wasm_function_method_filtering() -> Result<()> {
     let timestamp = util::current_timestamp();
 
     let function_sql = format!(
-        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/post-only', 'localhost', 'api/post-only.wasm', '{}', '{}', 5000, 128, {})",
-        methods_json, env_json, timestamp
+        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/post-only', 'localhost', 'api/post-only.wasm', '{methods_json}', '{env_json}', 5000, 128, {timestamp})"
     );
 
     util::execute_transactions(&daemon, &[function_sql]).await?;
@@ -212,8 +210,7 @@ async fn test_wasm_function_with_query_params() -> Result<()> {
     let timestamp = util::current_timestamp();
 
     let function_sql = format!(
-        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/query', 'localhost', 'api/query.wasm', NULL, '{}', 5000, 128, {})",
-        env_json, timestamp
+        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/query', 'localhost', 'api/query.wasm', NULL, '{env_json}', 5000, 128, {timestamp})"
     );
 
     util::execute_transactions(&daemon, &[function_sql]).await?;
@@ -278,8 +275,7 @@ async fn test_wasm_function_with_headers() -> Result<()> {
     let timestamp = util::current_timestamp();
 
     let function_sql = format!(
-        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/headers', 'localhost', 'api/headers.wasm', NULL, '{}', 5000, 128, {})",
-        env_json, timestamp
+        "INSERT INTO domain_functions (id, domain, path, methods, env, timeout_ms, max_memory_mb, updated_at) VALUES ('localhost:/api/headers', 'localhost', 'api/headers.wasm', NULL, '{env_json}', 5000, 128, {timestamp})"
     );
 
     util::execute_transactions(&daemon, &[function_sql]).await?;
@@ -353,8 +349,7 @@ async fn test_wasm_transform_basic_execution() -> Result<()> {
     let env_json = serde_json::to_string(&serde_json::json!({})).unwrap();
     let timestamp = util::current_timestamp();
     let transform_sql = format!(
-        "INSERT INTO domain_transforms (id, domain, path, files_pattern, env, timeout_ms, max_memory_mb, execution_order, updated_at) VALUES ('localhost:transform.wasm:0', 'localhost', 'transform.wasm', '*.html', '{}', 5000, 128, 0, {})",
-        env_json, timestamp
+        "INSERT INTO domain_transforms (id, domain, path, files_pattern, env, timeout_ms, max_memory_mb, execution_order, updated_at) VALUES ('localhost:transform.wasm:0', 'localhost', 'transform.wasm', '*.html', '{env_json}', 5000, 128, 0, {timestamp})"
     );
 
     util::execute_transactions(&daemon, &[transform_sql]).await?;

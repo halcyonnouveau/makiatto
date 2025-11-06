@@ -545,7 +545,7 @@ fn sync_domain_functions(ssh: &SshSession, domain: &Domain) -> Result<()> {
         let route = if route.starts_with('/') {
             route.to_string()
         } else {
-            format!("/{}", route)
+            format!("/{route}")
         };
 
         let id = format!("{}:{}", domain.name, route);
@@ -589,7 +589,7 @@ fn sync_domain_functions(ssh: &SshSession, domain: &Domain) -> Result<()> {
         );
         sqls.push(sql);
 
-        ui::action(&format!("  Added function: {}", path_str));
+        ui::action(&format!("  Added function: {path_str}"));
     }
 
     corrosion::execute_transactions(ssh, &sqls)?;
