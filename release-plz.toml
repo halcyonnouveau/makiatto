@@ -17,3 +17,4 @@ commit_parsers = [
 
 [[package]]
 name = "makiatto-cli"
+changelog_include = ["makiatto"]
