@@ -16,22 +16,22 @@ Both component types receive **node context** information, allowing you to write
 The WASM runtime uses WASI (WebAssembly System Interface) with the following capabilities:
 
 - **Network access** - Full network I/O for making HTTP requests, connecting to databases, etc.
-- **File system access** - Read/write access to files within the domain directory (sandboxed)
+- **File system access** - Read-only access to files within the domain directory 
 - **Environment variables** - Access to configured env vars via WASI
 - **Memory limits** - Configurable per-function memory limits
 - **Execution timeouts** - Configurable per-function timeouts
 
 **File System Sandbox:**
 
-WASM functions have access to their domain's directory, but are sandboxed to prevent accessing other domains or system files. The domain directory is mounted as `/` inside the WASM environment.
+WASM functions have read-only access to their domain's directory, sandboxed to prevent accessing other domains or system files. The domain directory is mounted as `/` inside the WASM environment.
 
 For example, if your domain is `example.com` with files in `./dist`:
 - WASM sees `/` as the root
 - Opening `/index.html` reads `./dist/index.html`
 - Opening `/api/data.json` reads `./dist/api/data.json`
-- Cannot access files outside the domain directory (like `/../other-domain/` or system files)
+- Cannot access files outside the domain directory or write files
 
-This provides enough capability for edge computing use cases (reading templates, config files, making API calls) while maintaining security through capability-based sandboxing.
+This provides enough capability for edge computing use cases (reading templates, config files, making API calls) while maintaining security. For persistent data, use network calls to external databases or storage services.
 
 ## Getting Started
 

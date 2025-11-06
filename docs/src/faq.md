@@ -29,9 +29,9 @@ Makiatto is primarily designed for static content distribution, but also include
 - Perfect for websites, documentation, images, and assets
 
 **Dynamic content with WebAssembly:**
-- **Serverless functions**: Deploy HTTP handlers that run on all CDN nodes (similar to Cloudflare Workers)
+- **Edge functions**: Deploy HTTP handlers that run on all CDN nodes (similar to Cloudflare Workers)
 - **File transformers**: Process files on-the-fly before serving them (like minification, compression, or adding headers)
 
 See the [WebAssembly Functions](./usage-guide/wasm.md) guide for details on creating and deploying WASM components.
 
-For traditional server-side applications (databases, WebSockets, long-running processes), you may still want to use Makiatto for static assets while keeping your backend on a separate domain.
+For traditional server-side applications (databases, WebSockets, long-running processes), you may still want to use Makiatto for static assets while keeping your backend on a separate domain and infrastructure.

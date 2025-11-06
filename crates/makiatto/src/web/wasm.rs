@@ -152,10 +152,10 @@ pub(crate) fn create_store_data(
 
     builder.inherit_network();
 
-    // Preopen domain directory for file system access (sandboxed to domain)
+    // Preopen domain directory for file system access (sandboxed to domain, read-only)
     if let Some(dir) = domain_dir {
-        let dir_perms = wasmtime_wasi::DirPerms::all();
-        let file_perms = wasmtime_wasi::FilePerms::all();
+        let dir_perms = wasmtime_wasi::DirPerms::READ;
+        let file_perms = wasmtime_wasi::FilePerms::READ;
         let _ = builder.preopened_dir(dir, "/", dir_perms, file_perms);
     }
 
