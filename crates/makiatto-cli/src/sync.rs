@@ -49,6 +49,37 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
         return Err(miette!("No domains configured in makiatto.toml"));
     }
 
+    // validate all wasm file paths
+    for domain in config.domains.iter() {
+        for function in domain.functions.iter() {
+            let path_str = function.path.display().to_string();
+            if !std::path::Path::new(&path_str)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wasm"))
+            {
+                return Err(miette::miette!(
+                    "Domain '{}': Function path '{}' must end with .wasm extension",
+                    domain.name,
+                    path_str
+                ));
+            }
+        }
+
+        for transform in domain.transforms.iter() {
+            let path_str = transform.path.display().to_string();
+            if !std::path::Path::new(&path_str)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wasm"))
+            {
+                return Err(miette::miette!(
+                    "Domain '{}': Transform path '{}' must end with .wasm extension",
+                    domain.name,
+                    path_str
+                ));
+            }
+        }
+    }
+
     let sync_machine = profile
         .machines
         .iter()
@@ -70,6 +101,8 @@ pub fn sync_project(command: &SyncCommand, profile: &Profile, config: &Config) -
         ui::header(&format!("Processing domain: {}", domain.name));
         sync_domain_files(&ssh, domain, command.key_path.as_ref(), sync_machine)?;
         sync_domain_records(&ssh, domain, &profile.machines)?;
+        sync_domain_functions(&ssh, domain)?;
+        sync_domain_transforms(&ssh, domain)?;
     }
 
     ui::status("Sync completed successfully");
@@ -488,5 +521,146 @@ fn apply_dns_diff(
         );
     }
 
+    Ok(())
+}
+
+fn sync_domain_functions(ssh: &SshSession, domain: &Domain) -> Result<()> {
+    if domain.functions.is_empty() {
+        return Ok(());
+    }
+
+    ui::status("Syncing WASM functions...");
+
+    let delete_sql = format!(
+        "DELETE FROM domain_functions WHERE domain = '{}'",
+        domain.name
+    );
+    corrosion::execute_transactions(ssh, &[delete_sql])?;
+
+    let mut sqls = Vec::new();
+    for function in domain.functions.iter() {
+        let path_str = function.path.display().to_string();
+
+        let route = path_str.strip_suffix(".wasm").unwrap();
+        let route = if route.starts_with('/') {
+            route.to_string()
+        } else {
+            format!("/{route}")
+        };
+
+        let id = format!("{}:{}", domain.name, route);
+
+        let methods_json = if let Some(ref methods) = function.methods {
+            serde_json::to_string(methods).unwrap_or_else(|_| "null".to_string())
+        } else {
+            "null".to_string()
+        };
+
+        let env_json = serde_json::to_string(&function.env).unwrap_or_else(|_| "{}".to_string());
+
+        let timeout_ms = function
+            .timeout_ms
+            .map_or("NULL".to_string(), |t| t.to_string());
+        let max_memory_mb = function
+            .max_memory_mb
+            .map_or("NULL".to_string(), |m| m.to_string());
+
+        let updated_at = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let sql = format!(
+            "INSERT INTO domain_functions (\
+                id, domain, path, methods, env, \
+                timeout_ms, max_memory_mb, updated_at\
+            ) VALUES (\
+                '{}', '{}', '{}', '{}', '{}', \
+                {}, {}, {}\
+            )",
+            id,
+            domain.name,
+            path_str,
+            methods_json,
+            env_json,
+            timeout_ms,
+            max_memory_mb,
+            updated_at
+        );
+        sqls.push(sql);
+
+        ui::action(&format!("  Added function: {path_str}"));
+    }
+
+    corrosion::execute_transactions(ssh, &sqls)?;
+    Ok(())
+}
+
+fn sync_domain_transforms(ssh: &SshSession, domain: &Domain) -> Result<()> {
+    if domain.transforms.is_empty() {
+        return Ok(());
+    }
+
+    ui::status("Syncing WASM transforms...");
+
+    // Delete existing transforms for this domain
+    let delete_sql = format!(
+        "DELETE FROM domain_transforms WHERE domain = '{}'",
+        domain.name
+    );
+    corrosion::execute_transactions(ssh, &[delete_sql])?;
+
+    let mut sqls = Vec::new();
+    for (idx, transform) in domain.transforms.iter().enumerate() {
+        let path_str = transform.path.display().to_string();
+        let id = format!("{}:{}:{}", domain.name, path_str, idx);
+
+        let env_json = serde_json::to_string(&transform.env).unwrap_or_else(|_| "{}".to_string());
+
+        let timeout_ms = transform
+            .timeout_ms
+            .map_or("NULL".to_string(), |t| t.to_string());
+        let max_memory_mb = transform
+            .max_memory_mb
+            .map_or("NULL".to_string(), |m| m.to_string());
+        let max_file_size_kb = transform
+            .max_file_size_kb
+            .map_or("NULL".to_string(), |s| s.to_string());
+
+        let updated_at = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let sql = format!(
+            "INSERT INTO domain_transforms (\
+                id, domain, path, files_pattern, env, \
+                timeout_ms, max_memory_mb, max_file_size_kb, \
+                execution_order, updated_at\
+            ) VALUES (\
+                '{}', '{}', '{}', '{}', '{}', \
+                {}, {}, {}, \
+                {}, {}\
+            )",
+            id,
+            domain.name,
+            path_str,
+            transform.files,
+            env_json,
+            timeout_ms,
+            max_memory_mb,
+            max_file_size_kb,
+            idx,
+            updated_at
+        );
+        sqls.push(sql);
+
+        ui::action(&format!(
+            "  Added transform: {} ({})",
+            path_str, transform.files
+        ));
+    }
+
+    corrosion::execute_transactions(ssh, &sqls)?;
     Ok(())
 }

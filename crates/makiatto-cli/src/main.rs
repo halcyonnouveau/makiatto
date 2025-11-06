@@ -8,6 +8,7 @@ use makiatto_cli::{
     machine::{self, AddMachine, InitMachine, RemoveMachine, UpgradeMachine},
     sync::{self, SyncCommand},
     ui,
+    wasm::{self, WasmCommand},
 };
 use miette::Result;
 
@@ -37,6 +38,7 @@ enum Command {
     Sync(SyncCommand),
     Health(HealthCommand),
     Dns(DnsCommand),
+    Wasm(WasmCommand),
 }
 
 /// manage makiatto machines
@@ -153,6 +155,9 @@ async fn main() -> Result<()> {
                 dns::show_nameserver_setup(&profile, &config)?;
                 Ok(())
             }
+        },
+        Command::Wasm(wasm) => match wasm.action {
+            wasm::WasmAction::Fetch(fetch) => wasm::fetch_wit(&fetch).await,
         },
     }
 }

@@ -16,7 +16,8 @@ Makiatto is a lightweight CDN that lets you deploy and distribute content across
 - **No single point of failure**: Decentralised architecture with no control plane
 - **Automatic SSL certificates**: Built-in Let's Encrypt integration
 - **Simple content management**: Easy file uploads and website deployments
-- **Dynamic image processing**: On-the-fly image resizing, format conversion, and optimisation with query parameters
+- **[Dynamic image processing](https://halcyonnouveau.github.io/makiatto/usage-guide.html#dynamic-image-processing)**: On-the-fly image resizing, format conversion, and optimisation with query parameters
+- **[WebAssembly functions](https://halcyonnouveau.github.io/makiatto/usage-guide/wasm.html)**: Deploy edge functions as HTTP handlers and file transformers that run on all CDN nodes
 
 ## Quick Start
 

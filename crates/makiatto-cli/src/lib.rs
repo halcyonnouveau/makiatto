@@ -8,3 +8,4 @@ pub mod machine;
 pub mod ssh;
 pub mod sync;
 pub mod ui;
+pub mod wasm;

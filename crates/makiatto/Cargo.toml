@@ -26,11 +26,13 @@ axum-extra = { workspace = true }
 base64 = { workspace = true }
 blake3 = { workspace = true }
 crc32fast = { workspace = true }
+dashmap = { workspace = true }
 defguard_wireguard_rs = { workspace = true }
 camino = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 geo = { workspace = true }
+globset = { workspace = true }
 hickory-proto = { workspace = true }
 hickory-resolver = { workspace = true }
 hickory-server = { workspace = true }
@@ -68,6 +70,8 @@ opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
+wasmtime = { workspace = true }
+wasmtime-wasi = { workspace = true }
 
 [lints]
 workspace = true

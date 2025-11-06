@@ -25,6 +25,10 @@ pub struct Config {
     #[serde(default)]
     pub images: ImageConfig,
 
+    /// WASM runtime configuration
+    #[serde(default)]
+    pub wasm: WasmConfig,
+
     /// Observability configuration
     #[serde(default)]
     pub o11y: ObservabilityConfig,
@@ -153,6 +157,62 @@ fn default_allowed_formats() -> Vec<String> {
         "jpeg".to_string(),
         "png".to_string(),
     ]
+}
+
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+pub struct WasmConfig {
+    /// Enable WASM runtime
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Default timeout for WASM execution in milliseconds
+    #[serde(default = "default_wasm_timeout")]
+    pub default_timeout_ms: u64,
+
+    /// Default maximum memory for WASM modules in megabytes
+    #[serde(default = "default_wasm_memory")]
+    pub default_max_memory_mb: u64,
+
+    /// Maximum allowed timeout in milliseconds
+    #[serde(default = "default_max_wasm_timeout")]
+    pub max_timeout_ms: u64,
+
+    /// Maximum allowed memory in megabytes
+    #[serde(default = "default_max_wasm_memory")]
+    pub max_memory_mb: u64,
+
+    /// Cache compiled WASM modules
+    #[serde(default = "default_true")]
+    pub cache_modules: bool,
+}
+
+impl Default for WasmConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            default_timeout_ms: default_wasm_timeout(),
+            default_max_memory_mb: default_wasm_memory(),
+            max_timeout_ms: default_max_wasm_timeout(),
+            max_memory_mb: default_max_wasm_memory(),
+            cache_modules: default_true(),
+        }
+    }
+}
+
+fn default_wasm_timeout() -> u64 {
+    3000 // 3 seconds
+}
+
+fn default_wasm_memory() -> u64 {
+    64 // 64 MB
+}
+
+fn default_max_wasm_timeout() -> u64 {
+    30000 // 30 seconds
+}
+
+fn default_max_wasm_memory() -> u64 {
+    512 // 512 MB
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

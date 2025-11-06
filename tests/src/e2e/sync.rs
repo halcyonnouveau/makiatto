@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use makiatto_cli::{
-    config::{Config, DnsRecord, Domain, Profile},
+    config::{Config, DnsRecord, Domain, Profile, WasmFunction},
     sync::{self, SyncCommand},
 };
 use miette::{IntoDiagnostic, Result};
@@ -60,6 +60,8 @@ async fn test_single_domain() -> Result<()> {
                 priority: None,
             }]
             .into(),
+            functions: vec![].into(),
+            transforms: vec![].into(),
         }]
         .into(),
     };
@@ -137,12 +139,16 @@ async fn test_multiple_domains() -> Result<()> {
                 path: domain1_path.clone(),
                 aliases: vec![].into(),
                 records: vec![].into(),
+                functions: vec![].into(),
+                transforms: vec![].into(),
             },
             Domain {
                 name: Arc::from(domain2),
                 path: domain2_path.clone(),
                 aliases: vec![].into(),
                 records: vec![].into(),
+                functions: vec![].into(),
+                transforms: vec![].into(),
             },
         ]
         .into(),
@@ -208,6 +214,8 @@ async fn test_nameserver_filtering() -> Result<()> {
             path: domain_path.clone(),
             aliases: vec![].into(),
             records: vec![].into(),
+            functions: vec![].into(),
+            transforms: vec![].into(),
         }]
         .into(),
     };
@@ -266,6 +274,8 @@ async fn test_update_changes() -> Result<()> {
                 priority: None,
             }]
             .into(),
+            functions: vec![].into(),
+            transforms: vec![].into(),
         }]
         .into(),
     };
@@ -297,6 +307,8 @@ async fn test_update_changes() -> Result<()> {
                 priority: None,
             }]
             .into(),
+            functions: vec![].into(),
+            transforms: vec![].into(),
         }]
         .into(),
     };
@@ -323,6 +335,84 @@ async fn test_update_changes() -> Result<()> {
     );
     let new_result = util::query_database(&container, &new_query).await?;
     assert!(new_result.contains("new.target.com"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_wasm_function_with_json_fields() -> Result<()> {
+    let mut context = ContainerContext::new()?;
+    let daemon = context.make_daemon().await?;
+    let machine = daemon.get_config();
+    let container = daemon.container.unwrap();
+
+    let test_domain = "wasm-sync.example.com";
+    let domain_path = context.target.join("sites").join(test_domain);
+
+    tokio::fs::create_dir_all(&domain_path)
+        .await
+        .into_diagnostic()?;
+
+    let wasm_src = context.root.join("tests/fixtures/wasm/simple-handler.wasm");
+    let wasm_dst = domain_path.join("api").join("test.wasm");
+
+    tokio::fs::create_dir_all(wasm_dst.parent().unwrap())
+        .await
+        .into_diagnostic()?;
+
+    tokio::fs::copy(&wasm_src, &wasm_dst)
+        .await
+        .into_diagnostic()?;
+
+    let profile = Profile {
+        machines: vec![machine.clone()],
+    };
+
+    let mut env_map = std::collections::HashMap::new();
+    env_map.insert(Arc::from("API_KEY"), Arc::from("secret123"));
+    env_map.insert(Arc::from("DEBUG"), Arc::from("true"));
+
+    let config = Config {
+        domains: vec![Domain {
+            name: Arc::from(test_domain),
+            path: domain_path.clone(),
+            aliases: vec![].into(),
+            records: vec![].into(),
+            functions: vec![WasmFunction {
+                path: wasm_dst.clone(),
+                methods: Some(Arc::from([Arc::from("GET"), Arc::from("POST")])),
+                env_file: None,
+                env: env_map,
+                timeout_ms: Some(5000),
+                max_memory_mb: Some(128),
+            }]
+            .into(),
+            transforms: vec![].into(),
+        }]
+        .into(),
+    };
+
+    let command = SyncCommand {
+        key_path: Some(context.root.join("tests/fixtures/.ssh/id_ed25519")),
+    };
+
+    sync::sync_project(&command, &profile, &config)?;
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let func_query =
+        format!("SELECT id, methods, env FROM domain_functions WHERE domain = '{test_domain}';");
+    let func_result = util::query_database(&container, &func_query).await?;
+
+    assert!(func_result.contains("/api/test"));
+    assert!(func_result.contains("GET"));
+    assert!(func_result.contains("POST"));
+    assert!(func_result.contains("API_KEY"));
+    assert!(func_result.contains("secret123"));
+
+    let ls_cmd = format!("ls -la /var/makiatto/sites/{test_domain}/api/");
+    let (output, _) = util::execute_command(&container, &ls_cmd).await?;
+    assert!(output.contains("test.wasm"));
 
     Ok(())
 }

@@ -39,14 +39,20 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::{
     config::Config,
     corrosion::{self, schema::AcmeChallenge},
-    web::{certificate::CertificateStore, images::ImageProcessor},
+    web::{
+        certificate::CertificateStore,
+        image::ImageProcessor,
+        wasm::{WasmRuntime, wasm_function_middleware, wasm_transform_middleware},
+    },
 };
 
 #[derive(Clone)]
-struct WebState {
-    static_dir: Arc<PathBuf>,
-    cname_map: Arc<HashMap<String, String>>,
-    image_processor: Option<Arc<ImageProcessor>>,
+pub(crate) struct WebState {
+    pub(crate) config: Arc<Config>,
+    pub(crate) static_dir: Arc<PathBuf>,
+    pub(crate) cname_map: Arc<HashMap<String, String>>,
+    pub(crate) image_processor: Option<Arc<ImageProcessor>>,
+    pub(crate) wasm_runtime: Option<Arc<WasmRuntime>>,
 }
 
 #[instrument(
@@ -216,7 +222,7 @@ async fn image_middleware(
     }
 
     // parse query parameters
-    let params: crate::web::images::ImageParams = match serde_urlencoded::from_str(query) {
+    let params: crate::web::image::ImageParams = match serde_urlencoded::from_str(query) {
         Ok(p) => p,
         Err(e) => {
             span.record("error", format!("Failed to parse params: {e}"));
@@ -353,10 +359,41 @@ pub async fn start(
         None
     };
 
+    let wasm_runtime = if config.wasm.enabled {
+        let node_info = sqlx::query!(
+            "SELECT latitude, longitude FROM peers WHERE name = ?",
+            config.node.name.as_ref()
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query node info: {e}"))?;
+
+        let (latitude, longitude) =
+            node_info.map_or((0.0, 0.0), |row| (row.latitude, row.longitude));
+
+        let node_context = crate::web::wasm::NodeContext {
+            name: config.node.name.to_string(),
+            latitude,
+            longitude,
+        };
+
+        match WasmRuntime::new(config.wasm, node_context) {
+            Ok(runtime) => Some(Arc::new(runtime)),
+            Err(e) => {
+                warn!("Failed to initialise WASM runtime: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let state = WebState {
+        config: config.clone(),
         static_dir: Arc::new(config.web.static_dir.as_std_path().to_path_buf()),
         cname_map: Arc::new(cname_cache),
         image_processor,
+        wasm_runtime,
     };
 
     let compression_predicate = SizeAbove::new(1024)
@@ -375,6 +412,14 @@ pub async fn start(
             get(handle_acme_challenge),
         )
         .fallback(handle_request)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            wasm_function_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            wasm_transform_middleware,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             image_middleware,
@@ -659,7 +704,7 @@ fn generate_fallback_paths(uri_path: &str) -> Vec<String> {
 }
 
 /// Resolve a domain through alias chains
-fn resolve_cname(cache: &HashMap<String, String>, domain: &str) -> String {
+pub(crate) fn resolve_cname(cache: &HashMap<String, String>, domain: &str) -> String {
     let mut current = domain;
     let mut seen = std::collections::HashSet::new();
 

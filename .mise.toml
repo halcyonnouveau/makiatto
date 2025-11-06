@@ -1,0 +1,11 @@
+[tools]
+"cargo:cargo-component" = "latest"
+
+[tasks.build-wasm-fixtures]
+description = "Build WASM component test fixtures"
+dir = "{{cwd}}/tests/fixtures/wasm"
+run = [
+    "cargo component build --release --workspace",
+    "cp target/wasm32-wasip1/release/simple_handler.wasm simple-handler.wasm",
+    "cp target/wasm32-wasip1/release/simple_transformer.wasm simple-transformer.wasm"
+]
