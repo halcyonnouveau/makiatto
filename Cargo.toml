@@ -67,7 +67,7 @@ maxminddb = "0.26"
 
 # Web
 axum = "0.8"
-axum-extra = "0.10"
+axum-extra = "0.12"
 defguard_wireguard_rs = "0.7"
 hyper = "1.7"
 hyper-util = "0.1"
