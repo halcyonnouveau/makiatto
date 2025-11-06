@@ -58,6 +58,7 @@ pub async fn execute_function(
     runtime: &WasmRuntime,
     function: &DomainFunction,
     wasm_path: &Path,
+    domain_dir: &Path,
     request: Request<Body>,
 ) -> Result<Response<Body>> {
     let (parts, body) = request.into_parts();
@@ -92,7 +93,7 @@ pub async fn execute_function(
         #[allow(clippy::cast_possible_truncation)]
         let memory_bytes = (memory_limit * 1024 * 1024) as usize;
 
-        let store_data = create_store_data(function.env.clone(), memory_bytes);
+        let store_data = create_store_data(function.env.clone(), memory_bytes, Some(domain_dir));
         let mut store = Store::new(component.engine(), store_data);
         store.limiter(|data| &mut data.limits);
 
@@ -207,9 +208,10 @@ pub(crate) async fn wasm_function_middleware(
         max_memory_mb: row.max_memory_mb.map(i64::cast_unsigned),
     };
 
-    let wasm_path = state.static_dir.join(&resolved_domain).join(&row.path);
+    let domain_dir = state.static_dir.join(&resolved_domain);
+    let wasm_path = domain_dir.join(&row.path);
 
-    match execute_function(wasm_runtime, &function, &wasm_path, request).await {
+    match execute_function(wasm_runtime, &function, &wasm_path, &domain_dir, request).await {
         Ok(response) => response,
         Err(e) => {
             let error_msg = e.to_string();

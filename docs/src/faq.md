@@ -22,15 +22,16 @@ Future versions may support reverse proxy configurations, but for now Makiatto e
 
 ## Can I host dynamic content or is it only for static files?
 
-Makiatto is currently designed for static content distribution. It syncs files from your local `path` directory to all nodes and serves them directly.
+Makiatto is primarily designed for static content distribution, but also includes WebAssembly support for dynamic functionality:
 
-For dynamic content, you have a few options today:
-- Use Makiatto for your static assets (JS, CSS, images) while keeping your dynamic app on a separate domain
-- Use static site generators to pre-build your dynamic content into static files
+**Static content:**
+- Files are synced from your local `path` directory to all nodes and served directly
+- Perfect for websites, documentation, images, and assets
 
-However, WebAssembly support is planned for the future! This will allow you to:
-- Transform content on-the-fly with WebAssembly filters (similar to nginx filter modules)
-- Deploy serverless functions like Cloudflare Workers
-- Build dynamic applications that run on all your CDN nodes
+**Dynamic content with WebAssembly:**
+- **Serverless functions**: Deploy HTTP handlers that run on all CDN nodes (similar to Cloudflare Workers)
+- **File transformers**: Process files on-the-fly before serving them (like minification, compression, or adding headers)
 
-Until then, the focus on static content is what keeps Makiatto simple and efficient - there's no need to worry about session state, database replication, or cache invalidation across nodes.
+See the [WebAssembly Functions](./usage-guide/wasm.md) guide for details on creating and deploying WASM components.
+
+For traditional server-side applications (databases, WebSockets, long-running processes), you may still want to use Makiatto for static assets while keeping your backend on a separate domain.

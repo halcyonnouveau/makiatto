@@ -32,6 +32,7 @@ pub struct DomainTransform {
 pub async fn execute_transform(
     runtime: &WasmRuntime,
     transform: &DomainTransform,
+    domain_dir: &Path,
     content: Bytes,
     file_path: &str,
     mime_type: Option<String>,
@@ -57,7 +58,7 @@ pub async fn execute_transform(
         let memory_limit = runtime.effective_memory_limit(transform.max_memory_mb);
         #[allow(clippy::cast_possible_truncation)]
         let memory_bytes = (memory_limit * 1024 * 1024) as usize;
-        let store_data = create_store_data(transform.env.clone(), memory_bytes);
+        let store_data = create_store_data(transform.env.clone(), memory_bytes, Some(domain_dir));
 
         let mut store = Store::new(component.engine(), store_data);
         store.limiter(|data| &mut data.limits);
@@ -213,11 +214,10 @@ pub(crate) async fn wasm_transform_middleware(
     // Apply each transform in sequence
     let original_len = body_bytes.len();
     let mut current_content = body_bytes;
+    let domain_dir = state.static_dir.join(&resolved_domain);
+
     for transform in matching_transforms {
-        let wasm_path = state
-            .static_dir
-            .join(&resolved_domain)
-            .join(&transform.path);
+        let wasm_path = domain_dir.join(&transform.path);
 
         let transform_with_path = DomainTransform {
             path: wasm_path.to_string_lossy().to_string(),
@@ -227,6 +227,7 @@ pub(crate) async fn wasm_transform_middleware(
         match execute_transform(
             wasm_runtime,
             &transform_with_path,
+            &domain_dir,
             current_content.clone(),
             &request_path,
             mime_type.clone(),

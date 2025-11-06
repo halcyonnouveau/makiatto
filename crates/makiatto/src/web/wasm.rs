@@ -142,6 +142,7 @@ impl WasiView for StoreData {
 pub(crate) fn create_store_data(
     env: std::collections::HashMap<String, String>,
     memory_bytes: usize,
+    domain_dir: Option<&Path>,
 ) -> StoreData {
     let mut builder = WasiCtxBuilder::new();
 
@@ -150,6 +151,13 @@ pub(crate) fn create_store_data(
     }
 
     builder.inherit_network();
+
+    // Preopen domain directory for file system access (sandboxed to domain)
+    if let Some(dir) = domain_dir {
+        let dir_perms = wasmtime_wasi::DirPerms::all();
+        let file_perms = wasmtime_wasi::FilePerms::all();
+        let _ = builder.preopened_dir(dir, "/", dir_perms, file_perms);
+    }
 
     let wasi = builder.build();
     let table = ResourceTable::new();
