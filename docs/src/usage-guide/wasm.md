@@ -129,6 +129,7 @@ name = "example.com"
 path = "./dist"
 
 [[domain.functions]]
+# WASM file at ./dist/api/hello.wasm
 path = "api/hello.wasm"
 ```
 
@@ -145,7 +146,7 @@ The route is derived from the path - `api/hello.wasm` becomes `/api/hello`.
 ### Configuration Options
 
 **Required fields:**
-- `path` - Path to the WASM component file (the route is derived from this)
+- `path` - Path to WASM file relative to domain directory (must stay within domain; route derived from this)
 
 **Optional fields:**
 - `methods` - HTTP methods allowed (e.g., `["GET", "POST"]`), defaults to all methods
@@ -221,6 +222,7 @@ name = "example.com"
 path = "./dist"
 
 [[domain.transforms]]
+# WASM file at ./dist/transform.wasm
 path = "transform.wasm"
 files = "**/*.html"
 ```
@@ -228,7 +230,7 @@ files = "**/*.html"
 ### Configuration Options
 
 **Required fields:**
-- `path` - Path to the WASM component file
+- `path` - Path to WASM file relative to domain directory (must stay within domain)
 - `files` - Glob pattern matching files to transform (e.g., `**/*.html`, `**/*.{js,css}`)
 
 **Optional fields:**

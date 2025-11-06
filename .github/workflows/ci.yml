@@ -31,9 +31,7 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Run tests
-        run: |
-          cargo build
-          cargo nextest run --workspace --exclude integration-tests --retries 2
+        run: cargo nextest run --workspace --exclude integration-tests --retries 2
 
   integration-tests:
     name: Integration/e2e tests
