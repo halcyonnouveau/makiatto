@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/halcyonnouveau/makiatto/compare/v0.3.4...v0.4.0) - 2025-11-06
+
+### Added
+
+- [**breaking**] wasm runtime ([#68](https://github.com/halcyonnouveau/makiatto/pull/68))
+
 ## [0.3.4](https://github.com/halcyonnouveau/makiatto/compare/v0.3.3...v0.3.4) - 2025-11-03
 
 ### Added
