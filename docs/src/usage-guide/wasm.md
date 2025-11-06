@@ -38,10 +38,10 @@ This provides enough capability for edge computing use cases (reading templates,
 First, fetch the WIT interface definitions:
 
 ```bash
-makiatto-cli wasm fetch-wit --output ./wit
+makiatto-cli wasm fetch
 ```
 
-These WIT files define the interfaces your component must implement. Build your component using your language's WASM toolchain, for example:
+This will download WIT files to `./wit` which define the interfaces your component must implement. Build your component using your language's WASM toolchain, for example:
 
 - **Rust**: [wit-bindgen](https://github.com/bytecodealliance/wit-bindgen) + `wasm32-wasip2` target (Rust 1.82+) - Generates bindings and compiles to components
 - **JavaScript**: [Javy](https://github.com/bytecodealliance/javy) - JavaScript to WebAssembly compiler

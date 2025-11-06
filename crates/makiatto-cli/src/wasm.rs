@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use argh::FromArgs;
 use miette::{Context, IntoDiagnostic, Result, miette};
@@ -96,17 +96,41 @@ pub async fn fetch_wit(fetch: &FetchWit) -> Result<()> {
         .context("Failed to extract tarball")?;
 
     let extracted_wit = temp_dir.join("makiatto-wit").join("wit");
-    std::fs::rename(&extracted_wit, &output)
+
+    copy_dir_recursive(&extracted_wit, &output)
         .into_diagnostic()
-        .with_context(|| format!("Failed to move WIT files to {}", output.display()))?;
+        .with_context(|| format!("Failed to copy WIT files to {}", output.display()))?;
 
     let _ = std::fs::remove_dir_all(temp_dir);
 
-    ui::status(&format!("WIT files installed to {}", output.display()));
+    ui::status(&format!("WIT files saved to {}", output.display()));
     ui::info("You can now build WASM components using these interface definitions");
-    ui::info("Example structure:");
-    ui::info("  wit/http/http-handler.wit    - For HTTP functions");
-    ui::info("  wit/transform/transform.wit  - For file transforms");
+    ui::info(&format!(
+        "  {}       - For HTTP functions",
+        output.join("http.wit").display()
+    ));
+    ui::info(&format!(
+        "  {}  - For file transforms",
+        output.join("transform.wit").display()
+    ));
 
+    Ok(())
+}
+
+/// Recursively copy a directory and its contents
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if ty.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
     Ok(())
 }
