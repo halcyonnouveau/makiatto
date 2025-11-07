@@ -10,6 +10,10 @@ Commercial CDN providers use anycast routing where the same IP address is announ
 
 GeoDNS achieves similar results by using GPS coordinates to determine which server is closest to each user. This approach works with regular VPS providers and doesn't require any special infrastructure, making it perfect for self-hosters and small teams who want CDN functionality without enterprise-level requirements.
 
+## How many nodes do I need?
+
+Minimum 3 nodes for proper DNS redundancy (you need at least 3 nameservers). For meaningful geographic distribution, you'd want nodes in different regions (e.g., North America, Europe, Asia). You can start with 1 node for testing, but DNS redundancy requires 3+.
+
 ## Can I use Makiatto with an existing web server?
 
 Currently, Makiatto includes its own web server that listens on ports 80 and 443. It's designed to be the primary web server for your domains.
@@ -35,3 +39,7 @@ Makiatto is primarily designed for static content distribution, but also include
 See the [WebAssembly Functions](./usage-guide/wasm.md) guide for details on creating and deploying WASM components.
 
 For traditional server-side applications (databases, WebSockets, long-running processes), you may still want to use Makiatto for static assets while keeping your backend on a separate domain and infrastructure.
+
+## Can I mix different hosting providers?
+
+Yes! Since nodes communicate via WireGuard mesh over the public internet, you can mix any providers (AWS, DigitalOcean, Hetzner, Vultr, bare metal servers, etc.) as long as they have public IP addresses and allow WireGuard traffic.

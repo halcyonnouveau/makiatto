@@ -7,15 +7,14 @@
 [![docs](https://img.shields.io/badge/book-latest-blue?logo=mdbook)](https://halcyonnouveau.github.io/makiatto/)
 ![license](https://img.shields.io/badge/License-APACHE--2.0%2FMIT-blue)
 
-Makiatto is a lightweight CDN that lets you deploy and distribute content across multiple servers with minimal infrastructure overhead. It creates a secure WireGuard mesh network between your machines and provides automatic content synchronisation, GeoDNS routing, and coordinate-based geographic distribution through simple CLI commands.
+Makiatto builds a global CDN that routes users to their nearest server for fast content delivery. Deploy one binary per server and they self-organise into a mesh network with geographic DNS routing, automatic SSL certificates, and content synchronisation. Scale out by adding nodes with no load balancers, orchestration, or management infrastructure required.
 
 ## Features
 
-- **One-command deployment**: Initialise nodes with a single CLI command
-- **GeoDNS with coordinate-based routing**: Automatically direct users to their nearest server
-- **No single point of failure**: Decentralised architecture with no control plane
-- **Automatic SSL certificates**: Built-in Let's Encrypt integration
-- **Simple content management**: Easy file uploads and website deployments
+- **Vertically integrated in Rust**: Single binary with embedded DNS server, WireGuard mesh, and distributed database with no external infrastructure required
+- **Identical node replication**: Deploy new nodes with one command; they auto-discover peers and replicate state
+- **Geographic self-organisation**: Nodes automatically detect their coordinates, discover peers, and coordinate for GeoDNS routing
+- **Shared-nothing architecture**: Each node operates independently with no central coordination required
 - **[Dynamic image processing](https://halcyonnouveau.github.io/makiatto/usage-guide.html#dynamic-image-processing)**: On-the-fly image resizing, format conversion, and optimisation with query parameters
 - **[WebAssembly functions](https://halcyonnouveau.github.io/makiatto/usage-guide/wasm.html)**: Deploy edge functions as HTTP handlers and file transformers that run on all CDN nodes
 
