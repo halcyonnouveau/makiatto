@@ -14,8 +14,13 @@ on:
       - main
     paths-ignore:
       - "docs/**"
+      - "*.md"
       - ".github/workflows/docs.yml"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 jobs:
