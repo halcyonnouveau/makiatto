@@ -1,5 +1,9 @@
 # FAQ
 
+## What operating systems does Makiatto support?
+
+Makiatto only works on Linux. The daemon relies on Linux-specific features for WireGuard, networking, and system integration. You can run the CLI (`makiatto-cli`) from macOS or Linux to manage your Linux nodes remotely, but the actual CDN nodes must be running Linux servers. Windows binaries for the CLI are not currently available but may be added in the future.
+
 ## Why does Makiatto use GeoDNS instead of anycast?
 
 Commercial CDN providers use anycast routing where the same IP address is announced from multiple locations, and internet routing protocols direct users to the nearest server. While this is elegant, it requires:
