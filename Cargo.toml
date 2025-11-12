@@ -13,10 +13,6 @@ keywords = ["cdn", "cli", "deployment", "mesh", "infrastructure"]
 categories = ["command-line-utilities", "network-programming"]
 
 [workspace.dependencies]
-corro-agent = { git = "https://github.com/superfly/corrosion" }
-corro-types = { git = "https://github.com/superfly/corrosion" }
-tripwire = { git = "https://github.com/superfly/corrosion" }
-
 # CLI
 argh = "0.1"
 console = "0.16"
@@ -68,7 +64,6 @@ maxminddb = "0.26"
 # Web
 axum = "0.8"
 axum-extra = "0.12"
-defguard_wireguard_rs = "0.7"
 hyper = "1.7"
 hyper-util = "0.1"
 http = "1.3"
@@ -99,6 +94,7 @@ opentelemetry-otlp = { version = "0.31", features = [
 # Utilities
 camino = "1.2"
 dashmap = "6.1"
+defguard_wireguard_rs = "0.7"
 flate2 = "1.0"
 geo = "0.31"
 globset = "0.4"
@@ -116,6 +112,11 @@ ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 tar = "0.4"
 url = "2.5"
 uuid = { version = "1.18", features = ["v7"] }
+
+# Corrosion
+corro-agent = { git = "https://github.com/superfly/corrosion" }
+corro-types = { git = "https://github.com/superfly/corrosion" }
+tripwire = { git = "https://github.com/superfly/corrosion" }
 
 # Image processing
 imageflow_core = { git = "https://github.com/imazen/imageflow" }
@@ -142,6 +143,12 @@ panic = "abort"
 debug = 1
 incremental = true
 codegen-units = 256
+
+[profile.bloaty]
+debug = true
+lto = false
+strip = false
+inherits = 'release'
 
 [profile.test.package.backtrace]
 opt-level = 2

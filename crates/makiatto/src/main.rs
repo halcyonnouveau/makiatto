@@ -153,6 +153,18 @@ async fn main() -> Result<()> {
         });
         handles.push(consensus_handle);
 
+        if config.health.enabled {
+            info!("Starting health monitor...");
+            let health_monitor = corrosion::health::HealthMonitor::new(config.clone());
+            let health_tripwire = tripwire.clone();
+            let health_election = director_election.clone();
+            let health_handle = tokio::spawn(async move {
+                health_monitor.run(health_election, health_tripwire).await;
+                Ok("health_monitor")
+            });
+            handles.push(health_handle);
+        }
+
         info!("Starting subscription watcher...");
         let subscription_watcher = SubscriptionWatcher::new(
             config.clone(),

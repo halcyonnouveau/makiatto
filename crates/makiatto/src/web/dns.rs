@@ -437,10 +437,15 @@ pub async fn start(
         download_geolite(&config.dns.geolite_path).await?;
     }
 
+    let unhealthy_nodes = corrosion::get_unhealthy_node_names()
+        .await
+        .unwrap_or_default();
+
     let peers: Vec<DnsPeer> = corrosion::get_peers()
         .await
         .unwrap_or_else(|_| Arc::from([]))
         .iter()
+        .filter(|p| !unhealthy_nodes.contains(p.name.as_ref()))
         .map(|p| DnsPeer {
             point: point!(x: p.latitude, y: p.longitude),
             ipv4: p.ipv4.clone(),

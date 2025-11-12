@@ -5,5 +5,6 @@ mod consensus;
 mod corrosion;
 mod dns;
 mod fs;
+mod health;
 mod images;
 mod wasm;

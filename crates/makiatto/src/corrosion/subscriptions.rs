@@ -184,6 +184,28 @@ impl SubscriptionWatcher {
             }
         });
 
+        let unhealthy_nodes_handle = tokio::spawn({
+            let watcher = self.clone();
+            let tripwire = tripwire.clone();
+            async move {
+                watcher
+                    .watch_table(
+                        tripwire,
+                        "Unhealthy nodes",
+                        "SELECT node_name, marked_unhealthy_at, failure_reason FROM unhealthy_nodes",
+                        "subscription_unhealthy_nodes",
+                        |event| {
+                            let watcher = watcher.clone();
+                            Box::pin(async move {
+                                watcher.handle_unhealthy_nodes_change(event);
+                                Ok(())
+                            })
+                        },
+                    )
+                    .await;
+            }
+        });
+
         let cache_persist_handle = tokio::spawn({
             let cache_store = self.cache_store.clone();
             let mut tripwire = tripwire.clone();
@@ -245,6 +267,11 @@ impl SubscriptionWatcher {
             res = files_handle => {
                 if let Err(e) = res {
                     error!("Files watcher task failed: {e}");
+                }
+            }
+            res = unhealthy_nodes_handle => {
+                if let Err(e) = res {
+                    error!("Unhealthy nodes watcher task failed: {e}");
                 }
             }
             res = cache_persist_handle => {
@@ -493,6 +520,16 @@ impl SubscriptionWatcher {
     fn handle_dns_change(&self, event: &QueryEvent) {
         if let QueryEvent::Change(change_type, row_id, _, _) = event {
             info!("DNS records change: {change_type:?} row {row_id}");
+
+            if let Err(e) = self.dns_restart_tx.try_send(()) {
+                error!("Failed to signal DNS restart: {e}");
+            }
+        }
+    }
+
+    fn handle_unhealthy_nodes_change(&self, event: &QueryEvent) {
+        if let QueryEvent::Change(change_type, row_id, _, _) = event {
+            info!("Unhealthy nodes change: {change_type:?} row {row_id}");
 
             if let Err(e) = self.dns_restart_tx.try_send(()) {
                 error!("Failed to signal DNS restart: {e}");

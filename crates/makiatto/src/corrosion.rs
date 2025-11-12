@@ -11,6 +11,7 @@ use crate::config::Config;
 use crate::r#const::CORROSION_API_PORT;
 
 pub mod consensus;
+pub mod health;
 pub mod schema;
 pub mod subscriptions;
 
@@ -93,6 +94,24 @@ pub async fn get_peers() -> Result<Arc<[Peer]>> {
         .collect();
 
     Ok(peers.into())
+}
+
+/// Get set of unhealthy node names
+///
+/// # Errors
+/// Returns an error if the database query fails
+pub async fn get_unhealthy_node_names() -> Result<std::collections::HashSet<String>> {
+    let pool = get_pool().await?;
+
+    let rows = sqlx::query!("SELECT node_name FROM unhealthy_nodes")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| miette::miette!("Failed to query unhealthy nodes: {e}"))?;
+
+    let unhealthy_nodes: std::collections::HashSet<String> =
+        rows.into_iter().map(|row| row.node_name).collect();
+
+    Ok(unhealthy_nodes)
 }
 
 /// Get all DNS records from the database

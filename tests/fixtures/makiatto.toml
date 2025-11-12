@@ -41,6 +41,14 @@ enabled = true
 heartbeat_interval = 2
 lease_duration = 6
 
+[health]
+enabled = true
+check_interval = 2
+dns_timeout = 2
+http_timeout = 2
+failure_threshold = 2
+success_threshold = 2
+
 [certificate_renewal]
 enabled = true
 check_interval = 3600

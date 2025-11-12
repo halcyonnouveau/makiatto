@@ -6,6 +6,7 @@ use tracing::info;
 const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/001_initial_schema.sql"),
     include_str!("../../migrations/002_wasm_support.sql"),
+    include_str!("../../migrations/003_node_health.sql"),
 ];
 
 #[derive(Debug, Clone)]

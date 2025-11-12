@@ -13,6 +13,7 @@ Makiatto builds a global CDN that routes users to their nearest server for fast 
 
 - **Vertically integrated in Rust**: Single binary with embedded DNS server, WireGuard mesh, and distributed database with no external infrastructure required
 - **Self-organising nodes**: Deploy with one command. Nodes auto-discover peers, detect their coordinates, and coordinate GeoDNS routing
+- **Fault tolerance**: Unhealthy nodes are automatically excluded from routing with failover to healthy nodes
 - **Shared-nothing architecture**: Each node operates independently with no central coordination required
 - **[Dynamic image processing](https://halcyonnouveau.github.io/makiatto/usage-guide.html#dynamic-image-processing)**: On-the-fly image resizing, format conversion, and optimisation with query parameters
 - **[WebAssembly functions](https://halcyonnouveau.github.io/makiatto/usage-guide/wasm.html)**: Deploy edge functions as HTTP handlers and file transformers that run on all CDN nodes

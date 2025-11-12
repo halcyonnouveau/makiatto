@@ -44,6 +44,10 @@ pub struct Config {
     /// File sync configuration
     #[serde(default)]
     pub fs: FileSyncConfig,
+
+    /// Health check configuration
+    #[serde(default)]
+    pub health: HealthCheckConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -395,6 +399,62 @@ fn default_storage_dir() -> Arc<Utf8PathBuf> {
 
 fn default_reconcile_interval() -> u64 {
     1
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct HealthCheckConfig {
+    /// Enable health checking (only runs on leader)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// How often to check node health in seconds
+    #[serde(default = "default_health_check_interval")]
+    pub check_interval: u64,
+
+    /// DNS query timeout in seconds
+    #[serde(default = "default_health_timeout")]
+    pub dns_timeout: u64,
+
+    /// HTTP health check timeout in seconds
+    #[serde(default = "default_health_timeout")]
+    pub http_timeout: u64,
+
+    /// Number of consecutive failures before marking unhealthy
+    #[serde(default = "default_failure_threshold")]
+    pub failure_threshold: u32,
+
+    /// Number of consecutive successes before marking healthy
+    #[serde(default = "default_success_threshold")]
+    pub success_threshold: u32,
+}
+
+impl Default for HealthCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            check_interval: default_health_check_interval(),
+            dns_timeout: default_health_timeout(),
+            http_timeout: default_health_timeout(),
+            failure_threshold: default_failure_threshold(),
+            success_threshold: default_success_threshold(),
+        }
+    }
+}
+
+fn default_health_check_interval() -> u64 {
+    60 // 60 seconds
+}
+
+fn default_health_timeout() -> u64 {
+    5 // 5 seconds
+}
+
+fn default_failure_threshold() -> u32 {
+    3 // Mark unhealthy after 3 failures
+}
+
+fn default_success_threshold() -> u32 {
+    2 // Mark healthy after 2 successes
 }
 
 impl Config {
