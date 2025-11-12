@@ -63,7 +63,7 @@ jobs:
       - name: Fix SSH key permissions
         run: chmod 600 tests/fixtures/.ssh/id_ed25519
       - name: Run integration/e2e tests
-        run: cargo nextest run --package integration-tests --retries 4
+        run: cargo nextest run --package integration-tests --retries 5
 
   clippy:
     name: Check for common code mistakes

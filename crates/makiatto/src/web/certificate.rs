@@ -263,7 +263,6 @@ impl CertificateManager {
     async fn update_renewal_status(&self, domain: &str, status: &str) -> Result<()> {
         let now = util::get_current_timestamp()?;
 
-        #[allow(clippy::cast_possible_wrap)]
         let next_check = now + self.config.acme.check_interval as i64;
 
         let sql = format!(

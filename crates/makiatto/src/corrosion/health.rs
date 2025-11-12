@@ -248,7 +248,6 @@ impl HealthMonitor {
 
     /// Mark a node as unhealthy in the database
     async fn mark_node_unhealthy(&self, node_name: &str, failure_reason: &str) -> Result<()> {
-        #[allow(clippy::cast_possible_wrap)]
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| miette::miette!("Failed to get current time: {e}"))?

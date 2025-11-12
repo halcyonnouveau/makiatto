@@ -90,7 +90,6 @@ pub async fn execute_function(
     let wit_response = tokio::time::timeout(timeout_duration, async {
         let component = runtime.get_component(wasm_path).await?;
         let memory_limit = runtime.effective_memory_limit(function.max_memory_mb);
-        #[allow(clippy::cast_possible_truncation)]
         let memory_bytes = (memory_limit * 1024 * 1024) as usize;
 
         let store_data = create_store_data(function.env.clone(), memory_bytes, Some(domain_dir));

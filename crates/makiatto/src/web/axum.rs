@@ -290,7 +290,6 @@ async fn handle_acme_challenge(
     let duration = start_time.elapsed();
     let response = match challenge_result {
         Ok(Some(challenge)) => {
-            #[allow(clippy::cast_possible_wrap)]
             let current_time = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

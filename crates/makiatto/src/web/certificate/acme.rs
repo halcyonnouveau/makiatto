@@ -75,7 +75,6 @@ impl AcmeClient {
             .into_diagnostic()?;
 
         // Calculate expiration (90 days for Let's Encrypt)
-        #[allow(clippy::cast_possible_wrap)]
         let expires_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -99,7 +98,6 @@ impl AcmeClient {
     /// # Panics
     /// Panics if system time is before UNIX epoch
     pub async fn store_acme_challenge(&self, token: &str, key_auth: &str) -> Result<()> {
-        #[allow(clippy::cast_possible_wrap)]
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

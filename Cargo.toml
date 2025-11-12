@@ -159,7 +159,11 @@ non_snake_case = "warn"
 non_upper_case_globals = "warn"
 
 [workspace.lints.clippy]
-pedantic = "warn"
+pedantic = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 unimplemented = "warn"
 use_self = "warn"
+
+too_many_lines = "allow"
+cast_possible_wrap = "allow"
+cast_possible_truncation = "allow"

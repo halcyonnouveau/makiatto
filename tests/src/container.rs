@@ -619,7 +619,6 @@ pub mod util {
     }
 
     /// Get current timestamp as seconds since UNIX epoch
-    #[allow(clippy::cast_possible_wrap)]
     pub fn current_timestamp() -> i64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()

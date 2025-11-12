@@ -128,7 +128,6 @@ impl CertificateStore {
     pub async fn is_certificate_expiring(&self, domain: &str, days_threshold: u64) -> Result<bool> {
         let current_time = util::get_current_timestamp()?;
 
-        #[allow(clippy::cast_possible_wrap)]
         let threshold_time = current_time + (days_threshold * 24 * 60 * 60) as i64;
 
         // query database directly to ensure we have the latest certificate info

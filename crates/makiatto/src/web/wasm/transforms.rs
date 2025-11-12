@@ -38,7 +38,6 @@ pub async fn execute_transform(
     mime_type: Option<String>,
 ) -> Result<Bytes> {
     // Check file size limit
-    #[allow(clippy::cast_possible_truncation)]
     if let Some(max_kb) = transform.max_file_size_kb
         && content.len() > (max_kb as usize * 1024)
     {
@@ -56,7 +55,6 @@ pub async fn execute_transform(
         let component = runtime.get_component(wasm_path).await?;
 
         let memory_limit = runtime.effective_memory_limit(transform.max_memory_mb);
-        #[allow(clippy::cast_possible_truncation)]
         let memory_bytes = (memory_limit * 1024 * 1024) as usize;
         let store_data = create_store_data(transform.env.clone(), memory_bytes, Some(domain_dir));
 
@@ -108,7 +106,6 @@ pub async fn execute_transform(
 }
 
 /// Middleware to apply WASM transforms to response content
-#[allow(clippy::too_many_lines)]
 pub(crate) async fn wasm_transform_middleware(
     State(state): State<crate::web::axum::WebState>,
     Host(host): Host,

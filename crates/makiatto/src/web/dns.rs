@@ -428,7 +428,6 @@ pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
 ///
 /// # Panics
 /// Panics if the socket address "[::]:853" or "[::]:53" cannot be parsed, which should never happen
-#[allow(clippy::too_many_lines)]
 pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,

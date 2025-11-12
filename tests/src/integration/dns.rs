@@ -92,7 +92,6 @@ async fn test_replication() -> Result<()> {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)]
 async fn test_geolocation() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
@@ -207,7 +206,6 @@ async fn test_over_tls_with_certificates() -> Result<()> {
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)]
 async fn test_multi_domain_sni() -> Result<()> {
     let mut context = ContainerContext::new()?;
 

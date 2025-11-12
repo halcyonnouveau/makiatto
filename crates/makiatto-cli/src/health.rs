@@ -374,7 +374,6 @@ fn parse_load_average(output: &str) -> Option<f64> {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 async fn verify_dns_record(
     resolver: &TokioResolver,
     name: &str,
@@ -751,7 +750,6 @@ fn has_consensus_agreement(results: &[NodeHealth]) -> bool {
     healthy_count == results.len() && leaders.len() <= 1 && terms.len() <= 1 && !leaders.is_empty()
 }
 
-#[allow(clippy::too_many_lines)]
 fn display_health_results(results: &[NodeHealth]) {
     ui::separator();
 

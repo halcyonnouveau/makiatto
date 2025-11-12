@@ -81,7 +81,6 @@ impl ServiceFlags {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> Result<()> {
     if std::env::args().any(|arg| arg == "--version") {

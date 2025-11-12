@@ -76,13 +76,11 @@ impl DirectorElection {
 
     /// Perform one election tick - check leadership and update heartbeat
     async fn election_tick(&self) -> Result<()> {
-        #[allow(clippy::cast_possible_wrap)]
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| miette::miette!("Failed to get current time: {e}"))?
             .as_secs() as i64;
 
-        #[allow(clippy::cast_possible_wrap)]
         let lease_duration = self.config.consensus.lease_duration as i64;
         let leadership = self.get_current_leadership().await?;
 

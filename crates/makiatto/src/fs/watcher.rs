@@ -300,7 +300,6 @@ pub async fn process_file_change(
         file_size
     );
 
-    #[allow(clippy::cast_possible_wrap)]
     Ok(Some(File {
         domain: Arc::from(domain),
         path: Arc::from(normalised_path),

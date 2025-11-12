@@ -291,7 +291,6 @@ fn get_existing_dns_records(
 ///
 /// # Panics
 /// May panic if a machine has `ipv6` set to `Some` but the value is accessed incorrectly
-#[allow(clippy::too_many_lines)]
 pub fn generate_dns_records(
     domain: &str,
     machines: &[Machine],

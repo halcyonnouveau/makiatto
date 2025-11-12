@@ -52,7 +52,6 @@ impl SubscriptionWatcher {
     }
 
     /// Start watching subscriptions
-    #[allow(clippy::too_many_lines)]
     pub async fn run(&self, mut tripwire: Tripwire) {
         let peers_handle = tokio::spawn({
             let watcher = self.clone();
@@ -317,7 +316,6 @@ impl SubscriptionWatcher {
     }
 
     /// Subscribe to a query and process events
-    #[allow(clippy::too_many_lines)]
     async fn subscribe<F>(&self, query: &str, state_key: &str, handler: F) -> Result<()>
     where
         F: Fn(&QueryEvent) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>,
