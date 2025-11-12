@@ -113,10 +113,13 @@ mod system {
 
         let missing_files: Vec<_> = records
             .into_iter()
-            .filter(|(domain, path, _)| {
+            .filter(|(domain, path, content_hash)| {
                 let domain_dir = config.web.static_dir.as_std_path().join(domain);
                 let file_path = domain_dir.join(path.trim_start_matches('/'));
-                !file_path.exists()
+                let content_path = config.fs.storage_dir.join(content_hash);
+
+                // File is missing if either the domain file doesn't exist OR the content file doesn't exist
+                !file_path.exists() || !content_path.exists()
             })
             .collect();
 
