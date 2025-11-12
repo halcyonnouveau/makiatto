@@ -156,6 +156,13 @@ impl HealthMonitor {
             return true;
         }
 
+        let domains = match corrosion::get_domains().await {
+            Ok(domains) if !domains.is_empty() => domains,
+            _ => return true,
+        };
+
+        let domain = &domains[0];
+
         let wg_addr = peer.wg_address.as_ref();
         let dns_timeout = Duration::from_secs(self.config.health.dns_timeout);
         let ip_addr = wg_addr.split('/').next().unwrap_or(wg_addr);
@@ -174,11 +181,7 @@ impl HealthMonitor {
             TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
                 .build();
 
-        let result = timeout(
-            dns_timeout,
-            resolver.lookup("version.bind.", RecordType::TXT),
-        )
-        .await;
+        let result = timeout(dns_timeout, resolver.lookup(domain, RecordType::A)).await;
 
         matches!(result, Ok(Ok(_)))
     }
