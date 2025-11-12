@@ -437,9 +437,7 @@ pub async fn start(
         download_geolite(&config.dns.geolite_path).await?;
     }
 
-    let unhealthy_nodes = corrosion::get_unhealthy_node_names()
-        .await
-        .unwrap_or_default();
+    let unhealthy_nodes = corrosion::get_unhealthy_nodes().await.unwrap_or_default();
 
     let peers: Vec<DnsPeer> = corrosion::get_peers()
         .await

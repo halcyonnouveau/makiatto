@@ -81,60 +81,61 @@ impl HealthMonitor {
         node_states: &mut HashMap<Arc<str>, NodeHealthState>,
     ) -> Result<()> {
         let peers = corrosion::get_peers().await?;
+        let unhealthy_nodes = corrosion::get_unhealthy_nodes().await?;
 
         for peer in peers.iter() {
             let node_name = peer.name.clone();
 
-            // Get or create state for this node
-            let state = node_states
-                .entry(node_name.clone())
-                .or_insert(NodeHealthState {
+            // Get or create state for this node, checking if node is already marked unhealthy
+            let state = node_states.entry(node_name.clone()).or_insert_with(|| {
+                let is_marked_unhealthy = unhealthy_nodes.contains(node_name.as_ref());
+                NodeHealthState {
                     consecutive_failures: 0,
                     consecutive_successes: 0,
-                    is_marked_unhealthy: false,
-                });
+                    is_marked_unhealthy,
+                }
+            });
 
-            // Perform health checks
-            let is_healthy = self.check_node_health(peer).await;
+            match self.check_node_health(peer).await {
+                Ok(()) => {
+                    state.consecutive_failures = 0;
+                    state.consecutive_successes += 1;
 
-            if is_healthy {
-                state.consecutive_failures = 0;
-                state.consecutive_successes += 1;
-
-                // If node was marked unhealthy and now has enough successes, mark as healthy
-                if state.is_marked_unhealthy
-                    && state.consecutive_successes >= self.config.health.success_threshold
-                {
-                    info!(
-                        "Node '{}' recovered after {} consecutive successes",
-                        node_name, state.consecutive_successes
-                    );
-                    if let Err(e) = self.mark_node_healthy(&node_name).await {
-                        error!("Failed to mark node '{}' as healthy: {}", node_name, e);
-                    } else {
-                        state.is_marked_unhealthy = false;
-                        state.consecutive_successes = 0;
+                    // If node was marked unhealthy and now has enough successes, mark as healthy
+                    if state.is_marked_unhealthy
+                        && state.consecutive_successes >= self.config.health.success_threshold
+                    {
+                        info!(
+                            "Node '{}' recovered after {} consecutive successes",
+                            node_name, state.consecutive_successes
+                        );
+                        if let Err(e) = self.mark_node_healthy(&node_name).await {
+                            error!("Failed to mark node '{}' as healthy: {}", node_name, e);
+                        } else {
+                            state.is_marked_unhealthy = false;
+                            state.consecutive_successes = 0;
+                        }
                     }
                 }
-            } else {
-                state.consecutive_successes = 0;
-                state.consecutive_failures += 1;
+                Err(failure_reason) => {
+                    state.consecutive_successes = 0;
+                    state.consecutive_failures += 1;
 
-                // If node is not yet marked unhealthy and has enough failures, mark as unhealthy
-                if !state.is_marked_unhealthy
-                    && state.consecutive_failures >= self.config.health.failure_threshold
-                {
-                    warn!(
-                        "Node '{}' failed after {} consecutive failures",
-                        node_name, state.consecutive_failures
-                    );
-                    let failure_reason =
-                        format!("Failed health checks {} times", state.consecutive_failures);
-                    if let Err(e) = self.mark_node_unhealthy(&node_name, &failure_reason).await {
-                        error!("Failed to mark node '{}' as unhealthy: {}", node_name, e);
-                    } else {
-                        state.is_marked_unhealthy = true;
-                        state.consecutive_failures = 0;
+                    // If node is not yet marked unhealthy and has enough failures, mark as unhealthy
+                    if !state.is_marked_unhealthy
+                        && state.consecutive_failures >= self.config.health.failure_threshold
+                    {
+                        warn!(
+                            "Node '{}' failed after {} consecutive failures: {}",
+                            node_name, state.consecutive_failures, failure_reason
+                        );
+                        if let Err(e) = self.mark_node_unhealthy(&node_name, &failure_reason).await
+                        {
+                            error!("Failed to mark node '{}' as unhealthy: {}", node_name, e);
+                        } else {
+                            state.is_marked_unhealthy = true;
+                            state.consecutive_failures = 0;
+                        }
                     }
                 }
             }
@@ -144,21 +145,28 @@ impl HealthMonitor {
     }
 
     /// Check if a single node is healthy
-    async fn check_node_health(&self, peer: &corrosion::schema::Peer) -> bool {
-        let dns_healthy = self.check_dns_health(peer).await;
-        let http_healthy = self.check_http_health(peer).await;
+    async fn check_node_health(&self, peer: &corrosion::schema::Peer) -> Result<(), String> {
+        let dns_result = self.check_dns_health(peer).await;
+        let http_result = self.check_http_health(peer).await;
 
-        dns_healthy && http_healthy
+        match (dns_result, http_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(dns_err), Err(http_err)) => Err(format!(
+                "DNS check failed: {dns_err}; HTTP check failed: {http_err}"
+            )),
+            (Err(dns_err), Ok(())) => Err(format!("DNS check failed: {dns_err}")),
+            (Ok(()), Err(http_err)) => Err(format!("HTTP check failed: {http_err}")),
+        }
     }
 
-    async fn check_dns_health(&self, peer: &corrosion::schema::Peer) -> bool {
+    async fn check_dns_health(&self, peer: &corrosion::schema::Peer) -> Result<(), String> {
         if !peer.is_nameserver {
-            return true;
+            return Ok(());
         }
 
         let domains = match corrosion::get_domains().await {
             Ok(domains) if !domains.is_empty() => domains,
-            _ => return true,
+            _ => return Ok(()),
         };
 
         let domain = &domains[0];
@@ -169,7 +177,7 @@ impl HealthMonitor {
 
         let ip: IpAddr = match ip_addr.parse() {
             Ok(ip) => ip,
-            Err(_) => return false,
+            Err(e) => return Err(format!("invalid IP address: {e}")),
         };
 
         let sock_addr = SocketAddr::new(ip, 53);
@@ -181,23 +189,25 @@ impl HealthMonitor {
             TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
                 .build();
 
-        let result = timeout(dns_timeout, resolver.lookup(domain, RecordType::A)).await;
-
-        matches!(result, Ok(Ok(_)))
+        match timeout(dns_timeout, resolver.lookup(domain, RecordType::A)).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(format!("DNS query failed: {e}")),
+            Err(_) => Err("DNS query timeout".to_string()),
+        }
     }
 
-    async fn check_http_health(&self, peer: &corrosion::schema::Peer) -> bool {
+    async fn check_http_health(&self, peer: &corrosion::schema::Peer) -> Result<(), String> {
         let http_timeout = Duration::from_secs(self.config.health.http_timeout);
 
         let domains = match corrosion::get_domains().await {
             Ok(domains) if !domains.is_empty() => domains,
-            _ => return true,
+            _ => return Ok(()),
         };
 
         let domain = &domains[0];
 
         let Ok(pool) = corrosion::get_pool().await else {
-            return false;
+            return Err("failed to get database pool".to_string());
         };
 
         let cert_exists = sqlx::query!(
@@ -215,7 +225,7 @@ impl HealthMonitor {
             format!("http://{}", peer.ipv4)
         };
 
-        let result = timeout(http_timeout, async {
+        match timeout(http_timeout, async {
             let client = reqwest::Client::builder()
                 .danger_accept_invalid_certs(true)
                 .build()
@@ -227,9 +237,13 @@ impl HealthMonitor {
             );
             client.get(&url).headers(headers).send().await
         })
-        .await;
-
-        matches!(result, Ok(Ok(response)) if response.status().is_success())
+        .await
+        {
+            Ok(Ok(response)) if response.status().is_success() => Ok(()),
+            Ok(Ok(response)) => Err(format!("HTTP {}", response.status())),
+            Ok(Err(e)) => Err(format!("HTTP request failed: {e}")),
+            Err(_) => Err("HTTP request timeout".to_string()),
+        }
     }
 
     /// Mark a node as unhealthy in the database

@@ -100,7 +100,7 @@ pub async fn get_peers() -> Result<Arc<[Peer]>> {
 ///
 /// # Errors
 /// Returns an error if the database query fails
-pub async fn get_unhealthy_node_names() -> Result<std::collections::HashSet<String>> {
+pub async fn get_unhealthy_nodes() -> Result<std::collections::HashSet<String>> {
     let pool = get_pool().await?;
 
     let rows = sqlx::query!("SELECT node_name FROM unhealthy_nodes")
