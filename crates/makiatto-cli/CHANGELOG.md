@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/halcyonnouveau/makiatto/compare/v0.4.1...v0.4.2) - 2025-11-12
+
+### Added
+
+- add dns failovers
+
+### Other
+
+- i love to update my docs
+- update readme and docs again but fr this time
+- update readme and docs
+
 ## [0.4.1](https://github.com/halcyonnouveau/makiatto/compare/v0.4.0...v0.4.1) - 2025-11-06
 
 ### Fixed
