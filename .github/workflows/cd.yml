@@ -25,7 +25,7 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
       - name: Install sqlite3 (ARM only)
         if: matrix.os == 'ubuntu-24.04-arm'
@@ -53,7 +53,7 @@ jobs:
             os: macos-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
@@ -67,7 +67,7 @@ jobs:
     name: Upload Wasm Interface Type files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Package WIT files
         run: |
           mkdir -p makiatto-wit
