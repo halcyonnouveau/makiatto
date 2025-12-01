@@ -7,19 +7,19 @@ This guide covers the core commands and workflows for managing your Makiatto CDN
 List all configured machines in your profile:
 
 ```bash
-makiatto-cli machine list
+maki machine list
 ```
 
 Add an existing Makiatto node to your profile:
 
 ```bash
-makiatto-cli machine add <user@host>
+maki machine add <user@host>
 ```
 
 Upgrade Makiatto binary on machines:
 
 ```bash
-makiatto-cli machine upgrade [machine names...]
+maki machine upgrade [machine names...]
 ```
 
 If no machine names are provided, all machines will be upgraded. You can optionally specify `--binary-path` to use a local binary instead of downloading from GitHub releases.
@@ -27,7 +27,7 @@ If no machine names are provided, all machines will be upgraded. You can optiona
 Remove a machine from the cluster:
 
 ```bash
-makiatto-cli machine remove <machine-name>
+maki machine remove <machine-name>
 ```
 
 This command will:
@@ -40,7 +40,7 @@ This command will:
 You'll be prompted for confirmation before removal. Use `--force` to skip the confirmation prompt:
 
 ```bash
-makiatto-cli machine remove <machine-name> --force
+maki machine remove <machine-name> --force
 ```
 
 ```admonish warning
@@ -52,7 +52,7 @@ Machine removal is permanent and cannot be undone. The machine will need to be r
 Check cluster health:
 
 ```bash
-makiatto-cli health
+maki health
 ```
 
 The health command performs comprehensive checks across your entire cluster.
@@ -130,10 +130,10 @@ Your machine configuration is stored in a profile (default: `~/.config/makiatto/
 
 ```bash
 # Personal profile in home directory
-makiatto-cli --profile ~/.config/makiatto/zucchero.toml machine list
+maki --profile ~/.config/makiatto/zucchero.toml machine list
 
 # Shared profile in project repo
-makiatto-cli --profile ./deployment/zucchero.toml sync
+maki --profile ./deployment/zucchero.toml sync
 ```
 
 ```admonish info
@@ -144,7 +144,7 @@ You can also set the `MAKIATTO_PROFILE` environment variable:
 
 ```bash
 export MAKIATTO_PROFILE=./deployment/defy.toml
-makiatto-cli sync
+maki sync
 ```
 
 The `--profile` flag takes precedence over the environment variable when both are set.

@@ -38,8 +38,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ github.event.inputs.tag && format('refs/tags/{0}', github.event.inputs.tag) || github.ref }}
 
-  upload-makiatto-cli:
-    name: Upload makiatto-cli binaries
+  upload-maki:
+    name: Upload maki binaries
     strategy:
       matrix:
         include:
@@ -57,7 +57,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: makiatto-cli
+          bin: maki
           target: ${{ matrix.target }}
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}

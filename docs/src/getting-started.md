@@ -26,17 +26,17 @@ Make sure you have the Makiatto CLI installed on your local machine. See the [In
 Initialise your CDN nodes with the `machine init` command. This will install the Makiatto daemon on each server and configure them to join the mesh network:
 
 ```bash
-makiatto-cli machine init vector root@203.0.113.1
-makiatto-cli machine init klukai ubuntu@198.51.100.1
-makiatto-cli machine init tololo admin@192.0.2.1
+maki machine init vector root@203.0.113.1
+maki machine init klukai ubuntu@198.51.100.1
+maki machine init tololo admin@192.0.2.1
 ```
 
-The command format is `makiatto-cli machine init <name> <user>@<ip>`. These names will be used as nameserver hostnames (e.g., `vector.ns.example.com`), so choose something short and meaningful.
+The command format is `maki machine init <name> <user>@<ip>`. These names will be used as nameserver hostnames (e.g., `vector.ns.example.com`), so choose something short and meaningful.
 
 You can verify your nodes are connected:
 
 ```bash
-makiatto-cli machine list
+maki machine list
 ```
 
 ## Creating your project configuration
@@ -60,7 +60,7 @@ You must use a root domain that you own and control at the registrar level (like
 With your nodes set up and configuration ready, deploy your content:
 
 ```bash
-makiatto-cli sync
+maki sync
 ```
 
 This command syncs your static files and domain configuration to all nodes in the mesh. Your content is now distributed globally!
@@ -70,7 +70,7 @@ This command syncs your static files and domain configuration to all nodes in th
 For GeoDNS routing to work, you need to configure your domain to use Makiatto's nameservers:
 
 ```bash
-makiatto-cli dns nameserver-setup
+maki dns nameserver-setup
 ```
 
 This command will output detailed instructions like this:

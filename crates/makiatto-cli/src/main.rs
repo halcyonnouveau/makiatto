@@ -12,7 +12,7 @@ use makiatto_cli::{
 };
 use miette::Result;
 
-/// makiatto-cli - manage makiatto cdn nodes and deployments
+/// maki (makiatto-cli) - manage makiatto cdn nodes and deployments
 #[derive(FromArgs)]
 struct Cli {
     /// project config path (default: ./makiatto.toml)

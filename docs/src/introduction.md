@@ -2,7 +2,7 @@
 
 Makiatto builds a global CDN by deploying a single Rust binary to servers in different regions. Each node contains an embedded DNS server, WireGuard mesh, and distributed database with automatic SSL certificates and content synchronisation.
 
-Deploy new nodes with `makiatto-cli machine init`. Each node detects its coordinates, auto-discovers existing peers through the distributed database, joins the WireGuard mesh, and replicates state. When users query your domain, the DNS server calculates the geographically closest node and returns that IP address. Because nodes operate independently with local state, they continue serving content even during network partitions between peers.
+Deploy new nodes with `maki machine init`. Each node detects its coordinates, auto-discovers existing peers through the distributed database, joins the WireGuard mesh, and replicates state. When users query your domain, the DNS server calculates the geographically closest node and returns that IP address. Because nodes operate independently with local state, they continue serving content even during network partitions between peers.
 
 ## Key Capabilities
 

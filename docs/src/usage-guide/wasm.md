@@ -38,7 +38,7 @@ This provides enough capability for edge computing use cases (reading templates,
 First, fetch the WIT interface definitions:
 
 ```bash
-makiatto-cli wasm fetch
+maki wasm fetch
 ```
 
 This will download WIT files to `./wit` which define the interfaces your component must implement. Build your component using your language's WASM toolchain, for example:
@@ -136,7 +136,7 @@ path = "api/hello.wasm"
 Sync to your cluster:
 
 ```bash
-makiatto-cli sync
+maki sync
 ```
 
 Your function is now available at `https://example.com/api/hello`

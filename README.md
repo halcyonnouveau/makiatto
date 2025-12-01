@@ -31,9 +31,9 @@ Makiatto builds a global CDN that routes users to their nearest server for fast 
    Set up nodes in different geographic regions. Each node will automatically join the mesh network and sync content. We recommend using at least 3 nodes as you'll need a minimum of 3 nameservers for proper DNS redundancy.
 
    ```bash
-   makiatto-cli machine init <name> <user>@<ip address>
-   makiatto-cli machine init vector root@203.0.113.1
-   makiatto-cli machine init klukai ubuntu@2001:db8::1
+   maki machine init <name> <user>@<ip address>
+   maki machine init vector root@203.0.113.1
+   maki machine init klukai ubuntu@2001:db8::1
    ```
 
 3. **Configure your project**
@@ -51,7 +51,7 @@ Makiatto builds a global CDN that routes users to their nearest server for fast 
    Sync your static files and domain config to all nodes in the mesh.
 
    ```bash
-   makiatto-cli sync
+   maki sync
    ```
 
 5. **Configure your domain nameservers**
@@ -59,7 +59,7 @@ Makiatto builds a global CDN that routes users to their nearest server for fast 
    Set up your domain to use Makiatto's custom nameservers for GeoDNS routing. Follow the guide to add glue records and configure your domain registrar.
 
    ```bash
-   makiatto-cli dns nameserver-setup
+   maki dns nameserver-setup
    ```
 
 Your content should now be distributed globally with automatic geolocation DNS routing! For more detailed instructions, see the [documentation](https://halcyonnouveau.github.io/makiatto/).

@@ -8,7 +8,7 @@ body:
       value: |
         ## First of all
         1. Please search for [existing issues](https://github.com/halcyonnouveau/makiatto/issues?q=is%3Aissue) about this problem first.
-        2. Make sure `makiatto` and `makiatto-cli` are up to date.
+        2. Make sure `makiatto` and `maki` are up to date.
         3. Make sure it's an issue with Makiatto and not something else you are using.
         4. Remember to follow our community guidelines and be friendly.
 
@@ -46,11 +46,11 @@ body:
         Please provide the following information:
         - OS and version
         - Makiatto daemon version (`makiatto --version`)
-        - Makiatto CLI version (`makiatto-cli --version`)
+        - Makiatto CLI version (`maki --version`)
       placeholder: |
         OS: Ubuntu 22.04
         Daemon: makiatto 0.3.1
-        CLI: makiatto-cli 0.3.1
+        CLI: maki 0.3.1
     validations:
       required: true
 

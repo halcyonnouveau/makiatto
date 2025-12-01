@@ -495,7 +495,7 @@ fn retrieve_geolocation(ssh: &SshSession) -> Result<GeoData> {
     };
 
     let version = env!("CARGO_PKG_VERSION");
-    let user_agent = format!("makiatto-cli/{version} (https://github.com/halcyonnouveau/makiatto)");
+    let user_agent = format!("maki/{version} (https://github.com/halcyonnouveau/makiatto)");
 
     let ipv4_result = ssh.exec(&format!(
         "curl -s --connect-timeout 5 --max-time 15 -H 'User-Agent: {user_agent}' https://api4.ipify.org"

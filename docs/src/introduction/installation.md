@@ -17,20 +17,20 @@ If you don't have Rust installed, get it from [rustup.rs](https://rustup.rs/).
 You can download pre-built binaries from the [releases page](https://github.com/halcyonnouveau/makiatto/releases).
 
 ```admonish important
-Download the `makiatto-cli-*` files, not the `makiatto-*` files (those are the daemon binaries for servers).
+Download the `maki-*` files, not the `makiatto-*` files (those are the daemon binaries for servers).
 ```
 
 Choose the correct file for your platform:
-- `makiatto-cli-x86_64-unknown-linux-gnu.tar.gz` - Linux (Intel/AMD)
-- `makiatto-cli-aarch64-unknown-linux-gnu.tar.gz` - Linux (ARM64)
-- `makiatto-cli-x86_64-apple-darwin.tar.gz` - macOS (Intel)
-- `makiatto-cli-aarch64-apple-darwin.tar.gz` - macOS (Apple Silicon)
+- `maki-x86_64-unknown-linux-gnu.tar.gz` - Linux (Intel/AMD)
+- `maki-aarch64-unknown-linux-gnu.tar.gz` - Linux (ARM64)
+- `maki-x86_64-apple-darwin.tar.gz` - macOS (Intel)
+- `maki-aarch64-apple-darwin.tar.gz` - macOS (Apple Silicon)
 
 Then extract and install:
 ```bash
-tar -xzf makiatto-cli-*.tar.gz
-chmod +x makiatto-cli
-mv makiatto-cli /usr/local/bin/
+tar -xzf maki-*.tar.gz
+chmod +x maki
+mv maki /usr/local/bin/
 ```
 
 ## Verify installation
@@ -38,5 +38,5 @@ mv makiatto-cli /usr/local/bin/
 After installation, verify everything is working:
 
 ```bash
-makiatto-cli --version
+maki --version
 ```

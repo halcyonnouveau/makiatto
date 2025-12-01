@@ -11,7 +11,7 @@
 * If possible, provide the relevant information for your issue:
   * Your operating system and version
   * Makiatto daemon version (`makiatto --version`)
-  * Makiatto CLI version (`makiatto-cli --version`)
+  * Makiatto CLI version (`maki --version`)
   * If building from source: Your Rust version (`rustc --version`)
   * For daemon issues: Relevant logs (`journalctl -u makiatto` or equivalent)
   * The full error message with backtrace

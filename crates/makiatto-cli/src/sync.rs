@@ -117,7 +117,7 @@ fn check_remote_version(ssh: &SshSession) {
             let remote_version = output.trim();
             if !remote_version.is_empty() && remote_version != cli_version {
                 ui::warn(&format!(
-                    "makiatto-cli is v{cli_version} but makiatto daemon is v{remote_version}. Consider running 'makiatto-cli machine upgrade' to update the daemon binary",
+                    "maki is v{cli_version} but makiatto daemon is v{remote_version}. Consider running 'maki machine upgrade' to update the daemon binary",
                 ));
             }
         }
@@ -516,7 +516,7 @@ fn apply_dns_diff(
     if !added_ns_records.is_empty() {
         ui::warn("⚠️ New nameserver records detected");
         ui::info(
-            "Consider running `makiatto-cli dns nameserver-setup` to get the complete nameserver configuration guide.",
+            "Consider running `maki dns nameserver-setup` to get the complete nameserver configuration guide.",
         );
     }
 

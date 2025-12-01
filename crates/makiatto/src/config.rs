@@ -490,6 +490,6 @@ pub fn load() -> Result<Config> {
     }
 
     Err(miette::miette!(
-        "No makiatto config found. Run 'makiatto-cli machine init' first to set up this node."
+        "No makiatto config found. Run 'maki machine init' first to set up this node."
     ))
 }
