@@ -23,8 +23,10 @@ Makiatto builds a global CDN that routes users to their nearest server for fast 
 1. **Install the CLI**
 
    ```bash
-   cargo install makiatto-cli
+   cargo install makiatto-cli  # installs as `maki`
    ```
+
+   Or download pre-built binaries from [GitHub Releases](https://github.com/halcyonnouveau/makiatto/releases).
 
 2. **Create your CDN nodes**
 

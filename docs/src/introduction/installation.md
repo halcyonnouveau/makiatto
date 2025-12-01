@@ -7,7 +7,7 @@ There are several ways to install the Makiatto CLI on your local machine.
 If you have Rust installed, you can install directly from crates.io:
 
 ```bash
-cargo install makiatto-cli
+cargo install makiatto-cli  # installs as `maki`
 ```
 
 If you don't have Rust installed, get it from [rustup.rs](https://rustup.rs/).
