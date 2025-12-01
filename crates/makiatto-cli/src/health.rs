@@ -928,14 +928,10 @@ fn display_health_results(results: &[NodeHealth]) {
             info.push(format!("Load: {load:.2}"));
         }
 
-        if info.is_empty() && node.system.error.is_some() {
+        if let (true, Some(error)) = (info.is_empty(), &node.system.error) {
             ui::field(
                 &format!("├─ {}", node.name),
-                &format!(
-                    "{} {}",
-                    style("✗").red(),
-                    node.system.error.as_ref().unwrap()
-                ),
+                &format!("{} {}", style("✗").red(), error),
             );
         } else {
             let system_symbol = if node.system.healthy {

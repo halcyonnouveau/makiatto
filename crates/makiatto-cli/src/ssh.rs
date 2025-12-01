@@ -106,8 +106,9 @@ impl SshSession {
     /// # Panics
     /// Panics if password is expected but not available
     pub fn exec(&self, command: &str) -> Result<String> {
-        if command.starts_with("sudo ") && self.password.is_some() {
-            let password = self.password.as_ref().unwrap();
+        if let Some(password) = &self.password
+            && command.starts_with("sudo ")
+        {
             return self.execute_command_with_sudo(command, password, None);
         }
 
@@ -123,8 +124,9 @@ impl SshSession {
     /// # Panics
     /// Panics if password is expected but not available
     pub fn exec_timeout(&self, command: &str, timeout: Duration) -> Result<String> {
-        if command.starts_with("sudo ") && self.password.is_some() {
-            let password = self.password.as_ref().unwrap();
+        if let Some(password) = &self.password
+            && command.starts_with("sudo ")
+        {
             return self.execute_command_with_sudo(command, password, Some(timeout));
         }
 
