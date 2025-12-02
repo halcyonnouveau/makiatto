@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "axum-control"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "axum",
  "tokio",
@@ -3889,7 +3889,7 @@ source = "git+https://github.com/DanielKeep/rust-custom-derive.git#1252f258cdb9b
 
 [[package]]
 name = "makiatto"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "argh",
  "async-trait",
@@ -3951,7 +3951,7 @@ dependencies = [
 
 [[package]]
 name = "makiatto-cli"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "argh",
  "base64 0.22.1",

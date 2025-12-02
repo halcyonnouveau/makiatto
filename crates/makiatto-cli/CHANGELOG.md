@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/halcyonnouveau/makiatto/compare/v0.4.4...v0.5.0) - 2025-12-02
+
+### Changed
+
+- [**breaking**] rename makiatto-cli binary to maki
+
 ## [0.4.2](https://github.com/halcyonnouveau/makiatto/compare/v0.4.1...v0.4.2) - 2025-11-12
 
 ### Added
