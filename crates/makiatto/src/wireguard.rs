@@ -107,7 +107,7 @@ where
     ) -> Result<Self> {
         info!("Setting up WireGuard interface '{}'", config.interface);
 
-        let wgapi = WGApi::<T>::new(config.interface.to_string())
+        let mut wgapi = WGApi::<T>::new(config.interface.to_string())
             .map_err(|e| miette!("Failed to create WireGuard API: {e}"))?;
 
         if Self::check_interface_exists(&wgapi) {
@@ -129,7 +129,7 @@ where
             name: config.interface.to_string(),
             prvkey: config.private_key.to_string(),
             addresses: vec![address_mask],
-            port: WIREGUARD_PORT.into(),
+            port: WIREGUARD_PORT,
             peers: vec![],
             mtu: None,
         };

@@ -59,7 +59,7 @@ hickory-server = { version = "0.25", features = [
     "tls-aws-lc-rs",
     "quic-aws-lc-rs",
 ] }
-maxminddb = "0.26"
+maxminddb = "0.27"
 
 # Web
 axum = "0.8"
@@ -94,9 +94,9 @@ opentelemetry-otlp = { version = "0.31", features = [
 # Utilities
 camino = "1.2"
 dashmap = "6.1"
-defguard_wireguard_rs = "0.7"
+defguard_wireguard_rs = "0.8"
 flate2 = "1.0"
-geo = "0.31"
+geo = "0.32"
 globset = "0.4"
 indoc = "2.0"
 jiff = "0.2"
@@ -111,7 +111,7 @@ reqwest = { version = "0.12", features = [
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 tar = "0.4"
 url = "2.5"
-uuid = { version = "1.18", features = ["v7"] }
+uuid = { version = "1.19", features = ["v7"] }
 
 # Corrosion
 corro-agent = { git = "https://github.com/superfly/corrosion" }
@@ -125,7 +125,7 @@ moka = { version = "0.12", features = ["future"] }
 
 # Testing
 ctor = "0.6"
-testcontainers = "0.25"
+testcontainers = "0.26"
 tokio-test = "0.4"
 
 [patch.crates-io]

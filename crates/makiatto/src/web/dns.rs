@@ -183,18 +183,18 @@ impl Handler {
         // get coordinates of request
         let coords = {
             let _span = span!(Level::DEBUG, "geoip_lookup", ip = %request.ip).entered();
-            let lookup = self.reader.lookup::<maxminddb::geoip2::City>(request.ip);
-            match lookup {
+            let lookup = self.reader.lookup(request.ip);
+            match lookup.and_then(|r| r.decode::<maxminddb::geoip2::City>()) {
                 Ok(Some(response)) => {
-                    if let Some(location) = response.location {
-                        let lat = location.latitude.unwrap_or(0.0);
-                        let lon = location.longitude.unwrap_or(0.0);
+                    let location = response.location;
+                    let lat = location.latitude.unwrap_or(0.0);
+                    let lon = location.longitude.unwrap_or(0.0);
+                    if lat != 0.0 || lon != 0.0 {
                         debug!("GeoIP lookup found: lat={lat}, lon={lon}");
-                        point!(x: lat, y: lon)
                     } else {
                         debug!("GeoIP lookup found no location data");
-                        point!(x: 0.0, y: 0.0)
                     }
+                    point!(x: lat, y: lon)
                 }
                 Ok(None) => {
                     debug!("GeoIP lookup found no data for IP");
