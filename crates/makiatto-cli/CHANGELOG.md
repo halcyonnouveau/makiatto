@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/halcyonnouveau/makiatto/compare/v0.5.0...v0.5.1) - 2026-01-11
+
+### Added
+
+- add external peer support and observability auto-discovery
+
 ## [0.5.0](https://github.com/halcyonnouveau/makiatto/compare/v0.4.4...v0.5.0) - 2025-12-02
 
 ### Changed
