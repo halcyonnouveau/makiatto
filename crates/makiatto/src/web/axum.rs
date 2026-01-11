@@ -18,7 +18,6 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use axum_extra::extract::Host;
 use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -38,6 +37,7 @@ use tower_http::{
 use tracing::{debug, error, info, instrument, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+use crate::web::extract::Host;
 use crate::{
     config::Config,
     corrosion::{self, schema::AcmeChallenge},

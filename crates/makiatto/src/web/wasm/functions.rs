@@ -9,7 +9,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use axum_extra::extract::Host;
+use futures_util::FutureExt;
 use miette::{Result, miette};
 use opentelemetry::trace::TraceContextExt;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -22,6 +22,7 @@ use super::{
         Method as WitMethod, NodeContext as WitNodeContext, Request as WitRequest,
     },
 };
+use crate::web::extract::Host;
 
 pub struct DomainFunction {
     pub env: HashMap<String, String>,
@@ -211,8 +212,6 @@ pub(crate) async fn wasm_function_middleware(
 
     let domain_dir = state.static_dir.join(&resolved_domain);
     let wasm_path = domain_dir.join(&row.path);
-
-    use futures_util::FutureExt;
 
     match std::panic::AssertUnwindSafe(execute_function(
         wasm_runtime,

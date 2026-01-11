@@ -9,7 +9,6 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use axum_extra::extract::Host;
 use globset::Glob;
 use miette::{Result, miette};
 use wasmtime::Store;
@@ -19,6 +18,7 @@ use super::{
     StoreData, WasmRuntime, create_store_data, transformer_bindings,
     transformer_bindings::exports::makiatto::transform::transformer::NodeContext as WitNodeContext,
 };
+use crate::web::extract::host::Host;
 
 pub struct DomainTransform {
     pub path: String,
