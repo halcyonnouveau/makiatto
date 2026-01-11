@@ -18,7 +18,7 @@ use super::{
     StoreData, WasmRuntime, create_store_data, transformer_bindings,
     transformer_bindings::exports::makiatto::transform::transformer::NodeContext as WitNodeContext,
 };
-use crate::web::extract::host::Host;
+use crate::web::extract::Host;
 
 pub struct DomainTransform {
     pub path: String,

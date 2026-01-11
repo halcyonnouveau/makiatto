@@ -431,9 +431,9 @@ fn start_makiatto_service(ssh: &SshSession) -> Result<()> {
 
 fn add_self_as_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
     ui::status("Inserting self into database...");
-    let spinner = ui::spinner("Checking for waiting for database to be ready...");
+    let spinner = ui::spinner("Waiting for database to be ready...");
     let start_time = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(10);
+    let timeout = std::time::Duration::from_secs(30);
 
     loop {
         if start_time.elapsed() > timeout {

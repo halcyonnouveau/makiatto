@@ -5,6 +5,7 @@ pub mod r#const;
 pub mod dns;
 pub mod health;
 pub mod machine;
+pub mod peer;
 pub mod ssh;
 pub mod sync;
 pub mod ui;

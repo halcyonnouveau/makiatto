@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
     let services = ServiceFlags::from_args(&args);
 
     let config = Arc::new(config::load()?);
-    makiatto::o11y::init(&config)?;
+    makiatto::o11y::init(&config).await?;
 
     info!("Starting makiatto...");
 

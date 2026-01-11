@@ -28,7 +28,7 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
         .map_or_else(|| "NULL".to_string(), |s| format!("'{s}'"));
 
     let sql = format!(
-        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver) VALUES ('{}', {}, {}, '{}', {}, '{}', '{}', {})",
+        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver, is_external) VALUES ('{}', {}, {}, '{}', {}, '{}', '{}', {}, 0)",
         machine.name,
         latitude,
         longitude,
@@ -54,11 +54,61 @@ pub fn delete_peer(ssh: &SshSession, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Query all peers from the database
+/// Query all peers from the database (excluding external peers)
 ///
 /// # Errors
 /// Returns an error if the SSH command fails, database query fails, or if the data format is invalid
 pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
+    let sql = "SELECT name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers WHERE is_external = 0;";
+    let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
+
+    let output = ssh
+        .exec(&cmd)
+        .map_err(|e| miette!("Failed to query peers from database: {e}"))?;
+
+    let mut peers = Vec::new();
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() != 7 {
+            return Err(miette!(
+                "Invalid peer data format: expected 7 fields, got {}",
+                parts.len()
+            ));
+        }
+
+        let peer = Peer {
+            name: parts[0].to_string(),
+            latitude: parts[1]
+                .parse()
+                .map_err(|e| miette!("Invalid latitude: {e}"))?,
+            longitude: parts[2]
+                .parse()
+                .map_err(|e| miette!("Invalid longitude: {e}"))?,
+            ipv4: parts[3].to_string(),
+            ipv6: if parts[4].is_empty() || parts[4] == "NULL" {
+                None
+            } else {
+                Some(parts[4].to_string())
+            },
+            wg_public_key: parts[5].to_string(),
+            wg_address: parts[6].to_string(),
+        };
+
+        peers.push(peer);
+    }
+
+    Ok(peers)
+}
+
+/// Query all peers from the database (including external peers)
+///
+/// # Errors
+/// Returns an error if the SSH command fails, database query fails, or if the data format is invalid
+pub fn query_all_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
     let sql = "SELECT name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers;";
     let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
 
@@ -75,7 +125,7 @@ pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
         let parts: Vec<&str> = line.split('|').collect();
         if parts.len() != 7 {
             return Err(miette!(
-                "Invalid peer data format: expected 8 fields, got {}",
+                "Invalid peer data format: expected 7 fields, got {}",
                 parts.len()
             ));
         }

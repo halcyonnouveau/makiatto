@@ -21,21 +21,21 @@ fn main() {
     println!("cargo:rustc-env=DATABASE_URL=sqlite:{}", db_path.display());
     let _ = std::fs::remove_file(&db_path);
 
-    let migrations_dir = Path::new("migrations");
-    let mut migration_files = std::fs::read_dir(migrations_dir)
-        .expect("Failed to read migrations directory")
+    let schemas_dir = Path::new("schemas");
+    let mut schema_files = std::fs::read_dir(schemas_dir)
+        .expect("Failed to read schemas directory")
         .collect::<Result<Vec<_>, _>>()
-        .expect("Failed to collect migration files");
+        .expect("Failed to collect schema files");
 
-    migration_files.sort_by_key(DirEntry::file_name);
+    schema_files.sort_by_key(DirEntry::file_name);
 
     let mut combined_sql = String::new();
-    for entry in migration_files {
+    for entry in schema_files {
         if let Some(ext) = entry.path().extension()
             && ext == "sql"
         {
             let content =
-                std::fs::read_to_string(entry.path()).expect("Failed to read migration file");
+                std::fs::read_to_string(entry.path()).expect("Failed to read schema file");
             combined_sql.push_str(&content);
             combined_sql.push('\n');
         }

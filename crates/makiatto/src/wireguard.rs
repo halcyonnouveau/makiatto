@@ -342,7 +342,7 @@ pub async fn setup(
         match sqlx::SqlitePool::connect(&format!("sqlite:{}", config.corrosion.db.path)).await {
             Ok(pool) => {
                 let rows_result = sqlx::query!(
-                    "SELECT name, wg_public_key, wg_address, ipv4, ipv6, latitude, longitude, is_nameserver, fs_port
+                    "SELECT name, wg_public_key, wg_address, ipv4, ipv6, latitude, longitude, is_nameserver, is_external, fs_port
                     FROM peers
                         WHERE name != ?",
                     config.node.name
@@ -363,6 +363,7 @@ pub async fn setup(
                                 latitude: row.latitude,
                                 longitude: row.longitude,
                                 is_nameserver: row.is_nameserver != 0,
+                                is_external: row.is_external != 0,
                                 fs_port: row.fs_port,
                             })
                             .collect();

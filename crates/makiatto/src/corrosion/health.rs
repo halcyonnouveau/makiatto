@@ -84,6 +84,11 @@ impl HealthMonitor {
         let unhealthy_nodes = corrosion::get_unhealthy_nodes().await?;
 
         for peer in peers.iter() {
+            // Skip external peers (e.g., observability servers) that don't run Makiatto
+            if peer.is_external {
+                continue;
+            }
+
             let node_name = peer.name.clone();
 
             // Get or create state for this node, checking if node is already marked unhealthy

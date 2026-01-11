@@ -56,6 +56,7 @@ pub struct DnsRequest {
     message_type: MessageType,
     ip: IpAddr,
     name: LowerName,
+    query_type: String,
 }
 
 #[derive(Debug)]
@@ -229,6 +230,7 @@ impl Handler {
 
         Ok(records
             .iter()
+            .filter(|record| record.record_type.as_ref() == request.query_type)
             .filter_map(|record| {
                 if !record.geo_enabled {
                     return Some(Self::generate_record(
@@ -346,6 +348,7 @@ impl RequestHandler for Handler {
             message_type: request.message_type(),
             ip: client_ip,
             name: request.queries().first().unwrap().name().clone(),
+            query_type: query_type.clone(),
         };
 
         let records = match self.build_records(&dns_request) {
@@ -456,7 +459,7 @@ pub async fn start(
         .await
         .unwrap_or_else(|_| Arc::from([]))
         .iter()
-        .filter(|p| !unhealthy_nodes.contains(p.name.as_ref()))
+        .filter(|p| !p.is_external && !unhealthy_nodes.contains(p.name.as_ref()))
         .map(|p| DnsPeer {
             point: point!(x: p.latitude, y: p.longitude),
             ipv4: p.ipv4.clone(),

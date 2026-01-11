@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use miette::Result;
@@ -15,7 +16,7 @@ use opentelemetry_sdk::{
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::config::{Config, ObservabilityConfig};
+use crate::config::Config;
 
 /// Smart sampler that ensures all error and slow spans are captured
 /// while applying ratio-based sampling to regular spans
@@ -68,11 +69,41 @@ impl opentelemetry_sdk::trace::ShouldSample for SmartSampler {
     }
 }
 
+/// Discover the OTLP endpoint by looking for an external peer with "o11y" in the name
+async fn discover_o11y_endpoint(db_path: &std::path::Path) -> Option<Arc<str>> {
+    if !db_path.exists() {
+        return None;
+    }
+
+    let db_url = format!("sqlite:{}?mode=ro", db_path.display());
+    let pool = sqlx::SqlitePool::connect(&db_url).await.ok()?;
+
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT wg_address FROM peers WHERE is_external = 1 AND (name LIKE 'o11y%' OR name LIKE '%o11y') LIMIT 1"
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()?;
+
+    row.map(|(wg_address,)| Arc::from(format!("http://{wg_address}:4317")))
+}
+
 /// Initialise observability
 ///
 /// # Errors
 /// Returns an error if initialisation fails
-pub fn init(Config { o11y, node, .. }: &Config) -> Result<()> {
+pub async fn init(config: &Config) -> Result<()> {
+    let o11y = &config.o11y;
+    let node = &config.node;
+
+    // Resolve endpoint: explicit config > auto-discovery > None (no OTLP export)
+    let endpoint = if let Some(ep) = &o11y.otlp_endpoint {
+        Some(ep.clone())
+    } else {
+        let db_path = config.corrosion.db.path.as_std_path();
+        discover_o11y_endpoint(db_path).await
+    };
+
     let resource = Resource::builder()
         .with_service_name(format!("makiatto.{}", node.name))
         .build();
@@ -82,24 +113,31 @@ pub fn init(Config { o11y, node, .. }: &Config) -> Result<()> {
 
     let fmt_layer = tracing_subscriber::fmt::layer();
 
-    if o11y.tracing_enabled || o11y.metrics_enabled || o11y.logging_enabled {
-        info!("Initialising OpenTelemetry to {}", o11y.otlp_endpoint);
-    }
+    // If we have an endpoint and any export is enabled, set up OTLP
+    let (tracer_provider, logger_provider) = if let Some(ref ep) = endpoint {
+        if o11y.tracing_enabled || o11y.metrics_enabled || o11y.logging_enabled {
+            info!("Initialising OpenTelemetry to {}", ep);
+        }
 
-    if o11y.metrics_enabled {
-        init_metrics(o11y, resource.clone())?;
-    }
+        if o11y.metrics_enabled {
+            init_metrics(ep, resource.clone())?;
+        }
 
-    let logger_provider = if o11y.logging_enabled {
-        Some(init_logging(o11y, resource.clone())?)
+        let logger = if o11y.logging_enabled {
+            Some(init_logging(ep, resource.clone())?)
+        } else {
+            None
+        };
+
+        let tracer = if o11y.tracing_enabled {
+            Some(init_tracer(ep, o11y.sampling_ratio, resource)?)
+        } else {
+            None
+        };
+
+        (tracer, logger)
     } else {
-        None
-    };
-
-    let tracer_provider = if o11y.tracing_enabled {
-        Some(init_tracer(o11y, resource)?)
-    } else {
-        None
+        (None, None)
     };
 
     match (tracer_provider, logger_provider) {
@@ -144,15 +182,19 @@ pub fn init(Config { o11y, node, .. }: &Config) -> Result<()> {
 }
 
 /// Initialise OpenTelemetry tracer
-fn init_tracer(config: &ObservabilityConfig, resource: Resource) -> Result<SdkTracerProvider> {
+fn init_tracer(
+    endpoint: &str,
+    sampling_ratio: f64,
+    resource: Resource,
+) -> Result<SdkTracerProvider> {
     let exporter = SpanExporter::builder()
         .with_tonic()
-        .with_endpoint(config.otlp_endpoint.to_string())
+        .with_endpoint(endpoint)
         .build()
         .map_err(|e| miette::miette!("Failed to create OTLP span exporter: {e}"))?;
 
     let tracer_provider = SdkTracerProvider::builder()
-        .with_sampler(SmartSampler::new(config.sampling_ratio))
+        .with_sampler(SmartSampler::new(sampling_ratio))
         .with_resource(resource)
         .with_batch_exporter(exporter)
         .build();
@@ -161,10 +203,10 @@ fn init_tracer(config: &ObservabilityConfig, resource: Resource) -> Result<SdkTr
 }
 
 /// Initialise OpenTelemetry logging
-fn init_logging(config: &ObservabilityConfig, resource: Resource) -> Result<SdkLoggerProvider> {
+fn init_logging(endpoint: &str, resource: Resource) -> Result<SdkLoggerProvider> {
     let exporter = LogExporter::builder()
         .with_tonic()
-        .with_endpoint(config.otlp_endpoint.to_string())
+        .with_endpoint(endpoint)
         .build()
         .map_err(|e| miette::miette!("Failed to create OTLP log exporter: {e}"))?;
 
@@ -177,10 +219,10 @@ fn init_logging(config: &ObservabilityConfig, resource: Resource) -> Result<SdkL
 }
 
 /// Initialise OpenTelemetry metrics
-fn init_metrics(config: &ObservabilityConfig, resource: Resource) -> Result<()> {
+fn init_metrics(endpoint: &str, resource: Resource) -> Result<()> {
     let exporter = MetricExporter::builder()
         .with_tonic()
-        .with_endpoint(config.otlp_endpoint.to_string())
+        .with_endpoint(endpoint)
         .with_temporality(Temporality::Cumulative)
         .build()
         .map_err(|e| miette::miette!("Failed to create OTLP metrics exporter: {e}"))?;

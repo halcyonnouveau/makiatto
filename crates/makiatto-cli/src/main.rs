@@ -6,6 +6,7 @@ use makiatto_cli::{
     dns,
     health::{self, HealthCommand},
     machine::{self, AddMachine, InitMachine, RemoveMachine, UpgradeMachine},
+    peer::{self, AddExternalPeer, RemoveExternalPeer, WgConfig},
     sync::{self, SyncCommand},
     ui,
     wasm::{self, WasmCommand},
@@ -35,10 +36,27 @@ struct Cli {
 #[argh(subcommand)]
 enum Command {
     Machine(MachineCommand),
+    Peer(PeerCommand),
     Sync(SyncCommand),
     Health(HealthCommand),
     Dns(DnsCommand),
     Wasm(WasmCommand),
+}
+
+/// manage external peers
+#[derive(FromArgs)]
+#[argh(subcommand, name = "peer")]
+struct PeerCommand {
+    #[argh(subcommand)]
+    action: PeerAction,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum PeerAction {
+    Add(AddExternalPeer),
+    WgConfig(WgConfig),
+    Remove(RemoveExternalPeer),
 }
 
 /// manage makiatto machines
@@ -137,6 +155,20 @@ async fn main() -> Result<()> {
             MachineAction::Remove(remove) => {
                 machine::remove_machine(&remove, &mut profile)?;
                 profile.save(cli.profile_path)?;
+                Ok(())
+            }
+        },
+        Command::Peer(peer_cmd) => match peer_cmd.action {
+            PeerAction::Add(add) => {
+                peer::add_external_peer(&add, &profile)?;
+                Ok(())
+            }
+            PeerAction::WgConfig(wg_config) => {
+                peer::show_wg_config(&wg_config, &profile)?;
+                Ok(())
+            }
+            PeerAction::Remove(remove) => {
+                peer::remove_external_peer(&remove, &profile)?;
                 Ok(())
             }
         },

@@ -1,13 +1,8 @@
 use std::{fs, sync::Arc};
 
 use miette::Result;
-use tracing::info;
 
-const MIGRATIONS: &[&str] = &[
-    include_str!("../../migrations/001_initial_schema.sql"),
-    include_str!("../../migrations/002_wasm_support.sql"),
-    include_str!("../../migrations/003_node_health.sql"),
-];
+const PATHS: &[&str] = &[include_str!("../../schemas/schema.sql")];
 
 #[derive(Debug, Clone)]
 pub struct Peer {
@@ -19,6 +14,7 @@ pub struct Peer {
     pub latitude: f64,
     pub longitude: f64,
     pub is_nameserver: bool,
+    pub is_external: bool,
     // this is purely for tests
     // and should pretty much never not be 8282
     pub fs_port: i64,
@@ -91,9 +87,7 @@ pub struct File {
     pub modified_at: i64,
 }
 
-pub(crate) fn setup_migrations(data_dir: &camino::Utf8PathBuf) -> Result<Vec<camino::Utf8PathBuf>> {
-    info!("Setting up makiatto database migrations...");
-
+pub(crate) fn setup_paths(data_dir: &camino::Utf8PathBuf) -> Result<Vec<camino::Utf8PathBuf>> {
     let schema_dir = data_dir.join("schema");
     let mut paths: Vec<camino::Utf8PathBuf> = vec![];
 
@@ -102,8 +96,8 @@ pub(crate) fn setup_migrations(data_dir: &camino::Utf8PathBuf) -> Result<Vec<cam
             .map_err(|e| miette::miette!("Failed to create schema dir: {e}"))?;
     }
 
-    for (i, el) in MIGRATIONS.iter().enumerate() {
-        let path = &schema_dir.join(format!("migration-{i}.sql"));
+    for (i, el) in PATHS.iter().enumerate() {
+        let path = &schema_dir.join(format!("schema-{i}.sql"));
         fs::write(path, el).map_err(|e| miette::miette!("Failed to write schema file: {e}"))?;
         paths.push(path.to_owned());
     }

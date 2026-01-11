@@ -233,9 +233,8 @@ pub struct ObservabilityConfig {
     #[serde(default = "default_true")]
     pub logging_enabled: bool,
 
-    /// OTLP endpoint
-    #[serde(default = "default_otlp_endpoint")]
-    pub otlp_endpoint: Arc<str>,
+    /// OTLP endpoint (None = auto-discover from external peer named "o11y")
+    pub otlp_endpoint: Option<Arc<str>>,
 
     /// Sampling ratio (0.0 to 1.0)
     #[serde(default = "default_sampling_ratio")]
@@ -248,7 +247,7 @@ impl Default for ObservabilityConfig {
             tracing_enabled: default_true(),
             metrics_enabled: default_true(),
             logging_enabled: default_true(),
-            otlp_endpoint: default_otlp_endpoint(),
+            otlp_endpoint: None,
             sampling_ratio: default_sampling_ratio(),
         }
     }
@@ -260,10 +259,6 @@ fn default_true() -> bool {
 
 fn default_false() -> bool {
     false
-}
-
-fn default_otlp_endpoint() -> Arc<str> {
-    Arc::from("http://localhost:4317")
 }
 
 fn default_sampling_ratio() -> f64 {

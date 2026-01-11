@@ -72,7 +72,7 @@ pub async fn get_peers() -> Result<Arc<[Peer]>> {
     let pool = get_pool().await?;
 
     let rows = sqlx::query!(
-        "SELECT name, wg_public_key, wg_address, ipv4, ipv6, latitude, longitude, is_nameserver, fs_port FROM peers"
+        "SELECT name, wg_public_key, wg_address, ipv4, ipv6, latitude, longitude, is_nameserver, is_external, fs_port FROM peers"
     )
     .fetch_all(pool)
     .await
@@ -89,6 +89,7 @@ pub async fn get_peers() -> Result<Arc<[Peer]>> {
             latitude: row.latitude,
             longitude: row.longitude,
             is_nameserver: row.is_nameserver != 0,
+            is_external: row.is_external != 0,
             fs_port: row.fs_port,
         })
         .collect();
@@ -218,7 +219,7 @@ pub async fn run(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()
     let mut cfg = config.corrosion.clone();
 
     if config.corrosion.db.schema_paths.is_empty() {
-        cfg.db.schema_paths = schema::setup_migrations(&config.node.data_dir)?;
+        cfg.db.schema_paths = schema::setup_paths(&config.node.data_dir)?;
     }
 
     let result = corro_agent::agent::start_with_config(cfg, tripwire.clone()).await;

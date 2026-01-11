@@ -544,7 +544,8 @@ pub async fn fetch_domain_file(
 
     let peers = corrosion::get_peers().await?;
     // randomise peer order to distribute load across different nodes
-    let mut peers: Vec<_> = peers.iter().collect();
+    // filter out external peers (they don't run the CDN)
+    let mut peers: Vec<_> = peers.iter().filter(|p| !p.is_external).collect();
     peers.shuffle(&mut rand::rng());
 
     for (i, peer) in peers.iter().enumerate() {

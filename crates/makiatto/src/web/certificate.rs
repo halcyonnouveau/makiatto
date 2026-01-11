@@ -203,6 +203,11 @@ impl CertificateManager {
         let mut peer_ips = Vec::new();
 
         for peer in peers.iter() {
+            // Skip external peers (e.g., observability servers)
+            if peer.is_external {
+                continue;
+            }
+
             if let Ok(ip) = peer.ipv4.parse::<IpAddr>() {
                 peer_ips.push(ip);
             }

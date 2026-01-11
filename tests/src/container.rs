@@ -152,7 +152,8 @@ impl ContainerContext {
         container.start_image(image).await?;
         self.containers.push(container.clone());
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // Wait for SSH to be ready
+        Self::wait_for_ssh(container.ports.ssh).await?;
 
         Ok(container)
     }
@@ -250,9 +251,44 @@ impl ContainerContext {
         container.start_image(image).await?;
         self.containers.push(container.clone());
 
+        // Wait for SSH to be ready
+        Self::wait_for_ssh(container.ports.ssh).await?;
+
+        // Give makiatto a moment to start after SSH is ready
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         Ok(container)
+    }
+
+    /// Wait for SSH port to accept connections and SSH protocol to be ready
+    async fn wait_for_ssh(port: u16) -> Result<()> {
+        let timeout = std::time::Duration::from_secs(30);
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            match tokio::net::TcpStream::connect(format!("127.0.0.1:{port}")).await {
+                Ok(mut stream) => {
+                    // Wait for SSH banner to verify protocol is ready
+                    use tokio::io::AsyncReadExt;
+                    let mut buf = [0u8; 4];
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        stream.read(&mut buf),
+                    )
+                    .await
+                    {
+                        Ok(Ok(n)) if n >= 3 && &buf[..3] == b"SSH" => return Ok(()),
+                        _ => {
+                            // SSH banner not ready yet, wait and retry
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        }
+                    }
+                }
+                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+            }
+        }
+
+        Err(miette!("Timeout waiting for SSH on port {port}"))
     }
 
     /// replace a string in a file
