@@ -74,7 +74,7 @@ impl opentelemetry_sdk::trace::ShouldSample for SmartSampler {
 /// Returns an error if initialisation fails
 pub fn init(Config { o11y, node, .. }: &Config) -> Result<()> {
     let resource = Resource::builder()
-        .with_service_name(format!("makaitto.{}", node.name))
+        .with_service_name(format!("makiatto.{}", node.name))
         .build();
 
     let env_filter = EnvFilter::try_from_default_env()

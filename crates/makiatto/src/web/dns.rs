@@ -20,9 +20,11 @@ use hickory_server::{
 };
 use maxminddb::Reader;
 use miette::{IntoDiagnostic, Result};
+use opentelemetry::trace::TraceContextExt;
 use opentelemetry::{KeyValue, global};
 use tokio::net::{TcpSocket, UdpSocket};
 use tracing::{Level, debug, error, info, instrument, span, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use crate::{
@@ -350,7 +352,13 @@ impl RequestHandler for Handler {
             Ok(res) => res,
             Err(e) => {
                 span.record("error", e.to_string());
-                error!("Failed to build DNS records: {e}");
+                let trace_id = tracing::Span::current()
+                    .context()
+                    .span()
+                    .span_context()
+                    .trace_id()
+                    .to_string();
+                error!("Failed to build DNS records (trace_id={trace_id}): {e}");
 
                 self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
                 return Self::create_failure_response();
@@ -376,7 +384,13 @@ impl RequestHandler for Handler {
             }
             Err(e) => {
                 span.record("error", e.to_string());
-                error!("Failed to send DNS response: {e}");
+                let trace_id = tracing::Span::current()
+                    .context()
+                    .span()
+                    .span_context()
+                    .trace_id()
+                    .to_string();
+                error!("Failed to send DNS response (trace_id={trace_id}): {e}");
 
                 self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
                 Self::create_failure_response()

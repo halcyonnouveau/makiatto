@@ -23,6 +23,7 @@ use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use miette::Result;
+use opentelemetry::trace::TraceContextExt;
 use opentelemetry::{KeyValue, global};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
@@ -35,6 +36,7 @@ use tower_http::{
     services::ServeDir,
 };
 use tracing::{debug, error, info, instrument, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
     config::Config,
@@ -55,11 +57,7 @@ pub(crate) struct WebState {
     pub(crate) wasm_runtime: Option<Arc<WasmRuntime>>,
 }
 
-#[instrument(
-    name = "http_request",
-    skip(state, request),
-    fields(method, uri, error, slow)
-)]
+#[instrument(name = "http.server", skip(state, request), fields(error, slow))]
 async fn handle_request(
     State(state): State<WebState>,
     Host(host): Host,
@@ -70,8 +68,8 @@ async fn handle_request(
     let uri = request.uri().to_string();
 
     let span = tracing::Span::current();
-    span.record("method", &method);
-    span.record("uri", &uri);
+    span.record("http.method", &method);
+    span.record("http.target", &uri);
 
     let (hostname, _port) = host
         .split_once(':')
@@ -130,16 +128,40 @@ async fn handle_request(
         }
     };
 
+    let file_span = tracing::info_span!(
+        "cdn.file.read",
+        file.path = %domain_path.display(),
+        cdn.cache.hit = false
+    );
+    let _enter = file_span.enter();
+
     let serve_dir = ServeDir::new(&domain_path);
     match serve_dir.oneshot(final_request).await {
-        Ok(response) => {
+        Ok(mut response) => {
             let status = response.status();
             let duration = start_time.elapsed();
+            span.record("http.status_code", status.as_u16());
+
+            let trace_id = span.context().span().span_context().trace_id().to_string();
+            response.headers_mut().insert(
+                "traceparent",
+                HeaderValue::from_str(&format!("00-{trace_id}-00")).unwrap(),
+            );
 
             if status.is_client_error() || status.is_server_error() {
                 span.record("error", format!("HTTP {}", status.as_u16()));
-                error!("HTTP error: {method} {uri} -> {status}");
-            } else if duration > Duration::from_secs(1) {
+                error!("HTTP error: {method} {uri} -> {status} (trace_id={trace_id})");
+
+                return Response::builder()
+                    .status(status)
+                    .header("traceparent", format!("00-{trace_id}-00"))
+                    .body(Body::from(format!("Request failed (trace_id={trace_id})")))
+                    .unwrap();
+            }
+
+            debug!("HTTP {method} {uri} -> {status} (trace_id={trace_id})");
+
+            if duration > Duration::from_secs(1) {
                 span.record("slow", duration.as_millis());
                 warn!(
                     "Slow HTTP request: {method} {uri} took {}ms",
@@ -149,6 +171,7 @@ async fn handle_request(
 
             response.map(Body::new)
         }
+
         Err(e) => {
             span.record("error", e.to_string());
             error!("Failed to serve file: {e}");
@@ -162,9 +185,9 @@ async fn handle_request(
 }
 
 #[instrument(
-    name = "image_processing",
+    name = "cdn.image.transform",
     skip(state, request, next),
-    fields(path, has_params, processed, error)
+    fields(error)
 )]
 async fn image_middleware(
     State(state): State<WebState>,

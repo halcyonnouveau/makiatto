@@ -11,6 +11,8 @@ use axum::{
 };
 use axum_extra::extract::Host;
 use miette::{Result, miette};
+use opentelemetry::trace::TraceContextExt;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use wasmtime::Store;
 use wasmtime::component::Linker;
 
@@ -210,9 +212,20 @@ pub(crate) async fn wasm_function_middleware(
     let domain_dir = state.static_dir.join(&resolved_domain);
     let wasm_path = domain_dir.join(&row.path);
 
-    match execute_function(wasm_runtime, &function, &wasm_path, &domain_dir, request).await {
-        Ok(response) => response,
-        Err(e) => {
+    use futures_util::FutureExt;
+
+    match std::panic::AssertUnwindSafe(execute_function(
+        wasm_runtime,
+        &function,
+        &wasm_path,
+        &domain_dir,
+        request,
+    ))
+    .catch_unwind()
+    .await
+    {
+        Ok(Ok(response)) => response,
+        Ok(Err(e)) => {
             let error_msg = e.to_string();
             let is_timeout = error_msg.contains("timed out");
 
@@ -229,6 +242,21 @@ pub(crate) async fn wasm_function_middleware(
                     .body(Body::from(format!("WASM execution error: {e}")))
                     .unwrap()
             }
+        }
+        Err(panic) => {
+            let trace_id = tracing::Span::current()
+                .context()
+                .span()
+                .span_context()
+                .trace_id()
+                .to_string();
+
+            tracing::error!("WASM panic (trace_id={trace_id}): {:?}", panic);
+
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("WASM panic (trace_id={trace_id})")))
+                .unwrap()
         }
     }
 }
