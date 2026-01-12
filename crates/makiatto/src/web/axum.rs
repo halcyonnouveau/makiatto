@@ -682,6 +682,21 @@ async fn metrics_middleware(request: Request, next: Next) -> Response {
 
     histogram.record(duration, &attributes);
 
+    // Record response size if Content-Length is available
+    if let Some(size) = response
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        let size_histogram = meter
+            .u64_histogram("server.response.size")
+            .with_unit("By")
+            .with_description("HTTP response body size in bytes")
+            .build();
+        size_histogram.record(size, &attributes);
+    }
+
     if response.headers().contains_key("etag") {
         let cache_status = if status == 304 { "hit" } else { "miss" };
         let cache_attributes = vec![

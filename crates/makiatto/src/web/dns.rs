@@ -171,8 +171,9 @@ impl Handler {
         Record::from_rdata(name.into(), ttl, rdata.expect("Invalid record type"))
     }
 
+    /// Returns `(records, country_code)` where `country_code` is the ISO country code from `GeoIP`.
     #[instrument(skip(self), fields(query_name = %request.name, client_ip = %request.ip))]
-    fn build_records(&self, request: &DnsRequest) -> Result<Vec<Record>> {
+    fn build_records(&self, request: &DnsRequest) -> Result<(Vec<Record>, String)> {
         // make sure the request is a query
         if request.op_code != OpCode::Query {
             return Err(Error::InvalidOpCode(request.op_code).into());
@@ -183,8 +184,8 @@ impl Handler {
             return Err(Error::InvalidMessageType(request.message_type).into());
         }
 
-        // get coordinates of request
-        let coords = {
+        // get coordinates and country from GeoIP lookup
+        let (coords, country) = {
             let _span = span!(Level::DEBUG, "geoip_lookup", ip = %request.ip).entered();
             let lookup = self.reader.lookup(request.ip);
             match lookup.and_then(|r| r.decode::<maxminddb::geoip2::City>()) {
@@ -197,15 +198,19 @@ impl Handler {
                     } else {
                         debug!("GeoIP lookup found no location data");
                     }
-                    point!(x: lat, y: lon)
+                    let country_code = response
+                        .country
+                        .iso_code
+                        .map_or_else(|| "unknown".to_string(), String::from);
+                    (point!(x: lat, y: lon), country_code)
                 }
                 Ok(None) => {
                     debug!("GeoIP lookup found no data for IP");
-                    point!(x: 0.0, y: 0.0)
+                    (point!(x: 0.0, y: 0.0), "unknown".to_string())
                 }
                 Err(e) => {
                     debug!("GeoIP lookup failed: {e}");
-                    point!(x: 0.0, y: 0.0)
+                    (point!(x: 0.0, y: 0.0), "unknown".to_string())
                 }
             }
         };
@@ -213,11 +218,11 @@ impl Handler {
         let lookup_name = request.name.to_string().trim_end_matches('.').to_string();
 
         let Some(records) = self.records.get(&lookup_name) else {
-            return Ok(vec![]);
+            return Ok((vec![], country));
         };
 
         if records.is_empty() {
-            return Ok(vec![]);
+            return Ok((vec![], country));
         }
 
         let closest_peer = self.peers.iter().min_by(|&a, &b| {
@@ -238,7 +243,7 @@ impl Handler {
                 &request.query_type
             };
 
-        Ok(records
+        let result_records: Vec<Record> = records
             .iter()
             .filter(|record| record.record_type.as_ref() == effective_query_type)
             .filter_map(|record| {
@@ -271,7 +276,9 @@ impl Handler {
                     Some(record.priority),
                 ))
             })
-            .collect())
+            .collect();
+
+        Ok((result_records, country))
     }
 
     fn record_dns_metrics(
@@ -279,6 +286,7 @@ impl Handler {
         query_name: &str,
         query_type: &str,
         response_code: &str,
+        country: &str,
         duration: Duration,
     ) {
         let meter = global::meter("dns");
@@ -286,6 +294,7 @@ impl Handler {
         let attributes = vec![
             KeyValue::new("query_type", query_type.to_string()),
             KeyValue::new("response_code", response_code.to_string()),
+            KeyValue::new("country", country.to_string()),
             KeyValue::new(
                 "geo_enabled",
                 self.records
@@ -329,7 +338,7 @@ impl RequestHandler for Handler {
     #[instrument(
         name = "dns_request",
         skip(self, handler),
-        fields(query_name, query_type, error, slow)
+        fields(query_name, query_type, country, error, slow)
     )]
     async fn handle_request<R: ResponseHandler>(
         &self,
@@ -361,7 +370,7 @@ impl RequestHandler for Handler {
             query_type: query_type.clone(),
         };
 
-        let records = match self.build_records(&dns_request) {
+        let (records, country) = match self.build_records(&dns_request) {
             Ok(res) => res,
             Err(e) => {
                 span.record("error", e.to_string());
@@ -373,10 +382,18 @@ impl RequestHandler for Handler {
                     .to_string();
                 error!("Failed to build DNS records (trace_id={trace_id}): {e}");
 
-                self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
+                self.record_dns_metrics(
+                    &query_name,
+                    &query_type,
+                    "SERVFAIL",
+                    "unknown",
+                    start_time.elapsed(),
+                );
                 return Self::create_failure_response();
             }
         };
+
+        span.record("country", &country);
 
         let builder = MessageResponseBuilder::from_message_request(request);
         let mut header = Header::response_from_request(request.header());
@@ -392,7 +409,7 @@ impl RequestHandler for Handler {
                     warn!("Slow DNS query detected: {}ms", duration.as_millis());
                 }
 
-                self.record_dns_metrics(&query_name, &query_type, "NOERROR", duration);
+                self.record_dns_metrics(&query_name, &query_type, "NOERROR", &country, duration);
                 info
             }
             Err(e) => {
@@ -405,7 +422,13 @@ impl RequestHandler for Handler {
                     .to_string();
                 error!("Failed to send DNS response (trace_id={trace_id}): {e}");
 
-                self.record_dns_metrics(&query_name, &query_type, "SERVFAIL", start_time.elapsed());
+                self.record_dns_metrics(
+                    &query_name,
+                    &query_type,
+                    "SERVFAIL",
+                    &country,
+                    start_time.elapsed(),
+                );
                 Self::create_failure_response()
             }
         }
