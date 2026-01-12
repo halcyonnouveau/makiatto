@@ -157,7 +157,7 @@ service:
       receivers: [otlp]
       exporters: [spanmetrics, otlp/tempo]
     metrics:
-      receivers: [spanmetrics]
+      receivers: [otlp, spanmetrics]
       exporters: [prometheus]
 ```
 
@@ -359,15 +359,13 @@ If `otlp_endpoint` is not set, Makiatto auto-discovers it from external peers. I
 
 ## 5. Build the dashboard
 
-Create panels with these queries:
+Create panels with these queries using native OpenTelemetry metrics (more accurate than sampled spanmetrics):
 
 | Panel | Query |
 |-------|-------|
-| HTTP request rate | `sum by (service_name) (rate(traces_spanmetrics_calls_total{span_name="http.server"}[5m]))` |
-| Error rate | `sum(rate(traces_spanmetrics_errors_total{span_name="http.server"}[5m]))` |
-| p95 latency | `histogram_quantile(0.95, sum(rate(traces_spanmetrics_duration_milliseconds_bucket{span_name="http.server"}[5m])) by (le))` |
-| Cache hit ratio | `sum(rate(traces_spanmetrics_calls_total{span_name="cdn.file.read", cdn_cache_hit="true"}[5m])) / sum(rate(traces_spanmetrics_calls_total{span_name="cdn.file.read"}[5m]))` |
-| WASM p95 execution | `histogram_quantile(0.95, sum(rate(traces_spanmetrics_duration_milliseconds_bucket{span_name="wasm.invoke"}[5m])) by (le))` |
+| HTTP request rate | `sum by (service_name) (rate(server_request_count_total[5m]))` |
+| Error rate | `sum(rate(server_request_count_total{http_status_code=~"5.."}[5m]))` |
+| p95 latency | `histogram_quantile(0.95, sum(rate(server_request_duration_seconds_bucket[5m])) by (le))` |
 
 Add a Tempo trace panel filtered by `service.name =~ "makiatto.*"` and enable exemplar linking on the Prometheus panels to jump from metric spikes to traces.
 
@@ -375,8 +373,7 @@ Add a Tempo trace panel filtered by `service.name =~ "makiatto.*"` and enable ex
 
 Add these rules in Prometheus:
 
-- `http.server` error rate > 1% for 5 minutes
-- `http.server` p95 latency > 250ms for 10 minutes
-- Cache hit ratio < 80% for 15 minutes
+- HTTP error rate > 1% for 5 minutes
+- HTTP p95 latency > 250ms for 10 minutes
 
 Enable the Prometheus Alertmanager integration in Grafana to surface these alerts.
