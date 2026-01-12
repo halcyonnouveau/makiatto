@@ -103,6 +103,31 @@ We'll use Podman Quadlets for systemd-managed containers.
 mkdir -p /etc/makiatto-o11y
 ```
 
+Create `/etc/makiatto-o11y/tempo.yaml`:
+
+```yaml
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+```
+
 Create `/etc/makiatto-o11y/otelcol.yaml`:
 
 ```yaml
@@ -120,7 +145,7 @@ connectors:
 
 exporters:
   otlp/tempo:
-    endpoint: tempo:4317
+    endpoint: systemd-tempo:4317
     tls:
       insecure: true
   prometheus:
@@ -143,7 +168,7 @@ scrape_configs:
   - job_name: makiatto-spanmetrics
     static_configs:
       - targets:
-          - otelcol:9464
+          - systemd-otelcol:9464
 ```
 
 ### Quadlet units
@@ -161,6 +186,9 @@ Create these files in `/etc/containers/systemd/`.
 ```ini
 [Container]
 Image=docker.io/grafana/tempo:latest
+Exec=-config.file=/etc/tempo/config.yaml
+Volume=/etc/makiatto-o11y/tempo.yaml:/etc/tempo/config.yaml:ro
+Volume=tempo-data:/var/tempo
 Network=o11y.network
 
 [Service]
@@ -170,13 +198,19 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
+**tempo-data.volume:**
+
+```ini
+[Volume]
+```
+
 **otelcol.container** (replace `10.44.44.X` with your WireGuard address):
 
 ```ini
 [Container]
 Image=docker.io/otel/opentelemetry-collector-contrib:latest
 PublishPort=10.44.44.X:4317:4317
-Volume=/etc/makiatto-o11y/otelcol.yaml:/etc/otelcol/config.yaml:ro
+Volume=/etc/makiatto-o11y/otelcol.yaml:/etc/otelcol-contrib/config.yaml:ro
 Network=o11y.network
 
 [Unit]
@@ -247,7 +281,7 @@ Remove `PublishPort=3000:3000` from `grafana.container`, then create:
 
 ```
 grafana.example.com {
-	reverse_proxy grafana:3000
+	reverse_proxy systemd-grafana:3000
 }
 ```
 
@@ -313,8 +347,8 @@ If `otlp_endpoint` is not set, Makiatto auto-discovers it from external peers. I
 
 1. Sign in at `http://<server-ip>:3000` (or your Caddy domain if configured) with `admin`/`admin`
 2. Add data sources:
-   - **Prometheus**: `http://prometheus:9090`
-   - **Tempo**: `http://tempo:3200`
+   - **Prometheus**: `http://systemd-prometheus:9090`
+   - **Tempo**: `http://systemd-tempo:3200`
 
 ## 5. Build the dashboard
 
