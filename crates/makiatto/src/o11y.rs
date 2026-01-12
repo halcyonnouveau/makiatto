@@ -10,7 +10,7 @@ use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportCo
 use opentelemetry_sdk::{
     Resource,
     logs::SdkLoggerProvider,
-    metrics::{PeriodicReader, SdkMeterProvider, Temporality},
+    metrics::{Aggregation, Instrument, PeriodicReader, SdkMeterProvider, Stream, Temporality},
     trace::{Sampler, SdkTracerProvider},
 };
 use tracing::info;
@@ -246,9 +246,31 @@ fn init_metrics(endpoint: &str, resource: Resource) -> Result<()> {
         .with_interval(Duration::from_secs(30))
         .build();
 
+    // Custom histogram buckets for duration metrics (in seconds)
+    // Standard OTel semantic convention boundaries
+    let duration_histogram_buckets = vec![
+        0.0, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
+    ];
+
+    let duration_view = move |instrument: &Instrument| {
+        if instrument.name().ends_with(".duration") {
+            Stream::builder()
+                .with_name(instrument.name().to_string())
+                .with_aggregation(Aggregation::ExplicitBucketHistogram {
+                    boundaries: duration_histogram_buckets.clone(),
+                    record_min_max: true,
+                })
+                .build()
+                .ok()
+        } else {
+            None
+        }
+    };
+
     let provider = SdkMeterProvider::builder()
         .with_reader(reader)
         .with_resource(resource)
+        .with_view(duration_view)
         .build();
 
     global::set_meter_provider(provider);

@@ -649,7 +649,7 @@ async fn metrics_middleware(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
 
     let status = response.status().as_u16();
-    let duration = start.elapsed().as_millis_f64();
+    let duration = start.elapsed().as_secs_f64();
 
     let meter = global::meter("axum");
 
@@ -669,7 +669,7 @@ async fn metrics_middleware(request: Request, next: Next) -> Response {
     let histogram = meter
         .f64_histogram("server.request.duration")
         .with_unit("s")
-        .with_description("HTTP request duration in milliseconds")
+        .with_description("HTTP request duration in seconds")
         .build();
 
     histogram.record(duration, &attributes);

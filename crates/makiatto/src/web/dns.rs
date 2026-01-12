@@ -305,10 +305,10 @@ impl Handler {
         let histogram = meter
             .f64_histogram("server.query.duration")
             .with_unit("s")
-            .with_description("DNS query response time in milliseconds")
+            .with_description("DNS query response time in seconds")
             .build();
 
-        histogram.record(duration.as_millis_f64(), &attributes);
+        histogram.record(duration.as_secs_f64(), &attributes);
 
         if self
             .records
