@@ -27,7 +27,7 @@ pub struct FetchWit {
     #[argh(option, short = 'o')]
     pub output: Option<PathBuf>,
 
-    /// version to download (default: current version)
+    /// version to download (default: current `maki` version)
     #[argh(option, short = 'v')]
     pub version: Option<String>,
 }
