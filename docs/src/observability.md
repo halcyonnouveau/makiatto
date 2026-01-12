@@ -166,6 +166,9 @@ schema_config:
 storage_config:
   filesystem:
     directory: /loki/chunks
+
+limits_config:
+  retention_period: 336h
 ```
 
 Create `/etc/makiatto-o11y/otelcol.yaml`:
