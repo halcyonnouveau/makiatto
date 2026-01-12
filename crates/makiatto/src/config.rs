@@ -109,6 +109,14 @@ pub struct WebConfig {
 
     /// Directory to serve static files from
     pub static_dir: Arc<Utf8PathBuf>,
+
+    /// Maximum concurrent requests (default: 1024)
+    #[serde(default = "default_max_concurrent_requests")]
+    pub max_concurrent_requests: usize,
+
+    /// Request timeout in seconds (default: 60)
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -144,6 +152,14 @@ impl Default for ImageConfig {
             allowed_formats: default_allowed_formats(),
         }
     }
+}
+
+fn default_max_concurrent_requests() -> usize {
+    1024
+}
+
+fn default_request_timeout_secs() -> u64 {
+    60
 }
 
 fn default_cache_size_mb() -> usize {

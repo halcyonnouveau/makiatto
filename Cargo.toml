@@ -72,7 +72,7 @@ rustls = "0.23"
 rustls-pemfile = "2.2"
 tokio-rustls = "0.26"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "compression-full"] }
+tower-http = { version = "0.6", features = ["fs", "compression-full", "timeout"] }
 
 # O11y
 tracing = "0.1"

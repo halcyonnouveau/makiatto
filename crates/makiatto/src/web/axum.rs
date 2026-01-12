@@ -26,13 +26,14 @@ use opentelemetry::trace::TraceContextExt;
 use opentelemetry::{KeyValue, global};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
-use tower::{Service, ServiceExt};
+use tower::{Service, ServiceExt, limit::ConcurrencyLimitLayer};
 use tower_http::{
     compression::{
         CompressionLayer, Predicate,
         predicate::{NotForContentType, SizeAbove},
     },
     services::ServeDir,
+    timeout::TimeoutLayer,
 };
 use tracing::{debug, error, info, instrument, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -449,6 +450,13 @@ pub async fn start(
         .layer(middleware::from_fn(metrics_middleware))
         .layer(middleware::from_fn(caching_middleware))
         .layer(CompressionLayer::new().compress_when(compression_predicate))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(config.web.request_timeout_secs),
+        ))
+        .layer(ConcurrencyLimitLayer::new(
+            config.web.max_concurrent_requests,
+        ))
         .with_state(state.clone());
 
     let http_addr: SocketAddr = config
