@@ -1,37 +1,45 @@
 # Observability
 
-This guide sets up a Grafana dashboard for a Makiatto cluster using open-source components.
+Makiatto exports telemetry via OpenTelemetry (OTLP), so you can use any observability stack that supports OTLP ingestion. This guide demonstrates one approach using Grafana and related open-source components. We chose this stack because it's free, self-hosted, well-documented, and widely used, but feel free to use whatever works for you (Datadog, New Relic, Jaeger, etc.).
 
 ## Architecture
 
 ```
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│  Makiatto   │ │  Makiatto   │ │  Makiatto   │
-│   Node A    │ │   Node B    │ │   Node C    │
-└──────┬──────┘ └──────┬──────┘ └──────┬──────┘
-       │               │               │
+┌────────────┐  ┌────────────┐  ┌────────────┐
+│  Makiatto  │  │  Makiatto  │  │  Makiatto  │
+│   Node A   │  │   Node B   │  │   Node C   │
+└──────┬─────┘  └──────┬─────┘  └──────┬─────┘
        └───────────────┼───────────────┘
                        ▼
            ┌────────────────────────┐
            │       Collector        │
            │     (spanmetrics)      │
-           └─────┬───────────┬──────┘
-                 │           │
-                 ▼           ▼
-           ┌─────────┐ ┌────────────┐
-           │  Tempo  │ │ Prometheus │
-           └────┬────┘ └──────┬─────┘
-                │             │
-                └──────┬──────┘
-                       ▼
-                  ┌─────────┐
-                  │ Grafana │
-                  └─────────┘
+           └──┬─────────┬─────────┬─┘
+              ▼         ▼         ▼
+         ┌───────┐ ┌──────────┐ ┌──────┐
+         │ Tempo │ │Prometheus│ │ Loki │
+         └───┬───┘ └────┬─────┘ └──┬───┘
+             └──────────┼──────────┘
+                        ▼
+                   ┌─────────┐
+                   │ Grafana │
+                   └─────────┘
 ```
 
-Makiatto nodes send traces directly to a central collector. The collector generates RED metrics (rate, errors, duration) via the spanmetrics connector, forwards traces to Tempo, and exposes metrics for Prometheus.
+Makiatto nodes send telemetry to a central OpenTelemetry Collector, which routes data to the appropriate backends:
+
+- **Collector** - Receives OTLP data, generates RED metrics (rate, errors, duration) via spanmetrics, and forwards to backends
+- **Tempo** - Stores and indexes distributed traces
+- **Prometheus** - Stores metrics and provides a query interface
+- **Loki** - Aggregates and indexes logs
+- **Grafana** - Visualisation and dashboards for metrics, traces, and logs
+
+This guide runs all components on a single server for simplicity, but you could split them across multiple machines for high availability or to handle higher volumes of telemetry data.
 
 ## Prerequisites
+
+- A running Makiatto cluster
+- A separate server for the observability stack (can be any Linux box with a public IP)
 
 Install the following on the observability server:
 
@@ -66,6 +74,8 @@ maki peer add o11y \
   --endpoint your-server-ip
 ```
 
+The `--endpoint` should be the public IP or domain name of the observability server (not the WireGuard address).
+
 ```admonish info
 Name the peer with "o11y" (at the start or end) so Makiatto auto-discovers it as the telemetry endpoint. Examples: `o11y`, `o11y-grafana`, `metrics-o11y`.
 ```
@@ -82,7 +92,7 @@ Note the `Address` line (e.g. `10.44.44.5/32`) - you'll need this for the collec
 
 ### Configure WireGuard
 
-Save the output as `/etc/wireguard/wg0.conf` on the observability server, replacing `<private-key>` with the contents of `/etc/wireguard/private.key`.
+Save the output of `maki peer wg-config o11y` as `/etc/wireguard/wg0.conf` on the observability server, replacing `<private-key>` with the contents of `/etc/wireguard/private.key`.
 
 Start the interface:
 
@@ -128,6 +138,36 @@ storage:
       path: /var/tempo/wal
 ```
 
+Create `/etc/makiatto-o11y/loki.yaml`:
+
+```yaml
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  ring:
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+  path_prefix: /loki
+
+schema_config:
+  configs:
+    - from: 2020-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  filesystem:
+    directory: /loki/chunks
+```
+
 Create `/etc/makiatto-o11y/otelcol.yaml`:
 
 ```yaml
@@ -148,6 +188,8 @@ exporters:
     endpoint: systemd-tempo:4317
     tls:
       insecure: true
+  loki:
+    endpoint: http://systemd-loki:3100/loki/api/v1/push
   prometheus:
     endpoint: 0.0.0.0:9464
 
@@ -159,6 +201,9 @@ service:
     metrics:
       receivers: [otlp, spanmetrics]
       exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      exporters: [loki]
 ```
 
 Create `/etc/makiatto-o11y/prometheus.yml`:
@@ -204,6 +249,29 @@ WantedBy=multi-user.target
 [Volume]
 ```
 
+**loki.container:**
+
+```ini
+[Container]
+Image=docker.io/grafana/loki:latest
+Exec=-config.file=/etc/loki/config.yaml
+Volume=/etc/makiatto-o11y/loki.yaml:/etc/loki/config.yaml:ro
+Volume=loki-data:/loki
+Network=o11y.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**loki-data.volume:**
+
+```ini
+[Volume]
+```
+
 **otelcol.container** (replace `10.44.44.X` with your WireGuard address):
 
 ```ini
@@ -214,8 +282,8 @@ Volume=/etc/makiatto-o11y/otelcol.yaml:/etc/otelcol-contrib/config.yaml:ro
 Network=o11y.network
 
 [Unit]
-Requires=tempo.service
-After=tempo.service
+Requires=tempo.service loki.service
+After=tempo.service loki.service
 
 [Service]
 Restart=always
@@ -230,6 +298,7 @@ WantedBy=multi-user.target
 [Container]
 Image=docker.io/prom/prometheus:latest
 Volume=/etc/makiatto-o11y/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+Volume=prometheus-data:/prometheus
 Network=o11y.network
 
 [Unit]
@@ -243,6 +312,12 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
+**prometheus-data.volume:**
+
+```ini
+[Volume]
+```
+
 **grafana.container:**
 
 ```ini
@@ -253,8 +328,8 @@ Volume=grafana-data:/var/lib/grafana
 Network=o11y.network
 
 [Unit]
-Requires=prometheus.service tempo.service
-After=prometheus.service tempo.service
+Requires=prometheus.service tempo.service loki.service
+After=prometheus.service tempo.service loki.service
 
 [Service]
 Restart=always
@@ -276,7 +351,7 @@ systemctl daemon-reload
 systemctl start grafana
 ```
 
-The dependencies will start Tempo, otelcol, and Prometheus automatically. Services restart on boot.
+The dependencies will start Tempo, Loki, otelcol, and Prometheus automatically. Services restart on boot.
 
 ### Optional: HTTPS with Caddy
 
@@ -356,10 +431,11 @@ If `otlp_endpoint` is not set, Makiatto auto-discovers it from external peers. I
 2. Add data sources:
    - **Prometheus**: `http://systemd-prometheus:9090`
    - **Tempo**: `http://systemd-tempo:3200`
+   - **Loki**: `http://systemd-loki:3100`
 
-## 5. Build the dashboard
+## 5. Dashboards and alerting
 
-Create panels with these queries using native OpenTelemetry metrics (more accurate than sampled spanmetrics):
+Build dashboards and alerts to suit your needs. Makiatto exports native OpenTelemetry metrics which you can query in Prometheus. Here are some example queries to get started:
 
 | Panel | Query |
 |-------|-------|
@@ -367,13 +443,6 @@ Create panels with these queries using native OpenTelemetry metrics (more accura
 | Error rate | `sum(rate(server_request_count_total{http_status_code=~"5.."}[5m]))` |
 | p95 latency | `histogram_quantile(0.95, sum(rate(server_request_duration_seconds_bucket[5m])) by (le))` |
 
-Add a Tempo trace panel filtered by `service.name =~ "makiatto.*"` and enable exemplar linking on the Prometheus panels to jump from metric spikes to traces.
+You can also add Tempo trace panels filtered by `service.name =~ "makiatto.*"` and enable exemplar linking to jump from metric spikes to traces.
 
-## 6. Optional alerting
-
-Add these rules in Prometheus:
-
-- HTTP error rate > 1% for 5 minutes
-- HTTP p95 latency > 250ms for 10 minutes
-
-Enable the Prometheus Alertmanager integration in Grafana to surface these alerts.
+For alerting, Grafana supports Prometheus Alertmanager or its own unified alerting system. See the [Grafana documentation](https://grafana.com/docs/grafana/latest/) for more details.
