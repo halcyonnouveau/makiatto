@@ -228,9 +228,19 @@ impl Handler {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
+        // Check if there's a CNAME record for this name
+        // If querying for A/AAAA and a CNAME exists, return the CNAME instead
+        let has_cname = records.iter().any(|r| r.record_type.as_ref() == "CNAME");
+        let effective_query_type =
+            if has_cname && (request.query_type == "A" || request.query_type == "AAAA") {
+                "CNAME"
+            } else {
+                &request.query_type
+            };
+
         Ok(records
             .iter()
-            .filter(|record| record.record_type.as_ref() == request.query_type)
+            .filter(|record| record.record_type.as_ref() == effective_query_type)
             .filter_map(|record| {
                 if !record.geo_enabled {
                     return Some(Self::generate_record(
