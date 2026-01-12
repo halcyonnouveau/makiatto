@@ -1,7 +1,7 @@
 use argh::FromArgs;
 use miette::{Result, miette};
 
-use crate::{config::Profile, machine::corrosion, ssh::SshSession, ui};
+use crate::{config::Profile, r#const::WIREGUARD_PORT, machine::corrosion, ssh::SshSession, ui};
 
 /// add an external peer (non-Makiatto node) to the cluster
 #[derive(FromArgs)]
@@ -187,7 +187,7 @@ pub fn show_wg_config(request: &WgConfig, profile: &Profile) -> Result<()> {
     println!("[Interface]");
     println!("PrivateKey = <private-key>");
     println!("Address = {}/32", peer.wg_address);
-    println!("ListenPort = 51820");
+    println!("ListenPort = {WIREGUARD_PORT}");
     println!();
 
     // Get all Makiatto nodes (non-external peers) to add as peers
@@ -198,7 +198,7 @@ pub fn show_wg_config(request: &WgConfig, profile: &Profile) -> Result<()> {
         if let Some(node_peer) = all_peers.iter().find(|p| p.name == machine.name.as_ref()) {
             println!("[Peer]  # {}", machine.name);
             println!("PublicKey = {}", node_peer.wg_public_key);
-            println!("Endpoint = {}:51820", node_peer.ipv4);
+            println!("Endpoint = {}:{WIREGUARD_PORT}", node_peer.ipv4);
             println!("AllowedIPs = {}/32", node_peer.wg_address);
             println!("PersistentKeepalive = 25");
             println!();
@@ -206,7 +206,7 @@ pub fn show_wg_config(request: &WgConfig, profile: &Profile) -> Result<()> {
             // Fallback to profile data if not in database yet
             println!("[Peer]  # {}", machine.name);
             println!("PublicKey = {}", machine.wg_public_key);
-            println!("Endpoint = {}:51820", machine.ipv4);
+            println!("Endpoint = {}:{WIREGUARD_PORT}", machine.ipv4);
             println!("AllowedIPs = {}/32", machine.wg_address);
             println!("PersistentKeepalive = 25");
             println!();

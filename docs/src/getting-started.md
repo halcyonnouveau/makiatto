@@ -13,7 +13,7 @@ You'll need servers to run your CDN nodes. These can be VPS instances, dedicated
   - 80 (HTTP)
   - 443 (HTTPS)
   - 853 (DNS over TLS)
-  - 51820 (WireGuard)
+  - 51880 (WireGuard)
 
 ```admonish tip
 We recommend at least 3 servers in different geographic locations. You need 3+ nameservers for proper DNS redundancy, and geographic distribution is the whole point of a CDN! But you can start with just one server to test things out.
