@@ -320,13 +320,13 @@ Caddy automatically obtains a TLS certificate from Let's Encrypt.
 
 ## 3. Restart Makiatto nodes
 
-Restart Makiatto on each node:
+Restart Makiatto on all nodes:
 
 ```bash
-systemctl restart makiatto
+maki machine restart
 ```
 
-It automatically discovers the OTLP endpoint by finding the external peer named with "o11y" and sets the service name to `makiatto.{node_name}`.
+Makiatto automatically discovers the OTLP endpoint by finding the external peer named with "o11y" and sets the service name to `makiatto.{node_name}`.
 
 To override auto-discovery or tune settings:
 

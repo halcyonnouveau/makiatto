@@ -115,6 +115,19 @@ pub struct RemoveMachine {
     pub key_path: Option<PathBuf>,
 }
 
+/// restart makiatto service on machines
+#[derive(FromArgs)]
+#[argh(subcommand, name = "restart")]
+pub struct RestartMachine {
+    /// machine names to restart (defaults to all)
+    #[argh(positional, greedy)]
+    pub names: Vec<String>,
+
+    /// path to SSH private key (optional)
+    #[argh(option, long = "ssh-priv-key")]
+    pub key_path: Option<PathBuf>,
+}
+
 /// Validate node name contains only allowed characters
 fn validate_node_name(name: &str) -> Result<()> {
     if name.is_empty() {
@@ -381,12 +394,70 @@ fn upgrade_single_machine(
     ui::action("Restarting service");
     ssh.exec("sudo systemctl restart makiatto")?;
 
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    wait_for_service_active(&ssh)
+}
 
-    match ssh.exec("sudo systemctl is-active makiatto") {
-        Ok(status) if status.trim() == "active" => Ok(()),
-        _ => Err(miette!("Service failed to restart properly")),
+/// Restart makiatto service on one or more machines
+///
+/// # Errors
+/// Returns an error if SSH connection fails or restart fails
+pub fn restart_machine(request: &RestartMachine, profile: &Profile) -> Result<()> {
+    let machines_to_restart: Vec<&Machine> = if request.names.is_empty() {
+        profile.machines.iter().collect()
+    } else {
+        request
+            .names
+            .iter()
+            .filter_map(|name| profile.find_machine(name))
+            .collect()
+    };
+
+    if machines_to_restart.is_empty() {
+        return Err(miette!("No machines found to restart"));
     }
+
+    ui::header(&format!(
+        "Restarting {} machine(s)",
+        machines_to_restart.len()
+    ));
+
+    for machine in machines_to_restart {
+        ui::status(&format!("Restarting {}", machine.name));
+
+        match restart_single_machine(machine, request.key_path.as_ref()) {
+            Ok(()) => ui::info(&format!("✓ {} restarted successfully", machine.name)),
+            Err(e) => {
+                return Err(miette!(format!("✗ {} restart failed: {e}", machine.name)));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn restart_single_machine(machine: &Machine, key_path: Option<&PathBuf>) -> Result<()> {
+    let ssh = SshSession::new(&machine.ssh_target, machine.port, key_path)?;
+
+    ui::action("Restarting service");
+    ssh.exec("sudo systemctl restart makiatto")?;
+
+    wait_for_service_active(&ssh)
+}
+
+fn wait_for_service_active(ssh: &SshSession) -> Result<()> {
+    let timeout = std::time::Duration::from_secs(15);
+    let start = std::time::Instant::now();
+
+    while start.elapsed() < timeout {
+        if let Ok(status) = ssh.exec("sudo systemctl is-active makiatto")
+            && status.trim() == "active"
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    Err(miette!("Timeout waiting for service to become active"))
 }
 
 /// Remove a makiatto node from the cluster

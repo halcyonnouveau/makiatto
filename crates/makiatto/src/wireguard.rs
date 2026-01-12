@@ -12,18 +12,57 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::spawn_blocking,
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
     config::{Config, WireguardConfig},
     r#const::WIREGUARD_PORT,
-    corrosion,
 };
+
+/// Resolve a host to a `WireGuard` endpoint.
+/// If the host is already an IP, returns it directly.
+/// Otherwise, performs async DNS resolution.
+/// Returns None if the host is empty or resolution fails.
+pub async fn resolve_endpoint(host: &str) -> Option<String> {
+    if host.is_empty() {
+        return None;
+    }
+
+    let endpoint = format!("{host}:{WIREGUARD_PORT}");
+
+    // Try to parse as a socket address directly first
+    if endpoint.parse::<std::net::SocketAddr>().is_ok() {
+        return Some(endpoint);
+    }
+
+    // Try async DNS resolution
+    match tokio::net::lookup_host(&endpoint).await {
+        Ok(mut addrs) => {
+            if let Some(addr) = addrs.next() {
+                info!("Resolved {host} to {addr}");
+                return Some(addr.to_string());
+            }
+            warn!("DNS resolution for {host} returned no addresses");
+        }
+        Err(e) => {
+            warn!("Failed to resolve {host}: {e}");
+        }
+    }
+    None
+}
+
+/// Peer info with resolved endpoint for `WireGuard` setup
+pub struct ResolvedPeer {
+    pub endpoint: Option<String>,
+    pub wg_address: Arc<str>,
+    pub wg_public_key: Arc<str>,
+    pub name: Arc<str>,
+}
 
 #[derive(Debug)]
 pub enum WireguardCommand {
     AddPeer {
-        endpoint: String,
+        endpoint: Option<String>,
         address: String,
         public_key: String,
         response: oneshot::Sender<Result<()>>,
@@ -45,12 +84,17 @@ impl WireguardManager {
     ///
     /// # Errors
     /// Returns an error if the manager task has stopped or the peer cannot be added
-    pub async fn add_peer(&self, endpoint: &str, address: &str, public_key: &str) -> Result<()> {
+    pub async fn add_peer(
+        &self,
+        endpoint: Option<&str>,
+        address: &str,
+        public_key: &str,
+    ) -> Result<()> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.tx
             .send(WireguardCommand::AddPeer {
-                endpoint: endpoint.to_string(),
+                endpoint: endpoint.map(String::from),
                 address: address.to_string(),
                 public_key: public_key.to_string(),
                 response: response_tx,
@@ -101,10 +145,7 @@ where
     ///
     /// # Errors
     /// Returns an error if the interface cannot be created or configured
-    pub fn new(
-        config: &WireguardConfig,
-        peers: Option<Arc<[corrosion::schema::Peer]>>,
-    ) -> Result<Self> {
+    pub fn new(config: &WireguardConfig, peers: Option<Arc<[ResolvedPeer]>>) -> Result<Self> {
         info!("Setting up WireGuard interface '{}'", config.interface);
 
         let mut wgapi = WGApi::<T>::new(config.interface.to_string())
@@ -160,16 +201,19 @@ where
             config: config.to_owned(),
         };
 
-        if let Some(corrosion_peers) = peers
-            && !corrosion_peers.is_empty()
+        if let Some(resolved_peers) = peers
+            && !resolved_peers.is_empty()
         {
             info!(
                 "Adding {} peers from Corrosion database",
-                corrosion_peers.len()
+                resolved_peers.len()
             );
-            for peer in corrosion_peers.iter() {
-                let endpoint = format!("{}:{WIREGUARD_PORT}", peer.ipv4);
-                match wireguard.add_peer(&endpoint, &peer.wg_address, &peer.wg_public_key) {
+            for peer in resolved_peers.iter() {
+                match wireguard.add_peer(
+                    peer.endpoint.as_deref(),
+                    &peer.wg_address,
+                    &peer.wg_public_key,
+                ) {
                     Ok(()) => {}
                     Err(e) => {
                         error!("Failed to add peer {}: {e}", peer.name);
@@ -187,23 +231,24 @@ where
     ///
     /// # Errors
     /// Returns an error if the peer cannot be added
-    pub fn add_peer(&self, endpoint: &str, address: &str, public_key: &str) -> Result<()> {
+    pub fn add_peer(&self, endpoint: Option<&str>, address: &str, public_key: &str) -> Result<()> {
         if self.config.public_key.as_str() == public_key {
             return Ok(());
         }
 
-        info!("Adding new peer: {endpoint} -> {address}");
+        info!("Adding new peer: {:?} -> {address}", endpoint);
 
         let peer_key =
             Key::from_str(public_key).map_err(|e| miette!("Invalid peer public key: {e}"))?;
 
         let mut peer = Peer::new(peer_key);
 
-        peer.endpoint = Some(
-            endpoint
-                .parse()
-                .map_err(|e| miette!("Invalid endpoint format: {e}"))?,
-        );
+        if let Some(ep) = endpoint {
+            peer.endpoint = Some(
+                ep.parse()
+                    .map_err(|e| miette!("Invalid endpoint format: {e}"))?,
+            );
+        }
 
         let addr = IpAddrMask::from_str(&format!("{address}/32"))
             .map_err(|e| miette!("Unable to create addr mask: {e}"))?;
@@ -306,7 +351,7 @@ where
             info!("Bootstrapping {} peers", config.bootstrap.len());
             for bootstrap_peer in config.bootstrap.iter() {
                 match wireguard.add_peer(
-                    &bootstrap_peer.endpoint,
+                    Some(&*bootstrap_peer.endpoint),
                     &bootstrap_peer.address,
                     &bootstrap_peer.public_key,
                 ) {
@@ -352,22 +397,17 @@ pub async fn setup(
 
                 match rows_result {
                     Ok(rows) => {
-                        let peers: Vec<corrosion::schema::Peer> = rows
-                            .into_iter()
-                            .map(|row| corrosion::schema::Peer {
+                        let mut resolved_peers = Vec::with_capacity(rows.len());
+                        for row in rows {
+                            let endpoint = resolve_endpoint(&row.ipv4).await;
+                            resolved_peers.push(ResolvedPeer {
+                                endpoint,
                                 name: Arc::from(row.name),
-                                ipv4: Arc::from(row.ipv4),
-                                ipv6: row.ipv6.map(Arc::from),
                                 wg_public_key: Arc::from(row.wg_public_key),
                                 wg_address: Arc::from(row.wg_address),
-                                latitude: row.latitude,
-                                longitude: row.longitude,
-                                is_nameserver: row.is_nameserver != 0,
-                                is_external: row.is_external != 0,
-                                fs_port: row.fs_port,
-                            })
-                            .collect();
-                        Some(peers.into())
+                            });
+                        }
+                        Some(resolved_peers.into())
                     }
                     Err(_) => None,
                 }
@@ -395,7 +435,7 @@ pub async fn setup(
                     public_key,
                     response,
                 } => {
-                    let result = wg_interface.add_peer(&endpoint, &address, &public_key);
+                    let result = wg_interface.add_peer(endpoint.as_deref(), &address, &public_key);
                     let _ = response.send(result);
                 }
                 WireguardCommand::RemovePeer {

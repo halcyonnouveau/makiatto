@@ -114,14 +114,13 @@ pub async fn init(config: &Config) -> Result<()> {
     let fmt_layer = tracing_subscriber::fmt::layer();
 
     // If we have an endpoint and any export is enabled, set up OTLP
-    let (tracer_provider, logger_provider) = if let Some(ref ep) = endpoint {
-        if o11y.tracing_enabled || o11y.metrics_enabled || o11y.logging_enabled {
-            info!("Initialising OpenTelemetry to {}", ep);
-        }
-
-        if o11y.metrics_enabled {
+    let (tracer_provider, logger_provider, metrics_enabled) = if let Some(ref ep) = endpoint {
+        let metrics = if o11y.metrics_enabled {
             init_metrics(ep, resource.clone())?;
-        }
+            true
+        } else {
+            false
+        };
 
         let logger = if o11y.logging_enabled {
             Some(init_logging(ep, resource.clone())?)
@@ -135,10 +134,13 @@ pub async fn init(config: &Config) -> Result<()> {
             None
         };
 
-        (tracer, logger)
+        (tracer, logger, metrics)
     } else {
-        (None, None)
+        (None, None, false)
     };
+
+    let has_tracing = tracer_provider.is_some();
+    let has_logging = logger_provider.is_some();
 
     match (tracer_provider, logger_provider) {
         (Some(tracer), Some(logger)) => {
@@ -176,6 +178,19 @@ pub async fn init(config: &Config) -> Result<()> {
                 .with(fmt_layer)
                 .init();
         }
+    }
+
+    // Log after tracing is set up
+    if let Some(ref ep) = endpoint
+        && (has_tracing || has_logging || metrics_enabled)
+    {
+        info!(
+            endpoint = %ep,
+            tracing = has_tracing,
+            logging = has_logging,
+            metrics = metrics_enabled,
+            "OpenTelemetry export enabled"
+        );
     }
 
     Ok(())

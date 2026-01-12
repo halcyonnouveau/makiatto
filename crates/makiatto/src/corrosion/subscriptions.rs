@@ -14,10 +14,10 @@ use tripwire::Tripwire;
 use crate::{
     cache::{CacheStore, SubscriptionState},
     config::Config,
-    r#const::{CORROSION_API_PORT, WIREGUARD_PORT},
+    r#const::CORROSION_API_PORT,
     corrosion::consensus::DirectorElection,
     fs,
-    wireguard::WireguardManager,
+    wireguard::{WireguardManager, resolve_endpoint},
 };
 
 const MAX_BACKOFF_SECS: u64 = 86400; // 1 day
@@ -483,9 +483,11 @@ impl SubscriptionWatcher {
                 match change_type {
                     ChangeType::Insert => {
                         info!("New peer added: {name}");
-                        let endpoint = format!("{ipv4}:{WIREGUARD_PORT}");
+                        let endpoint = resolve_endpoint(ipv4).await;
                         if let Some(ref wg_mgr) = self.wireguard_manager {
-                            wg_mgr.add_peer(&endpoint, wg_address, public_key).await?;
+                            wg_mgr
+                                .add_peer(endpoint.as_deref(), wg_address, public_key)
+                                .await?;
                         }
                     }
                     ChangeType::Delete => {
@@ -496,11 +498,13 @@ impl SubscriptionWatcher {
                     }
                     ChangeType::Update => {
                         info!("Peer updated: {name}");
-                        let endpoint = format!("{ipv4}:{WIREGUARD_PORT}");
+                        let endpoint = resolve_endpoint(ipv4).await;
 
                         if let Some(ref wg_mgr) = self.wireguard_manager {
                             wg_mgr.remove_peer(wg_address, public_key).await?;
-                            wg_mgr.add_peer(&endpoint, wg_address, public_key).await?;
+                            wg_mgr
+                                .add_peer(endpoint.as_deref(), wg_address, public_key)
+                                .await?;
                         }
                     }
                 }
