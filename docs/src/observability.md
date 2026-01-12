@@ -141,7 +141,7 @@ connectors:
   spanmetrics:
     namespace: traces.spanmetrics
     dimensions:
-      - name: cdn.cache_hit
+      - name: cdn.cache.hit
 
 exporters:
   otlp/tempo:
@@ -249,6 +249,7 @@ WantedBy=multi-user.target
 [Container]
 Image=docker.io/grafana/grafana:latest
 PublishPort=3000:3000
+Volume=grafana-data:/var/lib/grafana
 Network=o11y.network
 
 [Unit]
@@ -260,6 +261,12 @@ Restart=always
 
 [Install]
 WantedBy=multi-user.target
+```
+
+**grafana-data.volume:**
+
+```ini
+[Volume]
 ```
 
 ### Start the stack
@@ -358,9 +365,9 @@ Create panels with these queries:
 |-------|-------|
 | HTTP request rate | `sum by (service_name) (rate(traces_spanmetrics_calls_total{span_name="http.server"}[5m]))` |
 | Error rate | `sum(rate(traces_spanmetrics_errors_total{span_name="http.server"}[5m]))` |
-| p95 latency | `histogram_quantile(0.95, sum(rate(traces_spanmetrics_duration_seconds_bucket{span_name="http.server"}[5m])) by (le))` |
+| p95 latency | `histogram_quantile(0.95, sum(rate(traces_spanmetrics_duration_milliseconds_bucket{span_name="http.server"}[5m])) by (le))` |
 | Cache hit ratio | `sum(rate(traces_spanmetrics_calls_total{span_name="cdn.file.read", cdn_cache_hit="true"}[5m])) / sum(rate(traces_spanmetrics_calls_total{span_name="cdn.file.read"}[5m]))` |
-| WASM p95 execution | `histogram_quantile(0.95, sum(rate(traces_spanmetrics_duration_seconds_bucket{span_name="wasm.invoke"}[5m])) by (le))` |
+| WASM p95 execution | `histogram_quantile(0.95, sum(rate(traces_spanmetrics_duration_milliseconds_bucket{span_name="wasm.invoke"}[5m])) by (le))` |
 
 Add a Tempo trace panel filtered by `service.name =~ "makiatto.*"` and enable exemplar linking on the Prometheus panels to jump from metric spikes to traces.
 
