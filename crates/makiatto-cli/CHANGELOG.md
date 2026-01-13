@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4](https://github.com/halcyonnouveau/makiatto/compare/v0.5.3...v0.5.4) - 2026-01-12
+
+### Fixed
+
+- update wireguard port number
+
 ## [0.5.3](https://github.com/halcyonnouveau/makiatto/compare/v0.5.2...v0.5.3) - 2026-01-12
 
 ### Fixed
