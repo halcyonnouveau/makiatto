@@ -81,20 +81,13 @@ fn validate_peer_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn assign_wireguard_address(profile: &Profile, ssh: &SshSession) -> Result<String> {
-    // Collect addresses from local profile
-    let mut used_ips: std::collections::HashSet<String> = profile
-        .machines
-        .iter()
-        .map(|m| m.wg_address.to_string())
+fn assign_wireguard_address(ssh: &SshSession) -> Result<String> {
+    // Query all peers from the database (source of truth, includes external peers)
+    let used_ips: std::collections::HashSet<String> = corrosion::query_peers(ssh)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.wg_address)
         .collect();
-
-    // Also get addresses from the database (includes external peers)
-    if let Ok(peers) = corrosion::query_peers(ssh) {
-        for peer in peers {
-            used_ips.insert(peer.wg_address);
-        }
-    }
 
     for i in 1..=254 {
         let candidate = format!("10.44.44.{i}");
@@ -137,7 +130,7 @@ pub fn add_external_peer(request: &AddExternalPeer, profile: &Profile) -> Result
     // Assign WireGuard address if not provided
     let wg_address = match &request.wg_address {
         Some(addr) => addr.clone(),
-        None => assign_wireguard_address(profile, &ssh)?,
+        None => assign_wireguard_address(&ssh)?,
     };
 
     ui::header("Adding external peer:");
@@ -191,26 +184,15 @@ pub fn show_wg_config(request: &WgConfig, profile: &Profile) -> Result<()> {
     println!();
 
     // Get all Makiatto nodes (non-external peers) to add as peers
-    let all_peers = corrosion::query_peers(&ssh)?;
+    let all_peers = corrosion::query_machines(&ssh)?;
 
-    for machine in &profile.machines {
-        // Find this machine in the peers list to get its details
-        if let Some(node_peer) = all_peers.iter().find(|p| p.name == machine.name.as_ref()) {
-            println!("[Peer]  # {}", machine.name);
-            println!("PublicKey = {}", node_peer.wg_public_key);
-            println!("Endpoint = {}:{WIREGUARD_PORT}", node_peer.ipv4);
-            println!("AllowedIPs = {}/32", node_peer.wg_address);
-            println!("PersistentKeepalive = 25");
-            println!();
-        } else {
-            // Fallback to profile data if not in database yet
-            println!("[Peer]  # {}", machine.name);
-            println!("PublicKey = {}", machine.wg_public_key);
-            println!("Endpoint = {}:{WIREGUARD_PORT}", machine.ipv4);
-            println!("AllowedIPs = {}/32", machine.wg_address);
-            println!("PersistentKeepalive = 25");
-            println!();
-        }
+    for peer in &all_peers {
+        println!("[Peer]  # {}", peer.name);
+        println!("PublicKey = {}", peer.wg_public_key);
+        println!("Endpoint = {}:{WIREGUARD_PORT}", peer.ipv4);
+        println!("AllowedIPs = {}/32", peer.wg_address);
+        println!("PersistentKeepalive = 25");
+        println!();
     }
 
     Ok(())

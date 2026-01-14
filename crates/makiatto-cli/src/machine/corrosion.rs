@@ -54,11 +54,11 @@ pub fn delete_peer(ssh: &SshSession, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Query all peers from the database (excluding external peers)
+/// Query all machines from the database (not external peers)
 ///
 /// # Errors
 /// Returns an error if the SSH command fails, database query fails, or if the data format is invalid
-pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
+pub fn query_machines(ssh: &SshSession) -> Result<Vec<Peer>> {
     let sql = "SELECT name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers WHERE is_external = 0;";
     let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
 
@@ -108,7 +108,7 @@ pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
 ///
 /// # Errors
 /// Returns an error if the SSH command fails, database query fails, or if the data format is invalid
-pub fn query_all_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
+pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
     let sql = "SELECT name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address FROM peers;";
     let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{sql}\"");
 

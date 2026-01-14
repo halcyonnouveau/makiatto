@@ -174,7 +174,14 @@ pub fn init_machine(request: &InitMachine, profile: &mut Profile) -> Result<SshS
         }
     }
 
-    let wg_address = assign_wireguard_address(profile)?;
+    // If we have existing machines, SSH to one to query the database for used WG addresses
+    let existing_ssh = profile
+        .machines
+        .first()
+        .map(|m| SshSession::new(&m.ssh_target, m.port, request.key_path.as_ref()))
+        .transpose()?;
+
+    let wg_address = assign_wireguard_address(profile, existing_ssh.as_ref())?;
     let (wg_private_key, wg_public_key) = generate_wireguard_keypair();
 
     let is_nameserver = if request.force_nameserver {
@@ -563,16 +570,29 @@ fn generate_wireguard_keypair() -> (String, String) {
     )
 }
 
-fn assign_wireguard_address(machines_config: &Profile) -> Result<String> {
-    let used_ips: std::collections::HashSet<&str> = machines_config
-        .machines
-        .iter()
-        .map(|m| m.wg_address.as_ref())
-        .collect();
+fn assign_wireguard_address(
+    profile: &Profile,
+    existing_ssh: Option<&SshSession>,
+) -> Result<String> {
+    // If we have an SSH session, query the database (source of truth)
+    // Otherwise fall back to the local profile (for first machine bootstrap)
+    let used_ips: std::collections::HashSet<String> = if let Some(ssh) = existing_ssh {
+        corrosion::query_peers(ssh)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.wg_address)
+            .collect()
+    } else {
+        profile
+            .machines
+            .iter()
+            .map(|m| m.wg_address.to_string())
+            .collect()
+    };
 
     for i in 1..=254 {
         let candidate = format!("10.44.44.{i}");
-        if !used_ips.contains(candidate.as_str()) {
+        if !used_ips.contains(&candidate) {
             return Ok(candidate);
         }
     }
@@ -623,7 +643,7 @@ mod tests {
     fn test_assign_wireguard_address_empty_config() {
         let config = Profile { machines: vec![] };
 
-        let address = assign_wireguard_address(&config).unwrap();
+        let address = assign_wireguard_address(&config, None).unwrap();
         assert_eq!(address, "10.44.44.1");
     }
 
@@ -660,7 +680,7 @@ mod tests {
             ],
         };
 
-        let address = assign_wireguard_address(&config).unwrap();
+        let address = assign_wireguard_address(&config, None).unwrap();
         assert_eq!(address, "10.44.44.2");
     }
 
@@ -691,7 +711,7 @@ mod tests {
 
         let config = Profile { machines };
 
-        let result = assign_wireguard_address(&config);
+        let result = assign_wireguard_address(&config, None);
         assert!(result.is_err());
         assert!(
             result
