@@ -5,17 +5,17 @@ Makiatto exports telemetry via OpenTelemetry (OTLP), so you can use any observab
 ## Architecture
 
 ```
-┌────────────┐  ┌────────────┐  ┌────────────┐
-│  Makiatto  │  │  Makiatto  │  │  Makiatto  │
-│   Node A   │  │   Node B   │  │   Node C   │
-└──────┬─────┘  └──────┬─────┘  └──────┬─────┘
-       └───────────────┼───────────────┘
-                       ▼
+ ┌────────────┐  ┌────────────┐  ┌────────────┐
+ │  Makiatto  │  │  Makiatto  │  │  Makiatto  │
+ │   Node A   │  │   Node B   │  │   Node C   │
+ └──────┬─────┘  └──────┬─────┘  └──────┬─────┘
+        └───────────────┼───────────────┘
+                        ▼
            ┌────────────────────────┐
            │       Collector        │
            │     (spanmetrics)      │
-           └──┬─────────┬─────────┬─┘
-              ▼         ▼         ▼
+           └─┬──────────┬─────────┬─┘
+             ▼          ▼         ▼
          ┌───────┐ ┌──────────┐ ┌──────┐
          │ Tempo │ │Prometheus│ │ Loki │
          └───┬───┘ └────┬─────┘ └──┬───┘
