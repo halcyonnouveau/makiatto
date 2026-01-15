@@ -436,9 +436,9 @@ async fn recreate_hardlinks_for_content(config: &Config, content_hash: &str) -> 
             })?;
 
     let content_path = config.fs.storage_dir.join(content_hash);
-    if !content_path.exists() {
+    if !content_path.is_file() {
         debug!(
-            "Content file {} doesn't exist, skipping hardlink recreation",
+            "Content file {} doesn't exist or is not a regular file, skipping hardlink recreation",
             content_hash
         );
         return Ok(());
@@ -533,8 +533,9 @@ pub async fn fetch_domain_file(
 ) -> Result<()> {
     let storage_dir = config.fs.storage_dir.as_std_path().to_path_buf();
 
-    // if content exists locally, recreate the domain file from it
-    if storage_dir.join(content_hash).exists() {
+    // if content exists locally as a file, recreate the domain file from it
+    let content_path = storage_dir.join(content_hash);
+    if content_path.is_file() {
         recreate_domain_file(config, domain, path, content_hash).await?;
         debug!("Recreated domain file {domain}{path} from existing content {content_hash}");
         return Ok(());
@@ -614,8 +615,9 @@ pub async fn fetch_domain_file(
         }
     }
 
-    error!("Could not fetch file {content_hash} from any peer");
-    Ok(())
+    Err(miette::miette!(
+        "Could not fetch file {content_hash} from any peer"
+    ))
 }
 
 /// Recreate file in domain directory structure using hardlink
@@ -646,6 +648,18 @@ pub async fn recreate_domain_file(
         content_hash
     );
     Ok(())
+}
+
+/// Check if an IO error should trigger a copy fallback
+/// Returns true for EPERM (1), EACCES (13), EXDEV (18)
+fn should_fallback_to_copy(err: &std::io::Error) -> bool {
+    match err.kind() {
+        std::io::ErrorKind::CrossesDevices | std::io::ErrorKind::PermissionDenied => true,
+        _ => {
+            // Also check raw OS error for EPERM (1) which doesn't map to PermissionDenied
+            err.raw_os_error() == Some(1)
+        }
+    }
 }
 
 /// Create hardlink with fallback to copy for cross-filesystem scenarios
@@ -683,21 +697,20 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
                     Err(miette::miette!("Failed to rename temp hardlink: {e}"))
                 }
             },
-            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                // Fallback to copy for cross-filesystem scenarios
-                tokio::fs::copy(source, &temp_path).await.map_err(|e| {
-                    miette::miette!("Failed to copy file for cross-filesystem fallback: {e}")
-                })?;
+            Err(ref e) if should_fallback_to_copy(e) => {
+                // Fallback to copy for cross-filesystem or permission issues
+                warn!(
+                    "Hardlink failed ({}), falling back to copy: {} -> {}",
+                    e,
+                    source.display(),
+                    target.display()
+                );
+                tokio::fs::copy(source, &temp_path)
+                    .await
+                    .map_err(|e| miette::miette!("Failed to copy file for fallback: {e}"))?;
 
                 match tokio::fs::rename(&temp_path, target).await {
-                    Ok(()) => {
-                        warn!(
-                            "Used copy fallback (cross-filesystem): {} -> {}",
-                            target.display(),
-                            source.display()
-                        );
-                        Ok(())
-                    }
+                    Ok(()) => Ok(()),
                     Err(e) => {
                         let _ = tokio::fs::remove_file(&temp_path).await;
                         Err(miette::miette!("Failed to rename temp file: {e}"))
@@ -720,16 +733,17 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
                 );
                 Ok(())
             }
-            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                // Fallback to copy for cross-filesystem scenarios
-                tokio::fs::copy(source, target).await.map_err(|e| {
-                    miette::miette!("Failed to copy file for cross-filesystem fallback: {e}")
-                })?;
+            Err(ref e) if should_fallback_to_copy(e) => {
+                // Fallback to copy for cross-filesystem or permission issues
                 warn!(
-                    "Used copy fallback (cross-filesystem): {} -> {}",
-                    target.display(),
-                    source.display()
+                    "Hardlink failed ({}), falling back to copy: {} -> {}",
+                    e,
+                    source.display(),
+                    target.display()
                 );
+                tokio::fs::copy(source, target)
+                    .await
+                    .map_err(|e| miette::miette!("Failed to copy file for fallback: {e}"))?;
                 Ok(())
             }
             Err(e) => Err(miette::miette!(
