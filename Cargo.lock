@@ -558,7 +558,7 @@ dependencies = [
 [[package]]
 name = "backoff"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "rand 0.9.2",
 ]
@@ -1266,7 +1266,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 [[package]]
 name = "consul-client"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "camino",
  "http",
@@ -1300,7 +1300,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "corro-agent"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -1367,7 +1367,7 @@ dependencies = [
 [[package]]
 name = "corro-api-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "camino",
  "compact_str",
@@ -1386,7 +1386,7 @@ dependencies = [
 [[package]]
 name = "corro-base-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "camino",
  "compact_str",
@@ -1406,7 +1406,7 @@ dependencies = [
 [[package]]
 name = "corro-pg"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "bytes",
  "chrono",
@@ -1441,7 +1441,7 @@ dependencies = [
 [[package]]
 name = "corro-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -1496,7 +1496,7 @@ dependencies = [
 [[package]]
 name = "corro-utils"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "eyre",
  "tokio",
@@ -5493,7 +5493,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
@@ -6778,7 +6778,7 @@ dependencies = [
 [[package]]
 name = "spawn"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "futures",
  "parking_lot",
@@ -6851,7 +6851,7 @@ dependencies = [
 [[package]]
 name = "sqlite-functions"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -6860,7 +6860,7 @@ dependencies = [
 [[package]]
 name = "sqlite-pool"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "arc-swap",
  "deadpool",
@@ -7848,7 +7848,7 @@ dependencies = [
 [[package]]
 name = "tripwire"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/superfly/corrosion#cf612f21704af0f32734ac1432871af99ac9492f"
+source = "git+https://github.com/superfly/corrosion#fd096d6fb0d80e23b5bc9aeeed64bd0c01ed3643"
 dependencies = [
  "futures",
  "futures-util",
