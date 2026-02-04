@@ -95,7 +95,7 @@ opentelemetry-otlp = { version = "0.31", features = [
 # Utilities
 camino = "1.2"
 dashmap = "6.1"
-defguard_wireguard_rs = "0.8"
+defguard_wireguard_rs = "0.9"
 flate2 = "1.0"
 geo = "0.32"
 globset = "0.4"
