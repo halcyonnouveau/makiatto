@@ -322,7 +322,7 @@ impl SubscriptionWatcher {
     {
         let api_base = format!("http://127.0.0.1:{CORROSION_API_PORT}/v1/subscriptions");
         let client = reqwest::Client::builder()
-            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_keepalive(Duration::from_mins(1))
             .http2_keep_alive_interval(Duration::from_secs(30))
             .http2_keep_alive_timeout(Duration::from_secs(10))
             .http2_keep_alive_while_idle(true)

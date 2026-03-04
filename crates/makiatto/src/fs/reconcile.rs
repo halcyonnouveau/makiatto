@@ -185,7 +185,7 @@ mod system {
         if let Ok(entries) = tokio::fs::read_dir(static_dir).await {
             let mut entries = entries;
             while let Ok(Some(entry)) = entries.next_entry().await {
-                if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+                if entry.file_type().await.is_ok_and(|t| t.is_dir()) {
                     let domain = entry.file_name().to_string_lossy().to_string();
                     fixed_count += scan_domain_for_orphans(&domain, static_dir).await?;
                 }
@@ -236,12 +236,7 @@ mod system {
 
         if let Ok(mut entries) = tokio::fs::read_dir(storage_dir).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
-                if entry
-                    .file_type()
-                    .await
-                    .map(|t| t.is_file())
-                    .unwrap_or(false)
-                {
+                if entry.file_type().await.is_ok_and(|t| t.is_file()) {
                     let filename = entry.file_name().to_string_lossy().to_string();
 
                     if !is_content_referenced(&filename).await? {
@@ -456,14 +451,9 @@ async fn scan_directory_recursive(dir: &std::path::Path) -> Result<Vec<std::path
     if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
-            if entry
-                .file_type()
-                .await
-                .map(|t| t.is_file())
-                .unwrap_or(false)
-            {
+            if entry.file_type().await.is_ok_and(|t| t.is_file()) {
                 files.push(path);
-            } else if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false)
+            } else if entry.file_type().await.is_ok_and(|t| t.is_dir())
                 && let Ok(mut subfiles) = Box::pin(scan_directory_recursive(&path)).await
             {
                 files.append(&mut subfiles);

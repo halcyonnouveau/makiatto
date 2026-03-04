@@ -12,7 +12,7 @@ use std::{
 use base64::prelude::*;
 use makiatto_cli::config::Machine;
 use miette::{Result, miette};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use testcontainers::{
     ContainerAsync, ContainerRequest, GenericImage, ImageExt,
     core::{ExecCommand, IntoContainerPort, Mount, WaitFor},

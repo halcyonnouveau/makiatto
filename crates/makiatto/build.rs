@@ -63,7 +63,7 @@ fn main() {
         }
         Ok(_) => {}
         Err(e) => {
-            println!("cargo:warning=Failed to run sqlite3 (is it installed?): {e}",);
+            println!("cargo:warning=Failed to run sqlite3 (is it installed?): {e}");
         }
     }
 }

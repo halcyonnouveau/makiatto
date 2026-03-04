@@ -60,7 +60,7 @@ impl AcmeClient {
         let retry_policy = RetryPolicy::new()
             .initial_delay(Duration::from_secs(5))
             .backoff(2.0)
-            .timeout(Duration::from_secs(600)); // 10 minutes
+            .timeout(Duration::from_mins(10));
 
         let status = order.poll_ready(&retry_policy).await.into_diagnostic()?;
 

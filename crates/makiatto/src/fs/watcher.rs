@@ -8,7 +8,7 @@ use notify_debouncer_full::{
     DebounceEventResult, new_debouncer,
     notify::{EventKind, RecursiveMode, event::CreateKind},
 };
-use rand::{Rng, seq::SliceRandom};
+use rand::{RngExt, seq::SliceRandom};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncWriteExt},

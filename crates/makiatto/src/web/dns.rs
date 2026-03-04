@@ -599,7 +599,7 @@ pub async fn start(
 
     let geolite_path = config.dns.geolite_path.clone();
     let geolite_task = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(21 * 24 * 60 * 60));
+        let mut interval = tokio::time::interval(Duration::from_hours(504));
         interval.tick().await;
 
         loop {

@@ -5,7 +5,7 @@ use defguard_wireguard_rs::Kernel;
 #[cfg(target_os = "macos")]
 use defguard_wireguard_rs::Userspace;
 use defguard_wireguard_rs::{
-    InterfaceConfiguration, WGApi, WireguardInterfaceApi, host::Peer, key::Key, net::IpAddrMask,
+    InterfaceConfiguration, WGApi, WireguardInterfaceApi, key::Key, net::IpAddrMask, peer::Peer,
 };
 use miette::{Result, miette};
 use tokio::{
@@ -173,6 +173,7 @@ where
             port: WIREGUARD_PORT,
             peers: vec![],
             mtu: None,
+            fwmark: None,
         };
 
         info!("Configuring interface with address {}", config.address);
