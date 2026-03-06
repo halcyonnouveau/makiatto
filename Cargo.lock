@@ -581,7 +581,7 @@ dependencies = [
 [[package]]
 name = "backoff"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "rand 0.9.2",
 ]
@@ -1282,7 +1282,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 [[package]]
 name = "consul-client"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "camino",
  "http",
@@ -1316,7 +1316,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "corro-agent"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -1383,7 +1383,7 @@ dependencies = [
 [[package]]
 name = "corro-api-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "camino",
  "compact_str",
@@ -1402,7 +1402,7 @@ dependencies = [
 [[package]]
 name = "corro-base-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "camino",
  "compact_str",
@@ -1422,7 +1422,7 @@ dependencies = [
 [[package]]
 name = "corro-pg"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "bytes",
  "chrono",
@@ -1457,7 +1457,7 @@ dependencies = [
 [[package]]
 name = "corro-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -1483,6 +1483,7 @@ dependencies = [
  "metrics",
  "once_cell",
  "opentelemetry 0.30.0",
+ "papaya",
  "parking_lot",
  "rand 0.9.2",
  "rangemap",
@@ -1513,7 +1514,7 @@ dependencies = [
 [[package]]
 name = "corro-utils"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "eyre",
  "tokio",
@@ -5057,6 +5058,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
+name = "papaya"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f92dd0b07c53a0a0c764db2ace8c541dc47320dad97c2200c2a637ab9dd2328f"
+dependencies = [
+ "equivalent",
+ "seize",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5498,7 +5509,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -6363,6 +6374,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "seize"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6724,7 +6745,7 @@ dependencies = [
 [[package]]
 name = "spawn"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "futures",
  "parking_lot",
@@ -6797,7 +6818,7 @@ dependencies = [
 [[package]]
 name = "sqlite-functions"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -6806,7 +6827,7 @@ dependencies = [
 [[package]]
 name = "sqlite-pool"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "arc-swap",
  "deadpool",
@@ -7800,7 +7821,7 @@ dependencies = [
 [[package]]
 name = "tripwire"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#15125616e2822e8af163958ea25f8a0086e1285b"
 dependencies = [
  "futures",
  "futures-util",
