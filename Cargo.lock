@@ -119,7 +119,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 [[package]]
 name = "append_only_set"
 version = "0.1.0"
-source = "git+https://github.com/imazen/imageflow#b5753c5905faf19e3d2ac0388fda7e6f878c6a29"
+source = "git+https://github.com/imazen/imageflow#d876af827ffd7ba93eacd4b6cfc999548cf76c3e"
 
 [[package]]
 name = "approx"
@@ -160,7 +160,17 @@ version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0fb818f2e02ca08cc6416725044fadc84bcf5a96e2eb7ab103c966123667d86"
 dependencies = [
- "archmage-macros",
+ "archmage-macros 0.8.9",
+ "safe_unaligned_simd",
+]
+
+[[package]]
+name = "archmage"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fd400bfe079970d495bda0865afa8e3ba6f1604812f003c1ddcedc4d7a55a7e"
+dependencies = [
+ "archmage-macros 0.9.5",
  "safe_unaligned_simd",
 ]
 
@@ -176,10 +186,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "argh"
-version = "0.1.14"
+name = "archmage-macros"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f384d96bfd3c0b3c41f24dae69ee9602c091d64fc432225cf5295b5abbe0036"
+checksum = "e73d1377bc9ebbed872f6a818decf8b360050183c641604078c0b5fc0f4a9189"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "argh"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42a66b74feaa2a7eddc2a74d273f151b545742ef375581c5a566607df992565e"
 dependencies = [
  "argh_derive",
  "argh_shared",
@@ -187,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "argh_derive"
-version = "0.1.14"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "938e5f66269c1f168035e29ed3fb437b084e476465e9314a0328f4005d7be599"
+checksum = "0ce8f59ed4ec07742760cf3593727c8caff28ef4537eeb33be25e5fb454850d1"
 dependencies = [
  "argh_shared",
  "proc-macro2",
@@ -199,9 +220,9 @@ dependencies = [
 
 [[package]]
 name = "argh_shared"
-version = "0.1.14"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5127f8a5bc1cfb0faf1f6248491452b8a5b6901068d8da2d47cbb285986ae683"
+checksum = "284b476f7c2b6af9aa49f059466ebfa725b0f53c33d271a691e613e9187bf507"
 dependencies = [
  "serde",
 ]
@@ -581,7 +602,7 @@ dependencies = [
 [[package]]
 name = "backoff"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "rand 0.9.2",
 ]
@@ -1282,7 +1303,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 [[package]]
 name = "consul-client"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "camino",
  "http",
@@ -1316,7 +1337,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "corro-agent"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -1383,7 +1404,7 @@ dependencies = [
 [[package]]
 name = "corro-api-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "camino",
  "compact_str",
@@ -1402,7 +1423,7 @@ dependencies = [
 [[package]]
 name = "corro-base-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "camino",
  "compact_str",
@@ -1422,7 +1443,7 @@ dependencies = [
 [[package]]
 name = "corro-pg"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "bytes",
  "chrono",
@@ -1441,7 +1462,7 @@ dependencies = [
  "rand 0.9.2",
  "rusqlite",
  "rustls",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "spawn",
  "sqlite3-parser",
  "sqlparser",
@@ -1457,7 +1478,7 @@ dependencies = [
 [[package]]
 name = "corro-types"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "antithesis_sdk",
  "arc-swap",
@@ -1483,6 +1504,7 @@ dependencies = [
  "metrics",
  "once_cell",
  "opentelemetry 0.30.0",
+ "papaya",
  "parking_lot",
  "rand 0.9.2",
  "rangemap",
@@ -1513,7 +1535,7 @@ dependencies = [
 [[package]]
 name = "corro-utils"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "eyre",
  "tokio",
@@ -1970,7 +1992,7 @@ dependencies = [
  "nix",
  "parking_lot",
  "ring 0.17.14",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tracing",
  "uniffi",
@@ -1980,9 +2002,9 @@ dependencies = [
 
 [[package]]
 name = "defguard_wireguard_rs"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ffe29a5f9a8476ad637cf8fe008c60b5f8c96fd24464103e135e86a26783e88"
+checksum = "d031e0dd8796d520f18b21ce66c8769a78f91aa93c6bc8d51e6f2b6859a6a9c9"
 dependencies = [
  "base64 0.22.1",
  "defguard_boringtun",
@@ -2754,6 +2776,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "garb"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02fb4b910fea99b511df11b42ef02847853225d067c2cb7d5d9a0c27e7950110"
+dependencies = [
+ "archmage 0.8.9",
+ "bytemuck",
+ "safe_unaligned_simd",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3226,9 +3259,9 @@ checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "hybrid-array"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1b229d73f5803b562cc26e4da0396c8610a4ee209f4fac8fa4f8d709166dc45"
+checksum = "8655f91cd07f2b9d0c24137bd650fe69617773435ee5ec83022377777ce65ef1"
 dependencies = [
  "typenum",
 ]
@@ -3320,7 +3353,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "tokio",
  "tower-service",
  "tracing",
@@ -3545,7 +3578,7 @@ dependencies = [
 [[package]]
 name = "imageflow_c_components"
 version = "0.1.0"
-source = "git+https://github.com/imazen/imageflow#b5753c5905faf19e3d2ac0388fda7e6f878c6a29"
+source = "git+https://github.com/imazen/imageflow#d876af827ffd7ba93eacd4b6cfc999548cf76c3e"
 dependencies = [
  "cc",
  "glob",
@@ -3559,9 +3592,9 @@ dependencies = [
 [[package]]
 name = "imageflow_core"
 version = "0.1.0"
-source = "git+https://github.com/imazen/imageflow#b5753c5905faf19e3d2ac0388fda7e6f878c6a29"
+source = "git+https://github.com/imazen/imageflow#d876af827ffd7ba93eacd4b6cfc999548cf76c3e"
 dependencies = [
- "archmage",
+ "archmage 0.9.5",
  "base64 0.22.1",
  "bytemuck",
  "daggy",
@@ -3569,6 +3602,7 @@ dependencies = [
  "enough",
  "evalchroma",
  "flate2",
+ "garb",
  "gif",
  "hex",
  "imageflow_c_components",
@@ -3585,6 +3619,7 @@ dependencies = [
  "libwebp-sys",
  "libz-sys",
  "lodepng",
+ "moxcms",
  "mozjpeg",
  "mozjpeg-sys",
  "multiversion",
@@ -3604,7 +3639,7 @@ dependencies = [
 [[package]]
 name = "imageflow_helpers"
 version = "0.1.0"
-source = "git+https://github.com/imazen/imageflow#b5753c5905faf19e3d2ac0388fda7e6f878c6a29"
+source = "git+https://github.com/imazen/imageflow#d876af827ffd7ba93eacd4b6cfc999548cf76c3e"
 dependencies = [
  "backtrace",
  "base64 0.22.1",
@@ -3631,7 +3666,7 @@ dependencies = [
 [[package]]
 name = "imageflow_riapi"
 version = "0.1.0"
-source = "git+https://github.com/imazen/imageflow#b5753c5905faf19e3d2ac0388fda7e6f878c6a29"
+source = "git+https://github.com/imazen/imageflow#d876af827ffd7ba93eacd4b6cfc999548cf76c3e"
 dependencies = [
  "enum_derive",
  "ieee754",
@@ -3647,7 +3682,7 @@ dependencies = [
 [[package]]
 name = "imageflow_types"
 version = "0.1.0"
-source = "git+https://github.com/imazen/imageflow#b5753c5905faf19e3d2ac0388fda7e6f878c6a29"
+source = "git+https://github.com/imazen/imageflow#d876af827ffd7ba93eacd4b6cfc999548cf76c3e"
 dependencies = [
  "append_only_set",
  "chrono",
@@ -3735,9 +3770,9 @@ dependencies = [
 
 [[package]]
 name = "inotify"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f37dccff2791ab604f9babef0ba14fbe0be30bd368dc541e2b08d07c8aa908f3"
+checksum = "bd5b3eaf1a28b758ac0faa5a4254e8ab2705605496f1b1f3fbbc3988ad73d199"
 dependencies = [
  "bitflags 2.11.0",
  "inotify-sys",
@@ -4112,9 +4147,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.182"
+version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libloading"
@@ -4195,9 +4230,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.24"
+version = "1.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4735e9cbde5aac84a5ce588f6b23a90b9b0b528f6c5a8db8a4aff300463a0839"
+checksum = "d52f4c29e2a68ac30c9087e1b772dc9f44a2b66ed44edf2266cf2be9b03dafc1"
 dependencies = [
  "cc",
  "libc",
@@ -4319,7 +4354,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
- "toml 1.0.3+spec-1.1.0",
+ "toml 1.0.6+spec-1.1.0",
  "tower",
  "tower-http",
  "tracing",
@@ -4353,7 +4388,7 @@ dependencies = [
  "ssh2",
  "tar",
  "tokio",
- "toml 1.0.3+spec-1.1.0",
+ "toml 1.0.6+spec-1.1.0",
  "uuid",
  "x25519-dalek",
 ]
@@ -4534,6 +4569,15 @@ dependencies = [
  "smallvec",
  "tagptr",
  "uuid",
+]
+
+[[package]]
+name = "moxcms"
+version = "0.8.1"
+source = "git+https://github.com/awxkee/moxcms.git?rev=c4affa1#c4affa196727d17f21a7f6f148a558867decb470"
+dependencies = [
+ "num-traits",
+ "pxfm",
 ]
 
 [[package]]
@@ -4910,9 +4954,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.111"
+version = "0.9.112"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82cab2d520aa75e3c58898289429321eb788c3106963d0dc886ec7a5f4adc321"
+checksum = "57d55af3b3e226502be1526dfdba67ab0e9c96fc293004e79576b2b9edb0dbdb"
 dependencies = [
  "cc",
  "libc",
@@ -5055,6 +5099,16 @@ name = "owo-colors"
 version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
+
+[[package]]
+name = "papaya"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f92dd0b07c53a0a0c764db2ace8c541dc47320dad97c2200c2a637ab9dd2328f"
+dependencies = [
+ "equivalent",
+ "seize",
+]
 
 [[package]]
 name = "parking"
@@ -5547,6 +5601,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pxfm"
+version = "0.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5a041e753da8b807c9255f28de81879c78c876392ff2469cde94799b2896b9d"
+
+[[package]]
 name = "quanta"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5580,7 +5640,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5601,9 +5661,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.13"
+version = "0.11.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1906b49b0c3bc04b5fe5d86a77925ae6524a19b816ae38ce1e426255f1d8a31"
+checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
 dependencies = [
  "aws-lc-rs",
  "bytes",
@@ -5632,7 +5692,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -6276,9 +6336,9 @@ dependencies = [
 
 [[package]]
 name = "schannel"
-version = "0.1.28"
+version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891d81b926048e76efe18581bf793546b4c0eaf8448d72be8de2bbee5fd166e1"
+checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -6360,6 +6420,16 @@ checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "seize"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6701,12 +6771,12 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
+checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6724,7 +6794,7 @@ dependencies = [
 [[package]]
 name = "spawn"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "futures",
  "parking_lot",
@@ -6797,7 +6867,7 @@ dependencies = [
 [[package]]
 name = "sqlite-functions"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -6806,7 +6876,7 @@ dependencies = [
 [[package]]
 name = "sqlite-pool"
 version = "0.1.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "arc-swap",
  "deadpool",
@@ -7263,9 +7333,9 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tempfile"
-version = "3.26.0"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a72c767771b47409d2345987fda8628641887d5466101319899796367354a0"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
  "getrandom 0.4.2",
@@ -7453,7 +7523,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]
@@ -7542,9 +7612,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.0.3+spec-1.1.0"
+version = "1.0.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7614eaf19ad818347db24addfa201729cf2a9b6fdfd9eb0ab870fcacc606c0c"
+checksum = "399b1124a3c9e16766831c6bba21e50192572cdd98706ea114f9502509686ffc"
 dependencies = [
  "indexmap 2.13.0",
  "serde_core",
@@ -7607,7 +7677,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "sync_wrapper",
  "tokio",
  "tokio-stream",
@@ -7800,7 +7870,7 @@ dependencies = [
 [[package]]
 name = "tripwire"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/superfly/corrosion#021ee04bc8b59609cf50e588456c40eeb3c3288b"
+source = "git+https://github.com/superfly/corrosion#e1a17db67e47b364919dd594a90187d75e2d49cd"
 dependencies = [
  "futures",
  "futures-util",
@@ -8156,9 +8226,9 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "uuid"
-version = "1.21.0"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b672338555252d43fd2240c714dc444b8c6fb0a5c5335e65a07bba7742735ddb"
+checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
@@ -9301,9 +9371,9 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winnow"
-version = "0.7.14"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
 ]
@@ -9561,18 +9631,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.40"
+version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a789c6e490b576db9f7e6b6d661bcc9799f7c0ac8352f56ea20193b2681532e5"
+checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.40"
+version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f65c489a7071a749c849713807783f70672b28094011623e200cb86dcb835953"
+checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
 dependencies = [
  "proc-macro2",
  "quote",
