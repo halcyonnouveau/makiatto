@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -41,7 +41,16 @@ struct NodeHealth {
     system: SystemStatus,
     dns: Option<DnsStatus>,
     web: Vec<DomainStatus>,
+    file_sync: FileSyncStatus,
     version: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct FileSyncStatus {
+    expected: usize,
+    present: usize,
+    missing: Vec<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +130,7 @@ pub async fn check_health(
         .unwrap_or(&profile.machines[0]);
 
     let certificates = get_certs(sync_target, command.key_path.as_ref())?;
+    let expected_hashes = get_expected_hashes(sync_target, command.key_path.as_ref())?;
 
     let health_futures: Vec<_> = profile
         .machines
@@ -130,6 +140,7 @@ pub async fn check_health(
             let profile_clone = profile.clone();
             let config = config.clone();
             let certificates = certificates.clone();
+            let expected_hashes = expected_hashes.clone();
             let key_path = command.key_path.clone();
 
             tokio::spawn(async move {
@@ -138,6 +149,7 @@ pub async fn check_health(
                     &profile_clone,
                     &config,
                     &certificates,
+                    &expected_hashes,
                     key_path.as_ref(),
                 )
                 .await
@@ -182,11 +194,33 @@ fn get_certs(sync_target: &Machine, key_path: Option<&PathBuf>) -> Result<HashMa
     Ok(certificates)
 }
 
+fn get_expected_hashes(
+    sync_target: &Machine,
+    key_path: Option<&PathBuf>,
+) -> Result<HashSet<String>> {
+    let ssh = SshSession::new(&sync_target.ssh_target, sync_target.port, key_path)?;
+
+    let query = "SELECT DISTINCT content_hash FROM files WHERE content_hash != ''";
+    let cmd =
+        format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{query}\"");
+
+    let output = ssh.exec(&cmd).unwrap_or_default();
+
+    let hashes = output
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    Ok(hashes)
+}
+
 async fn check_node_health(
     machine: &Machine,
     profile: &Profile,
     config: &Config,
     certificates: &HashMap<String, i64>,
+    expected_hashes: &HashSet<String>,
     key_path: Option<&PathBuf>,
 ) -> NodeHealth {
     let ssh = SshSession::new(&machine.ssh_target, machine.port, key_path).unwrap();
@@ -201,6 +235,7 @@ async fn check_node_health(
     };
 
     let web = check_web_domains(machine, config, certificates).await;
+    let file_sync = check_file_sync(&ssh, expected_hashes).await;
     let version = check_makiatto_version(&ssh).await;
 
     NodeHealth {
@@ -209,6 +244,7 @@ async fn check_node_health(
         system,
         dns,
         web,
+        file_sync,
         version,
     }
 }
@@ -327,6 +363,60 @@ async fn check_system_health(ssh: &SshSession) -> SystemStatus {
             memory_percent: None,
             disk_percent: None,
             load_average: None,
+            error: Some(format!("Task failed: {e}")),
+        },
+    }
+}
+
+async fn check_file_sync(ssh: &SshSession, expected_hashes: &HashSet<String>) -> FileSyncStatus {
+    if expected_hashes.is_empty() {
+        return FileSyncStatus {
+            expected: 0,
+            present: 0,
+            missing: vec![],
+            error: None,
+        };
+    }
+
+    let ssh = ssh.clone();
+    let expected = expected_hashes.clone();
+
+    match tokio::task::spawn_blocking(move || {
+        let output = ssh.exec("ls /var/makiatto/storage/")?;
+        let present_hashes: HashSet<String> = output
+            .lines()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+
+        let missing: Vec<String> = expected
+            .iter()
+            .filter(|hash| !present_hashes.contains(hash.as_str()))
+            .cloned()
+            .collect();
+
+        let present = expected.len() - missing.len();
+
+        Ok::<_, miette::Error>((present, missing))
+    })
+    .await
+    {
+        Ok(Ok((present, missing))) => FileSyncStatus {
+            expected: expected_hashes.len(),
+            present,
+            missing,
+            error: None,
+        },
+        Ok(Err(e)) => FileSyncStatus {
+            expected: expected_hashes.len(),
+            present: 0,
+            missing: vec![],
+            error: Some(e.to_string()),
+        },
+        Err(e) => FileSyncStatus {
+            expected: expected_hashes.len(),
+            present: 0,
+            missing: vec![],
             error: Some(format!("Task failed: {e}")),
         },
     }
@@ -943,6 +1033,57 @@ fn display_health_results(results: &[NodeHealth]) {
                 &format!("├─ {}", node.name),
                 &format!("{system_symbol} {}", info.join(", ")),
             );
+        }
+    }
+
+    println!();
+    ui::header("File Sync");
+    for node in results {
+        let fs = &node.file_sync;
+
+        if let Some(ref error) = fs.error {
+            ui::field(
+                &format!("├─ {}", node.name),
+                &format!("{} {error}", style("✗").red()),
+            );
+        } else if fs.expected == 0 {
+            ui::field(
+                &format!("├─ {}", node.name),
+                &format!("{} No files tracked", style("─").dim()),
+            );
+        } else {
+            let symbol = if fs.missing.is_empty() {
+                style("✓").green()
+            } else {
+                style("⚠").yellow()
+            };
+
+            let info = if fs.missing.is_empty() {
+                format!("{}/{} files", fs.present, fs.expected)
+            } else {
+                format!(
+                    "{}/{} files ({} missing)",
+                    fs.present,
+                    fs.expected,
+                    fs.missing.len()
+                )
+            };
+
+            ui::field(&format!("├─ {}", node.name), &format!("{symbol} {info}"));
+
+            if !fs.missing.is_empty() && fs.missing.len() <= 10 {
+                for hash in &fs.missing {
+                    ui::text(&format!("│  {}", style(format!("   {hash}")).dim()));
+                }
+            } else if fs.missing.len() > 10 {
+                for hash in fs.missing.iter().take(5) {
+                    ui::text(&format!("│  {}", style(format!("   {hash}")).dim()));
+                }
+                ui::text(&format!(
+                    "│  {}",
+                    style(format!("   ... and {} more", fs.missing.len() - 5)).dim()
+                ));
+            }
         }
     }
 }
