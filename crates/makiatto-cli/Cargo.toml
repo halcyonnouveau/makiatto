@@ -21,6 +21,7 @@ futures = { workspace = true }
 hickory-resolver = { workspace = true }
 indicatif = { workspace = true }
 indoc = { workspace = true }
+libc = { workspace = true }
 miette = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

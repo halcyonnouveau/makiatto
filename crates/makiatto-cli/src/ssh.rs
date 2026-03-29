@@ -115,6 +115,95 @@ impl SshSession {
         self.execute_command_raw(command, None)
     }
 
+    /// Execute a command over SSH, streaming stdout/stderr to the terminal in real-time
+    /// and forwarding stdin for interactive prompts.
+    ///
+    /// # Errors
+    /// Returns an error if command execution fails
+    pub fn exec_stream(&self, command: &str) -> Result<i32> {
+        let command = if let Some(password) = &self.password
+            && command.starts_with("sudo ")
+        {
+            format!("echo '{password}' | sudo -S {command}")
+        } else {
+            command.to_string()
+        };
+
+        let mut channel = self
+            .session
+            .channel_session()
+            .map_err(|e| miette!("Failed to open channel: {e}"))?;
+
+        channel
+            .request_pty("xterm", None, None)
+            .map_err(|e| miette!("Failed to request PTY: {e}"))?;
+
+        channel
+            .exec(&command)
+            .map_err(|e| miette!("Failed to execute command: {e}"))?;
+
+        // Set channel to non-blocking so we can interleave reads and writes
+        self.session.set_blocking(false);
+
+        // Put local terminal into raw mode so keypresses are forwarded immediately
+        let _raw_guard = RawModeGuard::enter()
+            .map_err(|e| miette!("Failed to enable raw terminal mode: {e}"))?;
+
+        let mut buf = [0u8; 4096];
+        let mut stdin_buf = [0u8; 256];
+        let mut stdout = std::io::stdout();
+        let stdin_fd = libc::STDIN_FILENO;
+
+        loop {
+            if channel.eof() {
+                break;
+            }
+
+            // Read from channel stdout and write to local stdout
+            match channel.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    stdout.write_all(&buf[..n]).ok();
+                    stdout.flush().ok();
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(e) => {
+                    self.session.set_blocking(true);
+                    return Err(miette!("Failed to read from channel: {e}"));
+                }
+            }
+
+            // Check if stdin has data available (non-blocking via poll)
+            let mut pollfd = libc::pollfd {
+                fd: stdin_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+
+            let poll_result = unsafe { libc::poll(&raw mut pollfd, 1, 0) };
+
+            if poll_result > 0 && (pollfd.revents & libc::POLLIN) != 0 {
+                let n =
+                    unsafe { libc::read(stdin_fd, stdin_buf.as_mut_ptr().cast(), stdin_buf.len()) };
+
+                if n > 0 {
+                    #[allow(clippy::cast_sign_loss)]
+                    channel.write_all(&stdin_buf[..n as usize]).ok();
+                    channel.flush().ok();
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        self.session.set_blocking(true);
+
+        channel.wait_close().ok();
+        let exit_status = channel.exit_status().unwrap_or(-1);
+
+        Ok(exit_status)
+    }
+
     #[allow(dead_code)]
     /// Execute a command over SSH with timeout
     ///
@@ -312,6 +401,41 @@ pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String)> {
     }
 
     Ok((user, host))
+}
+
+/// RAII guard that puts the terminal into raw mode and restores it on drop.
+struct RawModeGuard {
+    original: libc::termios,
+}
+
+impl RawModeGuard {
+    fn enter() -> std::io::Result<Self> {
+        unsafe {
+            let mut original: libc::termios = std::mem::zeroed();
+            if libc::tcgetattr(libc::STDIN_FILENO, &raw mut original) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            let mut raw = original;
+            libc::cfmakeraw(&raw mut raw);
+            // Keep ISIG so Ctrl-C still works locally
+            raw.c_lflag |= libc::ISIG;
+
+            if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw const raw) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            Ok(Self { original })
+        }
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw const self.original);
+        }
+    }
 }
 
 fn find_ssh_keys() -> Vec<PathBuf> {

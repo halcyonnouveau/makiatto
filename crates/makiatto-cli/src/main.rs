@@ -5,7 +5,9 @@ use makiatto_cli::{
     config::{Config, Profile},
     dns,
     health::{self, HealthCommand},
-    machine::{self, AddMachine, InitMachine, RemoveMachine, RestartMachine, UpgradeMachine},
+    machine::{
+        self, AddMachine, InitMachine, RemoveMachine, RestartMachine, SystemUpdate, UpgradeMachine,
+    },
     peer::{self, AddExternalPeer, RemoveExternalPeer, WgConfig},
     sync::{self, SyncCommand},
     ui,
@@ -75,6 +77,7 @@ enum MachineAction {
     List(ListMachines),
     Upgrade(UpgradeMachine),
     Restart(RestartMachine),
+    SystemUpdate(SystemUpdate),
     Remove(RemoveMachine),
 }
 
@@ -155,6 +158,10 @@ async fn main() -> Result<()> {
             }
             MachineAction::Restart(restart) => {
                 machine::restart_machine(&restart, &profile)?;
+                Ok(())
+            }
+            MachineAction::SystemUpdate(update) => {
+                machine::system_update(&update, &profile)?;
                 Ok(())
             }
             MachineAction::Remove(remove) => {

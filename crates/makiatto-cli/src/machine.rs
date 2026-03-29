@@ -128,6 +128,31 @@ pub struct RestartMachine {
     pub key_path: Option<PathBuf>,
 }
 
+/// update system packages on machines
+#[derive(FromArgs)]
+#[argh(subcommand, name = "system-update")]
+pub struct SystemUpdate {
+    /// machine names to update (defaults to all)
+    #[argh(positional, greedy)]
+    pub names: Vec<String>,
+
+    /// automatically confirm package updates without prompting
+    #[argh(switch, short = 'y')]
+    pub yes: bool,
+
+    /// reboot the machine after updating without prompting
+    #[argh(switch, long = "reboot")]
+    pub reboot: bool,
+
+    /// skip reboot after updating without prompting
+    #[argh(switch, long = "no-reboot")]
+    pub no_reboot: bool,
+
+    /// path to SSH private key (optional)
+    #[argh(option, long = "ssh-priv-key")]
+    pub key_path: Option<PathBuf>,
+}
+
 /// Validate node name contains only allowed characters
 fn validate_node_name(name: &str) -> Result<()> {
     if name.is_empty() {
@@ -556,6 +581,153 @@ pub fn remove_machine(request: &RemoveMachine, profile: &mut Profile) -> Result<
 
     profile.remove_machine(&request.name);
     ui::info(&format!("Machine '{}' removed successfully", request.name));
+
+    Ok(())
+}
+
+/// Detect the package manager on a remote machine
+fn detect_package_manager(ssh: &SshSession) -> Result<&'static str> {
+    let result = ssh.exec("which apt-get || which dnf || which pacman || which apk")?;
+    let pm = result.trim();
+
+    if pm.contains("apt-get") {
+        Ok("apt")
+    } else if pm.contains("dnf") {
+        Ok("dnf")
+    } else if pm.contains("pacman") {
+        Ok("pacman")
+    } else if pm.contains("apk") {
+        Ok("apk")
+    } else {
+        Err(miette!("No supported package manager found"))
+    }
+}
+
+/// Build the update command for the detected package manager
+fn build_update_command(pm: &str, yes: bool) -> String {
+    let confirm = if yes { " -y" } else { "" };
+
+    match pm {
+        "apt" => format!("sudo apt-get update && sudo apt-get upgrade{confirm}"),
+        "dnf" => format!("sudo dnf upgrade{confirm}"),
+        "pacman" => {
+            if yes {
+                "sudo pacman -Syu --noconfirm".to_string()
+            } else {
+                "sudo pacman -Syu".to_string()
+            }
+        }
+        "apk" => format!(
+            "sudo apk update && sudo apk upgrade{}",
+            if yes { "" } else { " -i" }
+        ),
+        _ => unreachable!(),
+    }
+}
+
+/// Update system packages on one or more machines
+///
+/// # Errors
+/// Returns an error if SSH connection fails or update fails
+pub fn system_update(request: &SystemUpdate, profile: &Profile) -> Result<()> {
+    let machines: Vec<&Machine> = if request.names.is_empty() {
+        profile.machines.iter().collect()
+    } else {
+        request
+            .names
+            .iter()
+            .filter_map(|name| profile.find_machine(name))
+            .collect()
+    };
+
+    if machines.is_empty() {
+        return Err(miette!("No machines found to update"));
+    }
+
+    ui::header(&format!(
+        "Updating system packages on {} machine(s)",
+        machines.len()
+    ));
+
+    for machine in machines {
+        ui::status(&format!("Updating {}", machine.name));
+
+        match system_update_single(
+            machine,
+            request.yes,
+            request.reboot,
+            request.no_reboot,
+            request.key_path.as_ref(),
+        ) {
+            Ok(()) => ui::info(&format!("✓ {} updated successfully", machine.name)),
+            Err(e) => {
+                return Err(miette!(format!("✗ {} update failed: {e}", machine.name)));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn system_update_single(
+    machine: &Machine,
+    yes: bool,
+    reboot: bool,
+    no_reboot: bool,
+    key_path: Option<&PathBuf>,
+) -> Result<()> {
+    let ssh = SshSession::new(&machine.ssh_target, machine.port, key_path)?;
+
+    let pm = detect_package_manager(&ssh)?;
+    ui::action(&format!("Detected package manager: {pm}"));
+
+    let cmd = build_update_command(pm, yes);
+    let exit = ssh.exec_stream(&cmd)?;
+
+    if exit != 0 {
+        return Err(miette!(
+            "Package update exited with code {exit} on {}",
+            machine.name
+        ));
+    }
+
+    let should_reboot = if reboot {
+        true
+    } else if no_reboot {
+        false
+    } else {
+        Confirm::new()
+            .with_prompt("Reboot machine?")
+            .default(false)
+            .interact()
+            .map_err(|e| miette!("Failed to read confirmation: {e}"))?
+    };
+
+    if should_reboot {
+        ui::action("Rebooting machine");
+        // Use nohup + sleep to allow the SSH command to return before the reboot kicks in
+        let _ = ssh.exec("sudo nohup sh -c 'sleep 2 && reboot' &>/dev/null &");
+
+        ui::action("Waiting for machine to come back up");
+        // Wait for the machine to go down
+        std::thread::sleep(std::time::Duration::from_secs(5));
+
+        // Poll until SSH is available again
+        let timeout = std::time::Duration::from_mins(2);
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            if SshSession::new(&machine.ssh_target, machine.port, key_path).is_ok() {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        }
+
+        return Err(miette!(
+            "Timeout waiting for {} to come back after reboot",
+            machine.name
+        ));
+    }
 
     Ok(())
 }

@@ -109,6 +109,7 @@ reqwest = { version = "0.12", features = [
     "rustls-tls",
     "http2",
 ], default-features = false }
+libc = "0.2"
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 tar = "0.4"
 url = "2.5"

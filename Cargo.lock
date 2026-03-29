@@ -4381,6 +4381,7 @@ dependencies = [
  "hickory-resolver",
  "indicatif",
  "indoc",
+ "libc",
  "miette",
  "reqwest",
  "serde",
