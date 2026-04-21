@@ -53,7 +53,7 @@ wasmtime = "42.0"
 wasmtime-wasi = "42.0"
 
 # DNS
-hickory-proto = "0.25"
+hickory-proto = "0.26"
 hickory-resolver = "0.25"
 hickory-server = { version = "0.25", features = [
     "tls-aws-lc-rs",
