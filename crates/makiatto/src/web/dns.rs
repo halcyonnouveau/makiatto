@@ -10,13 +10,14 @@ use camino::Utf8PathBuf;
 use geo::{Distance, Haversine, Point, point};
 use hickory_proto::rr::{
     LowerName, Name, RData, Record,
-    rdata::{self, MX, TXT, caa::Property},
+    rdata::{self, CAA, MX, TXT},
 };
 use hickory_server::{
-    ServerFuture,
-    authority::MessageResponseBuilder,
-    proto::op::{Header, MessageType, OpCode, ResponseCode},
+    Server,
+    net::runtime::Time,
+    proto::op::{Header, HeaderCounts, MessageType, Metadata, OpCode, ResponseCode},
     server::{Request, RequestHandler, ResponseHandler, ResponseInfo},
+    zone_handler::MessageResponseBuilder,
 };
 use maxminddb::Reader;
 use miette::{IntoDiagnostic, Result};
@@ -80,34 +81,37 @@ impl Handler {
         }
     }
 
-    fn create_failure_response() -> ResponseInfo {
-        let mut header = Header::new();
-        header.set_response_code(ResponseCode::ServFail);
-        header.into()
+    /// Build a SERVFAIL `ResponseInfo` from the request's metadata (for the
+    /// framework's accounting when we can't send a real response).
+    fn create_failure_response(metadata: &Metadata) -> ResponseInfo {
+        let mut response = Metadata::new(metadata.id, MessageType::Response, metadata.op_code);
+        response.response_code = ResponseCode::ServFail;
+        Header {
+            metadata: response,
+            counts: HeaderCounts::default(),
+        }
+        .into()
     }
 
-    fn caa_from_string(input: &str) -> Option<rdata::CAA> {
+    fn caa_from_string(input: &str) -> Option<CAA> {
         let mut parts = input.split_whitespace();
         let issuer_critical = parts.next()? == "1";
-        let tag = Property::from(parts.next()?.to_string());
+        let tag = parts.next()?;
         let value = parts.next()?;
 
         match tag {
-            Property::Issue => Some(rdata::CAA::new_issue(
+            "issue" => Some(CAA::new_issue(
                 issuer_critical,
                 Some(Name::from_str_relaxed(value).ok()?),
                 Vec::new(),
             )),
-            Property::IssueWild => Some(rdata::CAA::new_issuewild(
+            "issuewild" => Some(CAA::new_issuewild(
                 issuer_critical,
                 Some(Name::from_str_relaxed(value).ok()?),
                 Vec::new(),
             )),
-            Property::Iodef => Some(rdata::CAA::new_iodef(
-                issuer_critical,
-                Url::parse(value).ok()?,
-            )),
-            Property::Unknown(_) => None,
+            "iodef" => Some(CAA::new_iodef(issuer_critical, Url::parse(value).ok()?)),
+            _ => None,
         }
     }
 
@@ -341,7 +345,7 @@ impl RequestHandler for Handler {
         skip(self, handler),
         fields(query_name, query_type, country, error, slow)
     )]
-    async fn handle_request<R: ResponseHandler>(
+    async fn handle_request<R: ResponseHandler, T: Time>(
         &self,
         request: &Request,
         mut handler: R,
@@ -351,36 +355,45 @@ impl RequestHandler for Handler {
 
         let span = tracing::Span::current();
 
-        // A datagram with no question section (qdcount = 0) has no first query.
+        // `request_info()` returns the single question plus the request metadata,
+        // and errors when there is not exactly one question (e.g. qdcount = 0).
         // Returning FORMERR here instead of unwrapping avoids aborting the whole
-        // daemon (panic = "abort") on a single malformed UDP packet.
-        let Some(query) = request.queries().first() else {
+        // daemon (panic = "abort") on a single malformed packet.
+        let Ok(info) = request.request_info() else {
             warn!("Received DNS request with no question section from {client_ip}");
-            let mut header = Header::response_from_request(request.header());
-            header.set_response_code(ResponseCode::FormErr);
             let builder = MessageResponseBuilder::from_message_request(request);
-            let response = builder.build_no_records(header);
+            // best-effort: build a FORMERR using a fresh response metadata; the
+            // builder copies whatever queries the request carried (possibly none)
+            let mut metadata = Metadata::new(0, MessageType::Response, OpCode::Query);
+            metadata.response_code = ResponseCode::FormErr;
+            let response = builder.build_no_records(metadata);
             return match handler.send_response(response).await {
-                Ok(info) => info,
+                Ok(sent) => sent,
                 Err(e) => {
                     error!("Failed to send FORMERR response: {e}");
-                    Self::create_failure_response()
+                    let mut m = Metadata::new(0, MessageType::Response, OpCode::Query);
+                    m.response_code = ResponseCode::ServFail;
+                    Header {
+                        metadata: m,
+                        counts: HeaderCounts::default(),
+                    }
+                    .into()
                 }
             };
         };
 
+        let query = info.query;
         let query_name = query.name().to_string();
         let query_type = query.query_type().to_string();
-        let query_name_owned = query.name().clone();
 
         span.record("query_name", &query_name);
         span.record("query_type", &query_type);
 
         let dns_request = DnsRequest {
-            op_code: request.op_code(),
-            message_type: request.message_type(),
+            op_code: info.metadata.op_code,
+            message_type: info.metadata.message_type,
             ip: client_ip,
-            name: query_name_owned,
+            name: query.name().clone(),
             query_type: query_type.clone(),
         };
 
@@ -403,19 +416,19 @@ impl RequestHandler for Handler {
                     "unknown",
                     start_time.elapsed(),
                 );
-                return Self::create_failure_response();
+                return Self::create_failure_response(info.metadata);
             }
         };
 
         span.record("country", &country);
 
         let builder = MessageResponseBuilder::from_message_request(request);
-        let mut header = Header::response_from_request(request.header());
-        header.set_authoritative(true);
-        let response = builder.build(header, records.iter(), &[], &[], &[]);
+        let mut metadata = Metadata::response_from_request(info.metadata);
+        metadata.authoritative = true;
+        let response = builder.build(metadata, records.iter(), &[], &[], &[]);
 
         match handler.send_response(response).await {
-            Ok(info) => {
+            Ok(sent) => {
                 let duration = start_time.elapsed();
 
                 if duration > Duration::from_millis(100) {
@@ -424,7 +437,7 @@ impl RequestHandler for Handler {
                 }
 
                 self.record_dns_metrics(&query_name, &query_type, "NOERROR", &country, duration);
-                info
+                sent
             }
             Err(e) => {
                 span.record("error", e.to_string());
@@ -443,7 +456,7 @@ impl RequestHandler for Handler {
                     &country,
                     start_time.elapsed(),
                 );
-                Self::create_failure_response()
+                Self::create_failure_response(info.metadata)
             }
         }
     }
@@ -591,7 +604,7 @@ pub async fn start(
     };
 
     let handler = Handler::new(Arc::from(peers), records, reader);
-    let mut server = ServerFuture::new(handler);
+    let mut server = Server::new(handler);
 
     server.register_socket(
         UdpSocket::bind("[::]:53")
@@ -619,7 +632,9 @@ pub async fn start(
         .listen(1024)
         .map_err(|e| miette::miette!("Failed to listen on DNS socket: {e}"))?;
 
-    server.register_listener(dns_listener, Duration::from_secs(5));
+    // third arg is the TCP response buffer capacity (a BufStream capacity, not a
+    // hard limit); 4 KiB comfortably holds typical DNS responses
+    server.register_listener(dns_listener, Duration::from_secs(5), 4096);
 
     if let Some((dot_listener, doq_socket, cert_resolver)) = tls_config {
         server
@@ -627,7 +642,7 @@ pub async fn start(
             .map_err(|e| miette::miette!("Failed to register DoT listener: {e}"))?;
 
         server
-            .register_quic_listener(doq_socket, Duration::from_secs(1), cert_resolver, None)
+            .register_quic_listener(doq_socket, Duration::from_secs(1), cert_resolver)
             .map_err(|e| miette::miette!("Failed to register DoQ listener: {e}"))?;
 
         info!("DNS over TLS (DoT) and DNS over QUIC (DoQ) enabled on port 853");

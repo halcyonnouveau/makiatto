@@ -1,14 +1,13 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hickory_resolver::{
     TokioResolver,
     config::{NameServerConfig, ResolverConfig},
-    name_server::TokioConnectionProvider,
+    net::runtime::TokioRuntimeProvider,
     proto::rr::RecordType,
-    proto::xfer::Protocol,
 };
 use miette::Result;
 use tokio::time::{Duration, interval, timeout};
@@ -185,14 +184,19 @@ impl HealthMonitor {
             Err(e) => return Err(format!("invalid IP address: {e}")),
         };
 
-        let sock_addr = SocketAddr::new(ip, 53);
-        let nameserver = NameServerConfig::new(sock_addr, Protocol::Udp);
-        let mut resolver_config = ResolverConfig::new();
-        resolver_config.add_name_server(nameserver);
+        // query the node's DNS server directly over UDP on the standard port 53
+        let resolver_config =
+            ResolverConfig::from_parts(None, vec![], vec![NameServerConfig::udp(ip)]);
 
-        let resolver =
-            TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
-                .build();
+        let resolver = match TokioResolver::builder_with_config(
+            resolver_config,
+            TokioRuntimeProvider::default(),
+        )
+        .build()
+        {
+            Ok(resolver) => resolver,
+            Err(e) => return Err(format!("failed to build resolver: {e}")),
+        };
 
         match timeout(dns_timeout, resolver.lookup(domain, RecordType::A)).await {
             Ok(Ok(_)) => Ok(()),
