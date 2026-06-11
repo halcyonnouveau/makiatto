@@ -459,16 +459,27 @@ pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String, Option<u
     Ok((user.to_string(), host, port))
 }
 
+/// Resolve the `known_hosts` file path.
+///
+/// Honours the `MAKIATTO_KNOWN_HOSTS` environment variable (useful for pointing
+/// at a non-default file, and for test isolation); otherwise falls back to
+/// `~/.ssh/known_hosts`.
+fn known_hosts_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("MAKIATTO_KNOWN_HOSTS") {
+        return Some(PathBuf::from(path));
+    }
+    dirs::home_dir().map(|home| home.join(".ssh").join("known_hosts"))
+}
+
 /// Verify the server's host key against `~/.ssh/known_hosts`, trusting it on
 /// first use (TOFU). A mismatch is treated as a potential machine-in-the-middle
 /// and aborts the connection before any credentials are sent.
 fn verify_host_key(session: &Session, host: &str, port: u16) -> Result<()> {
-    let Some(home) = dirs::home_dir() else {
+    let Some(kh_path) = known_hosts_path() else {
         return Err(miette!(
-            "Cannot determine home directory for host key verification"
+            "Cannot determine known_hosts location for host key verification"
         ));
     };
-    let kh_path = home.join(".ssh").join("known_hosts");
 
     let mut known_hosts = session
         .known_hosts()
@@ -711,5 +722,20 @@ mod tests {
     #[test]
     fn test_known_host_line_unknown_type_is_rejected() {
         assert!(known_host_line("h", 22, b"abc", HostKeyType::Unknown).is_none());
+    }
+
+    #[test]
+    fn test_known_hosts_path_honours_env_override() {
+        // SAFETY: single-threaded test; restores the previous value before exit.
+        let prev = std::env::var("MAKIATTO_KNOWN_HOSTS").ok();
+        unsafe { std::env::set_var("MAKIATTO_KNOWN_HOSTS", "/tmp/custom_known_hosts") };
+        assert_eq!(
+            known_hosts_path(),
+            Some(PathBuf::from("/tmp/custom_known_hosts"))
+        );
+        match prev {
+            Some(v) => unsafe { std::env::set_var("MAKIATTO_KNOWN_HOSTS", v) },
+            None => unsafe { std::env::remove_var("MAKIATTO_KNOWN_HOSTS") },
+        }
     }
 }
