@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "axum-control"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "tokio",
@@ -4346,7 +4346,7 @@ dependencies = [
 
 [[package]]
 name = "makiatto"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "argh",
  "async-trait",
@@ -4408,7 +4408,7 @@ dependencies = [
 
 [[package]]
 name = "makiatto-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "argh",
  "base64 0.22.1",
