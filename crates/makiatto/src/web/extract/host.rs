@@ -60,6 +60,10 @@ where
 {
     type Rejection = Infallible;
 
+    // The trait method is `async fn`, but resolving the host only reads request
+    // parts synchronously — there is nothing to await. Keep the async signature
+    // to match the trait shape rather than returning an `impl Future`.
+    #[allow(clippy::unused_async_trait_impl)]
     async fn from_request_parts(
         parts: &mut Parts,
         _state: &S,
