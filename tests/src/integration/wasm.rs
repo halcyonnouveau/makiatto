@@ -65,11 +65,11 @@ async fn test_wasm_function_basic_execution() -> Result<()> {
         .await
         .into_diagnostic()?;
 
-    assert_eq!(response.status(), 200);
-
+    let status = response.status();
     let body = response.text().await.into_diagnostic()?;
-    assert!(body.contains("Method::Get"));
-    assert!(body.contains("Path: /api/hello"));
+    assert_eq!(status, 200, "GET returned {status}; body: {body}");
+    assert!(body.contains("Method::Get"), "unexpected body: {body}");
+    assert!(body.contains("Path: /api/hello"), "unexpected body: {body}");
 
     // Test POST request
     let post_response = reqwest::Client::new()
