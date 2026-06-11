@@ -49,8 +49,8 @@ sqlx = { git = "https://github.com/launchbadge/sqlx", features = [
 ] }
 
 # WASM Runtime
-wasmtime = "42.0"
-wasmtime-wasi = "42.0"
+wasmtime = "45"
+wasmtime-wasi = "45"
 
 # DNS
 hickory-proto = "0.25"
