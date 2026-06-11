@@ -97,7 +97,7 @@ camino = "1.2"
 dashmap = "6.1"
 defguard_wireguard_rs = "0.9"
 flate2 = "1.0"
-geo = "0.32"
+geo = "0.33"
 globset = "0.4"
 indoc = "2.0"
 jiff = "0.2"
@@ -126,7 +126,7 @@ imageflow_types = { git = "https://github.com/imazen/imageflow" }
 moka = { version = "0.12", features = ["future"] }
 
 # Testing
-ctor = "0.6"
+ctor = "0.10"
 testcontainers = "0.27"
 tokio-test = "0.4"
 
