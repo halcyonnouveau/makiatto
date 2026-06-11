@@ -80,7 +80,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry-appender-tracing = "0.31"
-opentelemetry_sdk = { version = "0.31", features = [
+opentelemetry_sdk = { version = "0.32", features = [
     "rt-tokio",
     "metrics",
     "logs",
