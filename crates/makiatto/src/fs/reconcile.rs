@@ -467,6 +467,10 @@ async fn scan_directory_recursive(dir: &std::path::Path) -> Result<Vec<std::path
     if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
+            // skip the daemon's own staging temp files
+            if crate::fs::watcher::is_temp_file(&path) {
+                continue;
+            }
             if entry.file_type().await.is_ok_and(|t| t.is_file()) {
                 files.push(path);
             } else if entry.file_type().await.is_ok_and(|t| t.is_dir())

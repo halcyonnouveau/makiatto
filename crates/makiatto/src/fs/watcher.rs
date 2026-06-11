@@ -25,6 +25,19 @@ use crate::{
 
 const STREAMING_THRESHOLD: u64 = 100 * 1024 * 1024; // 100MB
 
+/// Filename prefix used for the daemon's own temporary files (atomic
+/// hardlink/copy staging). These live briefly inside the watched `static_dir`,
+/// so the watcher must ignore them — otherwise it would react to its own writes
+/// and churn (or delete) the very files it just created.
+const TEMP_FILE_PREFIX: &str = ".makiatto-tmp.";
+
+/// Returns true if `path` is one of the daemon's internal temp files.
+pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with(TEMP_FILE_PREFIX))
+}
+
 /// File watcher service that monitors `static_dir` for changes
 ///
 /// # Errors
@@ -98,6 +111,12 @@ async fn handle_debounced_events(
         let Some(path) = event.paths.first() else {
             continue;
         };
+
+        // ignore our own staging temp files; reacting to them would make the
+        // watcher chase its own hardlink/copy writes and churn real files
+        if is_temp_file(path) {
+            continue;
+        }
 
         match event.kind {
             EventKind::Create(CreateKind::File) => {
@@ -222,6 +241,11 @@ pub async fn process_file_change(
     static_dir: &std::path::Path,
     storage_dir: &std::path::Path,
 ) -> Result<Option<File>> {
+    // never track our own staging temp files
+    if is_temp_file(file_path) {
+        return Ok(None);
+    }
+
     if !file_path.is_file() {
         return Ok(None);
     }
@@ -693,7 +717,7 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
         // place the temp file in the *target's* directory so the final rename is
         // always within one filesystem (avoids EXDEV when storage and the site
         // directory live on different filesystems)
-        let temp_filename = format!(".tmp.{}", uuid::Uuid::new_v4());
+        let temp_filename = format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4());
 
         let temp_path = target
             .parent()
@@ -803,7 +827,7 @@ async fn store_content(storage_dir: &PathBuf, content: &[u8]) -> Result<String> 
         // write to a temp file then atomically rename, so a crash mid-write can
         // never leave a truncated file under the content hash (which the
         // exists() check would otherwise treat as valid forever)
-        let temp_path = storage_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
+        let temp_path = storage_dir.join(format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4()));
         fs::write(&temp_path, content)
             .await
             .map_err(|e| miette::miette!("Failed to write file {hash}: {e}"))?;
@@ -850,7 +874,7 @@ async fn store_content_streaming(
 
         // copy to a temp file then atomically rename to avoid leaving a partial
         // file under the content hash if we crash mid-copy
-        let temp_path = storage_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
+        let temp_path = storage_dir.join(format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4()));
         tokio::fs::copy(file_path, &temp_path)
             .await
             .map_err(|e| miette::miette!("Failed to copy large file to storage: {e}"))?;
@@ -925,7 +949,7 @@ async fn stream_download_and_verify(
 
     // stream into a temp file; only promote to the content-hash path after the
     // hash is verified, so a partial or corrupt download is never visible
-    let temp_path = storage_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
+    let temp_path = storage_dir.join(format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4()));
     let mut stream = response.bytes_stream();
     let mut hasher = Hasher::new();
     let mut output_file = tokio::fs::File::create(&temp_path)
