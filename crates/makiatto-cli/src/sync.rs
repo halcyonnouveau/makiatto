@@ -704,3 +704,47 @@ fn sync_domain_transforms(ssh: &SshSession, domain: &Domain) -> Result<()> {
     corrosion::execute_transactions(ssh, &sqls)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use super::resolve_env;
+
+    #[test]
+    fn resolve_env_merges_file_and_inline_with_inline_precedence() {
+        let dir = std::env::temp_dir().join(format!("maki-env-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let env_file = dir.join(".env");
+        std::fs::write(
+            &env_file,
+            "A=from_file\nB=from_file\n# a comment\n\nC=\"quoted\"\n",
+        )
+        .unwrap();
+
+        let mut inline: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+        inline.insert(Arc::from("B"), Arc::from("from_inline")); // overrides file
+        inline.insert(Arc::from("D"), Arc::from("inline_only"));
+
+        let json = resolve_env(Some(&env_file), &inline).unwrap();
+        let map: HashMap<String, String> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(map.get("A").map(String::as_str), Some("from_file"));
+        assert_eq!(map.get("B").map(String::as_str), Some("from_inline"));
+        assert_eq!(map.get("C").map(String::as_str), Some("quoted")); // quotes stripped
+        assert_eq!(map.get("D").map(String::as_str), Some("inline_only"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_env_without_file_uses_inline_only() {
+        let mut inline: HashMap<Arc<str>, Arc<str>> = HashMap::new();
+        inline.insert(Arc::from("X"), Arc::from("1"));
+        let json = resolve_env(None, &inline).unwrap();
+        let map: HashMap<String, String> = serde_json::from_str(&json).unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get("X").map(String::as_str), Some("1"));
+    }
+}

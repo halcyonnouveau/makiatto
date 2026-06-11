@@ -73,22 +73,28 @@ fn create_makiatto_user(ssh: &SshSession) -> Result<()> {
     ssh.exec("sudo usermod -a -G systemd-journal makiatto")?;
 
     ui::action("Setting up passwordless sudo permissions");
-    // The daemon (running as `makiatto`) only ever needs to manage its WireGuard
-    // interface and routes at runtime. Constrain NOPASSWD to exactly those `ip`
-    // subcommands instead of granting blanket access to chmod/chown/mkdir/setcap/
-    // systemctl on any path (which would be equivalent to full root). Everything
-    // else (provisioning, upgrades, restarts) runs as the SSH user with its own
-    // interactive sudo.
     let sudoers_cmd = formatdoc! {r"
         sudo tee /etc/sudoers.d/makiatto > /dev/null << 'EOF'
-        makiatto ALL=(ALL) NOPASSWD: /usr/sbin/ip link set * up, /usr/sbin/ip route add *, /usr/sbin/ip route del *, /usr/bin/ip link set * up, /usr/bin/ip route add *, /usr/bin/ip route del *
+        {rule}
         EOF
         sudo chmod 440 /etc/sudoers.d/makiatto
-    "};
+    ",
+        rule = MAKIATTO_SUDOERS_RULE,
+    };
     ssh.exec(&sudoers_cmd)?;
 
     Ok(())
 }
+
+/// The NOPASSWD sudoers rule installed for the `makiatto` daemon user.
+///
+/// The daemon (running as `makiatto`) only ever needs to manage its `WireGuard`
+/// interface and routes at runtime. We constrain NOPASSWD to exactly those `ip`
+/// subcommands rather than granting blanket access to chmod/chown/mkdir/setcap/
+/// systemctl on any path (which would be equivalent to full root). Everything
+/// else (provisioning, upgrades, restarts) runs as the SSH user with its own
+/// interactive sudo.
+const MAKIATTO_SUDOERS_RULE: &str = "makiatto ALL=(ALL) NOPASSWD: /usr/sbin/ip link set * up, /usr/sbin/ip route add *, /usr/sbin/ip route del *, /usr/bin/ip link set * up, /usr/bin/ip route add *, /usr/bin/ip route del *";
 
 pub fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) -> Result<()> {
     ui::status("Installing makiatto binary...");
@@ -567,4 +573,27 @@ fn retrieve_geolocation(ssh: &SshSession) -> Result<GeoData> {
     }
 
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MAKIATTO_SUDOERS_RULE;
+
+    #[test]
+    fn sudoers_rule_is_constrained_to_ip() {
+        // must only grant the specific `ip` subcommands the daemon needs
+        assert!(MAKIATTO_SUDOERS_RULE.contains("NOPASSWD:"));
+        assert!(MAKIATTO_SUDOERS_RULE.contains("ip route add"));
+        assert!(MAKIATTO_SUDOERS_RULE.contains("ip route del"));
+        assert!(MAKIATTO_SUDOERS_RULE.contains("ip link set"));
+
+        // must NOT grant the previously over-broad blanket binaries (which with
+        // no argument constraints were equivalent to full root)
+        for forbidden in ["chmod", "chown", "mkdir", "setcap", "systemctl"] {
+            assert!(
+                !MAKIATTO_SUDOERS_RULE.contains(forbidden),
+                "sudoers rule must not grant unconstrained {forbidden}"
+            );
+        }
+    }
 }

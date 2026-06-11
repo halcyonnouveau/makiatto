@@ -1016,3 +1016,40 @@ async fn stream_download_and_verify(
     debug!("Successfully streamed and verified file {expected_hash}");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Error;
+    use std::path::Path;
+
+    use super::{TEMP_FILE_PREFIX, is_cross_device, is_temp_file, should_fallback_to_copy};
+
+    #[test]
+    fn temp_files_are_recognised_and_ignored() {
+        assert!(is_temp_file(Path::new(&format!(
+            "/sites/localhost/api/{TEMP_FILE_PREFIX}abc-123"
+        ))));
+        // real content files must NOT be treated as temp files
+        assert!(!is_temp_file(Path::new("/sites/localhost/api/hello.wasm")));
+        assert!(!is_temp_file(Path::new("/sites/localhost/index.html")));
+        // a similar-but-not-matching name is not a temp file
+        assert!(!is_temp_file(Path::new("/sites/localhost/.makiatto-tmp")));
+    }
+
+    #[test]
+    fn cross_device_is_detected_from_exdev() {
+        // EXDEV (18) is the cross-filesystem error the copy fallback handles
+        assert!(is_cross_device(&Error::from_raw_os_error(18)));
+        assert!(!is_cross_device(&Error::from_raw_os_error(1))); // EPERM
+        assert!(!is_cross_device(&Error::from_raw_os_error(13))); // EACCES
+    }
+
+    #[test]
+    fn copy_fallback_covers_perm_and_xdev() {
+        assert!(should_fallback_to_copy(&Error::from_raw_os_error(1))); // EPERM
+        assert!(should_fallback_to_copy(&Error::from_raw_os_error(13))); // EACCES
+        assert!(should_fallback_to_copy(&Error::from_raw_os_error(18))); // EXDEV
+        // a generic IO error should not trigger the copy fallback
+        assert!(!should_fallback_to_copy(&Error::from_raw_os_error(2))); // ENOENT
+    }
+}

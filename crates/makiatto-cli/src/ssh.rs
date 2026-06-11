@@ -130,11 +130,9 @@ impl SshSession {
     pub fn exec_stream(&self, command: &str) -> Result<i32> {
         // Feed the sudo password over the (encrypted) channel stdin via `sudo -S`
         // rather than `echo '{pw}' |`, which would leak it into the remote
-        // process list. `-p ''` suppresses the prompt text.
-        let (command, sudo_password) = if let Some(password) = &self.password
-            && let Some(rest) = command.strip_prefix("sudo ")
-        {
-            (format!("sudo -S -p '' {rest}"), Some(password.clone()))
+        // process list.
+        let (command, sudo_password) = if self.password.is_some() && command.starts_with("sudo ") {
+            (wrap_sudo_command(command), self.password.clone())
         } else {
             (command.to_string(), None)
         };
@@ -409,11 +407,9 @@ impl SshSession {
         password: &str,
         timeout: Option<Duration>,
     ) -> Result<String> {
-        // strip the caller's leading `sudo ` so we don't end up with `sudo sudo`,
-        // then provide our own `sudo -S` and feed the password over the encrypted
+        // provide our own `sudo -S` and feed the password over the encrypted
         // channel stdin (never via the remote process arguments)
-        let inner = command.strip_prefix("sudo ").unwrap_or(command);
-        let sudo_command = format!("sudo -S -p '' {inner}");
+        let sudo_command = wrap_sudo_command(command);
         self.execute_command_raw_with_stdin(&sudo_command, Some(&format!("{password}\n")), timeout)
     }
 }
@@ -507,6 +503,44 @@ fn verify_host_key(session: &Session, host: &str, port: u16) -> Result<()> {
     }
 }
 
+/// Build the command to run under `sudo -S` (password supplied on stdin).
+///
+/// Strips a single leading `sudo ` so we never produce `sudo sudo …`, and uses
+/// `-p ''` to suppress the prompt. Note that the leading `sudo ` of a *compound*
+/// command (`sudo a && sudo b`) is all that is rewritten — the password is fed
+/// once, to the first `sudo -S`.
+fn wrap_sudo_command(command: &str) -> String {
+    let inner = command.strip_prefix("sudo ").unwrap_or(command);
+    format!("sudo -S -p '' {inner}")
+}
+
+/// Format an OpenSSH `known_hosts` line (without trailing newline) for a host key.
+///
+/// Returns `None` for an unknown key type that cannot be recorded. Non-default
+/// ports use the OpenSSH `[host]:port` form.
+fn known_host_line(host: &str, port: u16, key: &[u8], key_type: HostKeyType) -> Option<String> {
+    let key_type_str = match key_type {
+        HostKeyType::Rsa => "ssh-rsa",
+        HostKeyType::Dss => "ssh-dss",
+        HostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256",
+        HostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384",
+        HostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521",
+        HostKeyType::Ed25519 => "ssh-ed25519",
+        HostKeyType::Unknown => return None,
+    };
+
+    let host_field = if port == 22 {
+        host.to_string()
+    } else {
+        format!("[{host}]:{port}")
+    };
+
+    Some(format!(
+        "{host_field} {key_type_str} {}",
+        STANDARD.encode(key)
+    ))
+}
+
 /// Append a host key to `known_hosts` in OpenSSH format (used for trust-on-first-use).
 fn append_known_host(
     path: &Path,
@@ -515,26 +549,8 @@ fn append_known_host(
     key: &[u8],
     key_type: HostKeyType,
 ) -> Result<()> {
-    let key_type_str = match key_type {
-        HostKeyType::Rsa => "ssh-rsa",
-        HostKeyType::Dss => "ssh-dss",
-        HostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256",
-        HostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384",
-        HostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521",
-        HostKeyType::Ed25519 => "ssh-ed25519",
-        HostKeyType::Unknown => {
-            return Err(miette!("Unknown host key type; refusing to record it"));
-        }
-    };
-
-    // OpenSSH represents non-default ports as [host]:port
-    let host_field = if port == 22 {
-        host.to_string()
-    } else {
-        format!("[{host}]:{port}")
-    };
-
-    let line = format!("{host_field} {key_type_str} {}\n", STANDARD.encode(key));
+    let line = known_host_line(host, port, key, key_type)
+        .ok_or_else(|| miette!("Unknown host key type; refusing to record it"))?;
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -547,7 +563,7 @@ fn append_known_host(
         .open(path)
         .map_err(|e| miette!("Failed to open {}: {e}", path.display()))?;
 
-    file.write_all(line.as_bytes())
+    file.write_all(format!("{line}\n").as_bytes())
         .map_err(|e| miette!("Failed to write to {}: {e}", path.display()))?;
 
     Ok(())
@@ -652,5 +668,48 @@ mod tests {
         assert!(parse_ssh_target("@host").is_err());
         assert!(parse_ssh_target("user@").is_err());
         assert!(parse_ssh_target("user@host:notaport").is_err());
+    }
+
+    #[test]
+    fn test_wrap_sudo_command_strips_leading_sudo() {
+        // no double sudo: a leading `sudo ` is stripped before our `sudo -S`
+        assert_eq!(
+            wrap_sudo_command("sudo systemctl restart makiatto"),
+            "sudo -S -p '' systemctl restart makiatto"
+        );
+    }
+
+    #[test]
+    fn test_wrap_sudo_command_wraps_bare_command() {
+        // used by the sudo probe (`true`) and any non-sudo-prefixed command
+        assert_eq!(wrap_sudo_command("true"), "sudo -S -p '' true");
+    }
+
+    #[test]
+    fn test_wrap_sudo_command_only_first_sudo_in_compound() {
+        // documents the known limitation: only the leading sudo is rewritten;
+        // the second relies on sudo's credential cache
+        assert_eq!(
+            wrap_sudo_command("sudo apt update && sudo apt install -y x"),
+            "sudo -S -p '' apt update && sudo apt install -y x"
+        );
+    }
+
+    #[test]
+    fn test_known_host_line_default_port() {
+        let line = known_host_line("example.com", 22, b"\x00\x01\x02", HostKeyType::Rsa).unwrap();
+        assert_eq!(line, "example.com ssh-rsa AAEC");
+    }
+
+    #[test]
+    fn test_known_host_line_custom_port_is_bracketed() {
+        let line =
+            known_host_line("10.0.0.1", 2222, b"\x00\x01\x02", HostKeyType::Ed25519).unwrap();
+        assert_eq!(line, "[10.0.0.1]:2222 ssh-ed25519 AAEC");
+    }
+
+    #[test]
+    fn test_known_host_line_unknown_type_is_rejected() {
+        assert!(known_host_line("h", 22, b"abc", HostKeyType::Unknown).is_none());
     }
 }
