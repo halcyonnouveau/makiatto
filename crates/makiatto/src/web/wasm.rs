@@ -224,3 +224,46 @@ pub(crate) fn create_store_data(
         limits,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::is_private_or_reserved_ip;
+
+    fn blocked(ip: &str) -> bool {
+        is_private_or_reserved_ip(ip.parse().unwrap())
+    }
+
+    #[test]
+    fn blocks_private_and_reserved_ipv4() {
+        assert!(blocked("127.0.0.1"));
+        assert!(blocked("10.0.0.1"));
+        assert!(blocked("192.168.1.1"));
+        assert!(blocked("169.254.169.254")); // cloud metadata
+        assert!(blocked("0.0.0.0"));
+    }
+
+    #[test]
+    fn allows_public_ipv4() {
+        assert!(!blocked("8.8.8.8"));
+        assert!(!blocked("1.1.1.1"));
+    }
+
+    #[test]
+    fn blocks_ipv6_bypasses() {
+        // the bypasses the review specifically called out
+        assert!(blocked("::ffff:169.254.169.254")); // v4-mapped cloud metadata
+        assert!(blocked("::ffff:127.0.0.1")); // v4-mapped loopback
+        assert!(blocked("::ffff:10.0.0.1")); // v4-mapped private
+        assert!(blocked("fc00::1")); // unique-local
+        assert!(blocked("fd12:3456::1")); // unique-local
+        assert!(blocked("fe80::1")); // link-local
+        assert!(blocked("::1")); // loopback
+        assert!(blocked("::")); // unspecified
+    }
+
+    #[test]
+    fn allows_public_ipv6() {
+        assert!(!blocked("2606:4700:4700::1111")); // cloudflare
+        assert!(!blocked("2001:4860:4860::8888")); // google
+    }
+}

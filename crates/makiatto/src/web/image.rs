@@ -326,3 +326,25 @@ impl std::fmt::Display for ProcessError {
 }
 
 impl std::error::Error for ProcessError {}
+
+#[cfg(test)]
+mod tests {
+    use super::ImageProcessor;
+
+    #[test]
+    fn detects_real_transform_params() {
+        assert!(ImageProcessor::has_transform_params("w=100"));
+        assert!(ImageProcessor::has_transform_params("h=100&fmt=webp"));
+        assert!(ImageProcessor::has_transform_params("fit=crop&q=80"));
+    }
+
+    #[test]
+    fn ignores_unrelated_params() {
+        // these contain "w=" / "h=" / "q=" as substrings but not as keys
+        assert!(!ImageProcessor::has_transform_params("new=1"));
+        assert!(!ImageProcessor::has_transform_params("show=true"));
+        assert!(!ImageProcessor::has_transform_params("query=foo"));
+        assert!(!ImageProcessor::has_transform_params(""));
+        assert!(!ImageProcessor::has_transform_params("foo=bar&baz=qux"));
+    }
+}

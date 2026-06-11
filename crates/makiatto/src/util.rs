@@ -110,4 +110,45 @@ mod tests {
         assert!(contained_path(base, "a/b", "index.html").is_err());
         assert!(contained_path(base, "", "index.html").is_err());
     }
+
+    #[test]
+    fn contained_path_rejects_nul_and_absolute() {
+        let base = Path::new("/srv/sites");
+        assert!(contained_path(base, "example.com", "/etc/passwd\0").is_err());
+        assert!(contained_path(base, "example.com", "/a/b").is_ok()); // leading slash is stripped
+    }
+
+    #[test]
+    fn host_without_port_strips_port() {
+        assert_eq!(host_without_port("example.com"), "example.com");
+        assert_eq!(host_without_port("example.com:443"), "example.com");
+        assert_eq!(host_without_port("example.com:80"), "example.com");
+    }
+
+    #[test]
+    fn host_without_port_handles_ipv6() {
+        assert_eq!(host_without_port("[::1]:443"), "::1");
+        assert_eq!(host_without_port("[2001:db8::1]"), "2001:db8::1");
+        // a bare IPv6 (multiple colons, no brackets) is returned unchanged
+        assert_eq!(host_without_port("2001:db8::1"), "2001:db8::1");
+    }
+
+    #[test]
+    fn host_without_port_never_panics_on_malformed() {
+        // the values that previously panicked the request handler
+        let _ = host_without_port("x:notaport");
+        let _ = host_without_port("[::1]:80");
+        let _ = host_without_port(":");
+        let _ = host_without_port("");
+    }
+
+    #[test]
+    fn is_safe_domain_rejects_traversal() {
+        assert!(is_safe_domain("example.com"));
+        assert!(!is_safe_domain(".."));
+        assert!(!is_safe_domain("../etc"));
+        assert!(!is_safe_domain("a/b"));
+        assert!(!is_safe_domain(""));
+        assert!(!is_safe_domain("a\0b"));
+    }
 }
