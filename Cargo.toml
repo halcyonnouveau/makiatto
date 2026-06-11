@@ -126,7 +126,7 @@ imageflow_types = { git = "https://github.com/imazen/imageflow" }
 moka = { version = "0.12", features = ["future"] }
 
 # Testing
-ctor = "0.10"
+ctor = "1.0"
 testcontainers = "0.27"
 tokio-test = "0.4"
 
