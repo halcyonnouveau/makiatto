@@ -67,7 +67,15 @@ async fn test_wasm_function_basic_execution() -> Result<()> {
 
     let status = response.status();
     let body = response.text().await.into_diagnostic()?;
-    assert_eq!(status, 200, "GET returned {status}; body: {body}");
+    if status != 200 {
+        let (ls, _) = util::execute_command(
+            &daemon,
+            "ls -la /var/makiatto/sites/localhost/api/ 2>&1; echo '--- storage ---'; ls -la /var/makiatto/storage/ 2>&1; echo '--- stat ---'; stat /var/makiatto/sites/localhost/api/hello.wasm 2>&1; echo '--- files row ---'; sudo -u makiatto sqlite3 /var/makiatto/cluster.db 'SELECT domain,path,content_hash FROM files;' 2>&1",
+        )
+        .await
+        .unwrap_or_default();
+        panic!("GET returned {status}; body: {body}\nFS STATE:\n{ls}");
+    }
     assert!(body.contains("Method::Get"), "unexpected body: {body}");
     assert!(body.contains("Path: /api/hello"), "unexpected body: {body}");
 
