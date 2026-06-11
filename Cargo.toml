@@ -86,7 +86,7 @@ opentelemetry_sdk = { version = "0.31", features = [
     "logs",
     "spec_unstable_metrics_views",
 ] }
-opentelemetry-otlp = { version = "0.31", features = [
+opentelemetry-otlp = { version = "0.32", features = [
     "metrics",
     "logs",
     "grpc-tonic",
