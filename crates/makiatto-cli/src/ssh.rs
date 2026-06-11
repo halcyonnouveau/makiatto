@@ -435,7 +435,11 @@ pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String, Option<u
         let port = match after.strip_prefix(':') {
             Some(p) => Some(p.parse::<u16>().map_err(|_| miette!("Invalid port: {p}"))?),
             None if after.is_empty() => None,
-            None => return Err(miette!("Unexpected characters after IPv6 address: {after:?}")),
+            None => {
+                return Err(miette!(
+                    "Unexpected characters after IPv6 address: {after:?}"
+                ));
+            }
         };
         (addr.to_string(), port)
     } else if let Some((h, p)) = host_port.rsplit_once(':')

@@ -170,12 +170,10 @@ impl AcmeClient {
         loop {
             match corrosion::get_pool().await {
                 Ok(pool) => {
-                    let row = sqlx::query!(
-                        "SELECT token FROM acme_challenges WHERE token = ?1",
-                        token
-                    )
-                    .fetch_optional(pool)
-                    .await;
+                    let row =
+                        sqlx::query!("SELECT token FROM acme_challenges WHERE token = ?1", token)
+                            .fetch_optional(pool)
+                            .await;
 
                     if matches!(row, Ok(Some(_))) {
                         // give gossip a brief moment to fan the row out to peers

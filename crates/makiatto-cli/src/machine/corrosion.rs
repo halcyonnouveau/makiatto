@@ -86,10 +86,7 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
 /// # Errors
 /// Returns an error if the SSH command fails or if the database operation fails
 pub fn delete_peer(ssh: &SshSession, name: &str) -> Result<()> {
-    let sql = Statement::with_params(
-        "DELETE FROM peers WHERE name = ?",
-        vec![Value::from(name)],
-    );
+    let sql = Statement::with_params("DELETE FROM peers WHERE name = ?", vec![Value::from(name)]);
     execute_transactions(ssh, &[sql])?;
     Ok(())
 }

@@ -603,9 +603,7 @@ async fn path_exists(path: &Path) -> bool {
 
 /// Async regular-file check (avoids blocking the runtime with `std::fs`).
 async fn path_is_file(path: &Path) -> bool {
-    tokio::fs::metadata(path)
-        .await
-        .is_ok_and(|m| m.is_file())
+    tokio::fs::metadata(path).await.is_ok_and(|m| m.is_file())
 }
 
 fn get_cache_control(path: &str) -> HeaderValue {
@@ -662,7 +660,9 @@ async fn caching_middleware(request: Request, next: Next) -> impl IntoResponse {
 
     if too_large_to_buffer {
         let (mut parts, body) = response.into_parts();
-        parts.headers.insert(CACHE_CONTROL, get_cache_control(&path));
+        parts
+            .headers
+            .insert(CACHE_CONTROL, get_cache_control(&path));
         return (parts, body).into_response();
     }
 

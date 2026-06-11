@@ -103,7 +103,10 @@ impl Handler {
                 Some(Name::from_str_relaxed(value).ok()?),
                 Vec::new(),
             )),
-            Property::Iodef => Some(rdata::CAA::new_iodef(issuer_critical, Url::parse(value).ok()?)),
+            Property::Iodef => Some(rdata::CAA::new_iodef(
+                issuer_critical,
+                Url::parse(value).ok()?,
+            )),
             Property::Unknown(_) => None,
         }
     }
@@ -495,9 +498,9 @@ pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
         ));
     }
 
-    tokio::fs::rename(&temp_path, path).await.map_err(|e| {
-        miette::miette!("Failed to install GeoLite2 database to {path}: {e}")
-    })?;
+    tokio::fs::rename(&temp_path, path)
+        .await
+        .map_err(|e| miette::miette!("Failed to install GeoLite2 database to {path}: {e}"))?;
 
     info!("GeoLite2 database downloaded and validated successfully");
     Ok(())

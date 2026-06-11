@@ -431,10 +431,7 @@ pub mod domain {
 
                 let delete_sql = corrosion::Statement::with_params(
                     "DELETE FROM files WHERE domain = ? AND path = ?",
-                    vec![
-                        serde_json::json!(db_domain),
-                        serde_json::json!(db_path),
-                    ],
+                    vec![serde_json::json!(db_domain), serde_json::json!(db_path)],
                 );
                 delete_sqls.push(delete_sql);
                 deleted_count += 1;

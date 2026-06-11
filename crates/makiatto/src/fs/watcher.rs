@@ -4,12 +4,12 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use blake3::Hasher;
 use futures_util::StreamExt;
 use miette::Result;
-use serde_json::json;
 use notify_debouncer_full::{
     DebounceEventResult, new_debouncer,
     notify::{EventKind, RecursiveMode, event::CreateKind},
 };
 use rand::{RngExt, seq::SliceRandom};
+use serde_json::json;
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncWriteExt},
