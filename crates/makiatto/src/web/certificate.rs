@@ -6,9 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub use acme::AcmeClient;
-use hickory_proto::runtime::TokioRuntimeProvider;
-use hickory_resolver::name_server::{GenericConnector, TokioConnectionProvider};
-use hickory_resolver::{Resolver, TokioResolver};
+use hickory_resolver::TokioResolver;
 use miette::Result;
 pub use store::CertificateStore;
 use tokio::time::interval;
@@ -28,7 +26,7 @@ pub struct CertificateManager {
     director_election: Arc<DirectorElection>,
     store: Arc<CertificateStore>,
     acme_client: Arc<AcmeClient>,
-    resolver: Arc<Resolver<GenericConnector<TokioRuntimeProvider>>>,
+    resolver: Arc<TokioResolver>,
 }
 
 impl CertificateManager {
@@ -44,9 +42,10 @@ impl CertificateManager {
         let acme_client = Arc::new(AcmeClient::new(config.clone()));
 
         let resolver = Arc::new(
-            TokioResolver::builder(TokioConnectionProvider::default())
+            TokioResolver::builder_tokio()
                 .map_err(|e| miette::miette!("Failed to create resolver: {e}"))?
-                .build(),
+                .build()
+                .map_err(|e| miette::miette!("Failed to build resolver: {e}"))?,
         );
 
         Ok(Self {

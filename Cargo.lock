@@ -1340,7 +1340,7 @@ dependencies = [
  "futures",
  "governor",
  "hex",
- "hickory-resolver 0.26.1",
+ "hickory-resolver",
  "http",
  "http-body",
  "http-body-util",
@@ -2313,18 +2313,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enum-as-inner"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e6a265c649f3f5979b601d26f1d05ada116434c87741c9493cb56218f76cbc"
-dependencies = [
- "heck 0.5.0",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "enum_derive"
 version = "0.1.7"
 source = "git+https://github.com/DanielKeep/rust-custom-derive.git#1252f258cdb9b7c9867f937c52c2f5c0e69a9c03"
@@ -3074,46 +3062,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2295ed2f9c31e471e1428a8f88a3f0e1f4b27c15049592138d1eebe9c35b183"
 dependencies = [
  "async-trait",
- "cfg-if",
- "data-encoding",
- "futures-channel",
- "futures-io",
- "futures-util",
- "hickory-proto 0.26.1",
- "idna",
- "ipnet",
- "jni 0.22.4",
- "rand 0.10.1",
- "thiserror 2.0.18",
- "tinyvec",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "hickory-proto"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502"
-dependencies = [
- "async-trait",
  "bytes",
  "cfg-if",
  "data-encoding",
- "enum-as-inner",
  "futures-channel",
  "futures-io",
  "futures-util",
+ "hickory-proto",
  "idna",
  "ipnet",
- "once_cell",
+ "jni 0.22.4",
  "pin-project-lite",
  "quinn",
- "rand 0.9.4",
- "ring 0.17.14",
+ "rand 0.10.1",
  "rustls",
- "serde",
  "thiserror 2.0.18",
  "tinyvec",
  "tokio",
@@ -3133,38 +3095,14 @@ dependencies = [
  "ipnet",
  "jni 0.22.4",
  "once_cell",
- "prefix-trie 0.8.4",
+ "prefix-trie",
  "rand 0.10.1",
  "ring 0.17.14",
+ "serde",
  "thiserror 2.0.18",
  "tinyvec",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "hickory-resolver"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc62a9a99b0bfb44d2ab95a7208ac952d31060efc16241c87eaf36406fecf87a"
-dependencies = [
- "cfg-if",
- "futures-util",
- "hickory-proto 0.25.2",
- "ipconfig",
- "moka",
- "once_cell",
- "parking_lot",
- "quinn",
- "rand 0.9.4",
- "resolv-conf",
- "rustls",
- "serde",
- "smallvec",
- "thiserror 2.0.18",
- "tokio",
- "tokio-rustls",
- "tracing",
 ]
 
 [[package]]
@@ -3176,7 +3114,7 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "hickory-net",
- "hickory-proto 0.26.1",
+ "hickory-proto",
  "ipconfig",
  "ipnet",
  "jni 0.22.4",
@@ -3184,31 +3122,35 @@ dependencies = [
  "ndk-context",
  "once_cell",
  "parking_lot",
+ "quinn",
  "rand 0.10.1",
  "resolv-conf",
+ "rustls",
+ "serde",
  "smallvec",
  "system-configuration",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
  "tracing",
 ]
 
 [[package]]
 name = "hickory-server"
-version = "0.25.2"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d53e5fe811b941c74ee46b8818228bfd2bc2688ba276a0eaeb0f2c95ea3b2585"
+checksum = "130236ba6abba90da6a7acf7a87b27d862b592c3145dc74bc47bf86d8ff198ec"
 dependencies = [
  "async-trait",
  "bytes",
  "cfg-if",
  "data-encoding",
- "enum-as-inner",
  "futures-util",
- "hickory-proto 0.25.2",
- "hickory-resolver 0.25.2",
+ "hickory-net",
+ "hickory-proto",
+ "hickory-resolver",
  "ipnet",
- "prefix-trie 0.7.0",
+ "prefix-trie",
  "rustls",
  "serde",
  "thiserror 2.0.18",
@@ -4420,8 +4362,8 @@ dependencies = [
  "futures-util",
  "geo",
  "globset",
- "hickory-proto 0.25.2",
- "hickory-resolver 0.25.2",
+ "hickory-proto",
+ "hickory-resolver",
  "hickory-server",
  "http",
  "hyper",
@@ -4473,7 +4415,7 @@ dependencies = [
  "dirs",
  "flate2",
  "futures",
- "hickory-resolver 0.25.2",
+ "hickory-resolver",
  "indicatif",
  "indoc",
  "libc",
@@ -5560,16 +5502,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
-]
-
-[[package]]
-name = "prefix-trie"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85cf4c7c25f1dd66c76b451e9041a8cfce26e4ca754934fa7aed8d5a59a01d20"
-dependencies = [
- "ipnet",
- "num-traits",
 ]
 
 [[package]]

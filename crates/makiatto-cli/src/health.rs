@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,8 +11,8 @@ use futures::future::join_all;
 use hickory_resolver::{
     TokioResolver,
     config::{NameServerConfig, ResolverConfig},
-    name_server::TokioConnectionProvider,
-    proto::{rr::RecordType, xfer::Protocol},
+    net::runtime::TokioRuntimeProvider,
+    proto::rr::{RData, RecordType},
 };
 use miette::{Result, miette};
 use reqwest::header::{HOST, HeaderMap, HeaderValue};
@@ -503,158 +503,133 @@ async fn verify_dns_record(
     record_type: &str,
     expected_value: &str,
 ) -> Result<Option<String>, String> {
+    // hickory 0.26 removed the typed lookup helpers (`ipv4_lookup`, `mx_lookup`,
+    // …); use the generic `lookup` and extract values from the answer records.
+    let rtype = match record_type {
+        "A" => RecordType::A,
+        "AAAA" => RecordType::AAAA,
+        "NS" => RecordType::NS,
+        "SOA" => RecordType::SOA,
+        "CAA" => RecordType::CAA,
+        "TXT" => RecordType::TXT,
+        "MX" => RecordType::MX,
+        "CNAME" => RecordType::CNAME,
+        _ => return Err(format!("Unsupported record type: {record_type}")),
+    };
+
+    let lookup = match timeout(Duration::from_secs(2), resolver.lookup(name, rtype)).await {
+        Ok(Ok(lookup)) => lookup,
+        Ok(Err(e)) => return Err(format!("Lookup failed: {e}")),
+        Err(_) => return Err("Query timeout".to_string()),
+    };
+
+    let records = lookup.answers();
+    let expected_normalised = expected_value.trim_end_matches('.');
+
     match record_type {
-        "A" => match timeout(Duration::from_secs(2), resolver.ipv4_lookup(name)).await {
-            Ok(Ok(lookup)) => {
-                let addresses: Vec<String> = lookup
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect();
-                if addresses.contains(&expected_value.to_string()) {
-                    Ok(Some(expected_value.to_string()))
-                } else {
-                    Ok(addresses.first().cloned())
-                }
+        "A" | "AAAA" => {
+            let addresses: Vec<String> = records
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::A(a) => Some(a.to_string()),
+                    RData::AAAA(a) => Some(a.to_string()),
+                    _ => None,
+                })
+                .collect();
+            if addresses.iter().any(|a| a == expected_value) {
+                Ok(Some(expected_value.to_string()))
+            } else {
+                Ok(addresses.first().cloned())
             }
-            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-            Err(_) => Err("Query timeout".to_string()),
-        },
-        "AAAA" => match timeout(Duration::from_secs(2), resolver.ipv6_lookup(name)).await {
-            Ok(Ok(lookup)) => {
-                let addresses: Vec<String> = lookup
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect();
-                if addresses.contains(&expected_value.to_string()) {
-                    Ok(Some(expected_value.to_string()))
-                } else {
-                    Ok(addresses.first().cloned())
-                }
+        }
+        "NS" => {
+            let names: Vec<String> = records
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::NS(ns) => Some(ns.to_string().trim_end_matches('.').to_string()),
+                    _ => None,
+                })
+                .collect();
+            if names.iter().any(|n| n == expected_normalised) {
+                Ok(Some(expected_value.to_string()))
+            } else {
+                Ok(None)
             }
-            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-            Err(_) => Err("Query timeout".to_string()),
-        },
-        "NS" => match timeout(Duration::from_secs(2), resolver.ns_lookup(name)).await {
-            Ok(Ok(lookup)) => {
-                let names: Vec<String> = lookup
-                    .iter()
-                    .map(|ns| ns.to_string().trim_end_matches('.').to_string())
-                    .collect();
-                let expected_normalised = expected_value.trim_end_matches('.');
-                if names.iter().any(|n| n == expected_normalised) {
-                    Ok(Some(expected_value.to_string()))
-                } else {
-                    Ok(None)
-                }
-            }
-            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-            Err(_) => Err("Query timeout".to_string()),
-        },
+        }
         "SOA" => {
-            match timeout(Duration::from_secs(2), resolver.soa_lookup(name)).await {
-                Ok(Ok(lookup)) => {
-                    if let Some(soa) = lookup.iter().next() {
-                        let soa_string = format!(
-                            "{} {} {} {} {} {} {}",
-                            soa.mname().to_string().trim_end_matches('.'),
-                            soa.rname().to_string().trim_end_matches('.'),
-                            soa.serial(),
-                            soa.refresh(),
-                            soa.retry(),
-                            soa.expire(),
-                            soa.minimum()
-                        );
-                        // just check if it starts with the expected primary nameserver
-                        // always return the SOA string regardless of whether it matches
-                        Ok(Some(soa_string))
-                    } else {
-                        Ok(None)
-                    }
-                }
-                Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-                Err(_) => Err("Query timeout".to_string()),
-            }
+            // always return the SOA string regardless of whether it matches
+            let soa = records.iter().find_map(|r| match &r.data {
+                RData::SOA(soa) => Some(format!(
+                    "{} {} {} {} {} {} {}",
+                    soa.mname.to_string().trim_end_matches('.'),
+                    soa.rname.to_string().trim_end_matches('.'),
+                    soa.serial,
+                    soa.refresh,
+                    soa.retry,
+                    soa.expire,
+                    soa.minimum
+                )),
+                _ => None,
+            });
+            Ok(soa)
         }
         "CAA" => {
-            match timeout(
-                Duration::from_secs(2),
-                resolver.lookup(name, RecordType::CAA),
-            )
-            .await
-            {
-                Ok(Ok(lookup)) => {
-                    // check that there's a CAA record allowing letsencrypt
-                    let has_letsencrypt = lookup
-                        .iter()
-                        .any(|record| record.to_string().contains("letsencrypt.org"));
-                    if has_letsencrypt {
-                        Ok(Some(expected_value.to_string()))
-                    } else {
-                        Ok(None)
-                    }
-                }
-                Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-                Err(_) => Err("Query timeout".to_string()),
+            // check that there's a CAA record allowing letsencrypt
+            let has_letsencrypt = records
+                .iter()
+                .any(|r| r.data.to_string().contains("letsencrypt.org"));
+            if has_letsencrypt {
+                Ok(Some(expected_value.to_string()))
+            } else {
+                Ok(None)
             }
         }
-        "TXT" => match timeout(Duration::from_secs(2), resolver.txt_lookup(name)).await {
-            Ok(Ok(lookup)) => {
-                let values: Vec<String> = lookup
-                    .iter()
-                    .flat_map(|txt| txt.iter())
-                    .map(|data| String::from_utf8_lossy(data).to_string())
-                    .collect();
-                if values.contains(&expected_value.to_string()) {
-                    Ok(Some(expected_value.to_string()))
-                } else {
-                    Ok(values.first().cloned())
-                }
+        "TXT" => {
+            let values: Vec<String> = records
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::TXT(txt) => Some(txt),
+                    _ => None,
+                })
+                .flat_map(|txt| txt.txt_data.iter())
+                .map(|data| String::from_utf8_lossy(data).to_string())
+                .collect();
+            if values.iter().any(|v| v == expected_value) {
+                Ok(Some(expected_value.to_string()))
+            } else {
+                Ok(values.first().cloned())
             }
-            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-            Err(_) => Err("Query timeout".to_string()),
-        },
-        "MX" => match timeout(Duration::from_secs(2), resolver.mx_lookup(name)).await {
-            Ok(Ok(lookup)) => {
-                let exchanges: Vec<String> = lookup
-                    .iter()
-                    .map(|mx| {
-                        format!(
-                            "{} {}",
-                            mx.preference(),
-                            mx.exchange().to_string().trim_end_matches('.')
-                        )
-                    })
-                    .collect();
-                if exchanges.iter().any(|e| e.ends_with(expected_value)) {
-                    Ok(Some(expected_value.to_string()))
-                } else {
-                    Ok(exchanges.first().cloned())
-                }
+        }
+        "MX" => {
+            let exchanges: Vec<String> = records
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::MX(mx) => Some(format!(
+                        "{} {}",
+                        mx.preference,
+                        mx.exchange.to_string().trim_end_matches('.')
+                    )),
+                    _ => None,
+                })
+                .collect();
+            if exchanges.iter().any(|e| e.ends_with(expected_value)) {
+                Ok(Some(expected_value.to_string()))
+            } else {
+                Ok(exchanges.first().cloned())
             }
-            Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-            Err(_) => Err("Query timeout".to_string()),
-        },
+        }
         "CNAME" => {
-            match timeout(
-                Duration::from_secs(2),
-                resolver.lookup(name, RecordType::CNAME),
-            )
-            .await
-            {
-                Ok(Ok(lookup)) => {
-                    let cnames: Vec<String> = lookup
-                        .iter()
-                        .map(|r| r.to_string().trim_end_matches('.').to_string())
-                        .collect();
-                    let expected_normalised = expected_value.trim_end_matches('.');
-                    if cnames.iter().any(|c| c == expected_normalised) {
-                        Ok(Some(expected_value.to_string()))
-                    } else {
-                        Ok(cnames.first().cloned())
-                    }
-                }
-                Ok(Err(e)) => Err(format!("Lookup failed: {e}")),
-                Err(_) => Err("Query timeout".to_string()),
+            let cnames: Vec<String> = records
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::CNAME(c) => Some(c.to_string().trim_end_matches('.').to_string()),
+                    _ => None,
+                })
+                .collect();
+            if cnames.iter().any(|c| c == expected_normalised) {
+                Ok(Some(expected_value.to_string()))
+            } else {
+                Ok(cnames.first().cloned())
             }
         }
         _ => Err(format!("Unsupported record type: {record_type}")),
@@ -667,14 +642,24 @@ async fn check_dns_health(machine: &Machine, profile: &Profile, config: &Config)
         .parse()
         .unwrap_or_else(|_| "127.0.0.1".parse().unwrap());
 
-    let sock_addr = SocketAddr::new(ip, 53);
-    let nameserver = NameServerConfig::new(sock_addr, Protocol::Udp);
-    let mut resolver_config = ResolverConfig::new();
-    resolver_config.add_name_server(nameserver);
+    // query the node's DNS server directly over UDP on the standard port 53
+    let resolver_config = ResolverConfig::from_parts(None, vec![], vec![NameServerConfig::udp(ip)]);
 
     let resolver =
-        TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
-            .build();
+        match TokioResolver::builder_with_config(resolver_config, TokioRuntimeProvider::default())
+            .build()
+        {
+            Ok(resolver) => resolver,
+            Err(e) => {
+                return DnsStatus {
+                    healthy: false,
+                    total_records: 0,
+                    verified_records: 0,
+                    failed_records: vec![],
+                    error: Some(format!("Failed to build resolver: {e}")),
+                };
+            }
+        };
 
     let Some(domain_config) = config.domains.first() else {
         return DnsStatus {
