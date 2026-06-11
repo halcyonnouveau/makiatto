@@ -95,26 +95,23 @@ impl Handler {
         match tag {
             Property::Issue => Some(rdata::CAA::new_issue(
                 issuer_critical,
-                Some(Name::from_str_relaxed(value).unwrap()),
+                Some(Name::from_str_relaxed(value).ok()?),
                 Vec::new(),
             )),
             Property::IssueWild => Some(rdata::CAA::new_issuewild(
                 issuer_critical,
-                Some(Name::from_str_relaxed(value).unwrap()),
+                Some(Name::from_str_relaxed(value).ok()?),
                 Vec::new(),
             )),
-            Property::Iodef => Some(rdata::CAA::new_iodef(
-                issuer_critical,
-                Url::parse(value).unwrap(),
-            )),
+            Property::Iodef => Some(rdata::CAA::new_iodef(issuer_critical, Url::parse(value).ok()?)),
             Property::Unknown(_) => None,
         }
     }
 
     fn soa_from_string(input: &str) -> Option<rdata::SOA> {
         let mut parts = input.split_whitespace();
-        let mname = Name::from_str_relaxed(parts.next()?).unwrap();
-        let rname = Name::from_str_relaxed(parts.next()?).unwrap();
+        let mname = Name::from_str_relaxed(parts.next()?).ok()?;
+        let rname = Name::from_str_relaxed(parts.next()?).ok()?;
         let serial = parts.next()?.parse().ok()?;
         let refresh = parts.next()?.parse().ok()?;
         let retry = parts.next()?.parse().ok()?;
@@ -131,44 +128,38 @@ impl Handler {
         let priority = parts.next()?.parse().ok()?;
         let weight = parts.next()?.parse().ok()?;
         let port = parts.next()?.parse().ok()?;
-        let target = Name::from_str_relaxed(parts.next()?).unwrap();
+        let target = Name::from_str_relaxed(parts.next()?).ok()?;
 
         Some(rdata::SRV::new(priority, weight, port, target))
     }
 
+    /// Build a DNS record from stored values, returning `None` for any malformed
+    /// value rather than panicking. A single bad replicated record must never be
+    /// able to crash the daemon when its name is queried.
     fn generate_record(
         name: &LowerName,
         record_type: &str,
         value: &str,
         ttl: u32,
         preference: Option<i32>,
-    ) -> Record {
-        let rdata: Option<RData> = match record_type {
-            "A" => Some(RData::A(rdata::A(Ipv4Addr::from_str(value).unwrap()))),
-            "AAAA" => Some(RData::AAAA(rdata::AAAA(Ipv6Addr::from_str(value).unwrap()))),
-            "CAA" => Some(RData::CAA(Self::caa_from_string(value).unwrap())),
-            "CNAME" => Some(RData::CNAME(rdata::CNAME(
-                Name::from_str_relaxed(value).unwrap(),
-            ))),
-            "MX" => Some(RData::MX(MX::new(
-                preference
-                    .expect("preference needs MX record")
-                    .try_into()
-                    .unwrap(),
-                Name::from_str_relaxed(value).unwrap(),
-            ))),
-            "NS" => Some(RData::NS(rdata::NS(Name::from_str_relaxed(value).unwrap()))),
-            "SOA" => Some(RData::SOA(
-                Self::soa_from_string(value).expect("Should be a valid SOA record"),
+    ) -> Option<Record> {
+        let rdata: RData = match record_type {
+            "A" => RData::A(rdata::A(Ipv4Addr::from_str(value).ok()?)),
+            "AAAA" => RData::AAAA(rdata::AAAA(Ipv6Addr::from_str(value).ok()?)),
+            "CAA" => RData::CAA(Self::caa_from_string(value)?),
+            "CNAME" => RData::CNAME(rdata::CNAME(Name::from_str_relaxed(value).ok()?)),
+            "MX" => RData::MX(MX::new(
+                preference?.try_into().ok()?,
+                Name::from_str_relaxed(value).ok()?,
             )),
-            "SRV" => Some(RData::SRV(
-                Self::srv_from_string(value).expect("Should be a valid SRV record"),
-            )),
-            "TXT" => Some(RData::TXT(TXT::new(vec![value.to_string()]))),
-            _ => None,
+            "NS" => RData::NS(rdata::NS(Name::from_str_relaxed(value).ok()?)),
+            "SOA" => RData::SOA(Self::soa_from_string(value)?),
+            "SRV" => RData::SRV(Self::srv_from_string(value)?),
+            "TXT" => RData::TXT(TXT::new(vec![value.to_string()])),
+            _ => return None,
         };
 
-        Record::from_rdata(name.into(), ttl, rdata.expect("Invalid record type"))
+        Some(Record::from_rdata(name.into(), ttl, rdata))
     }
 
     /// Returns `(records, country_code)` where `country_code` is the ISO country code from `GeoIP`.
@@ -202,7 +193,8 @@ impl Handler {
                         .country
                         .iso_code
                         .map_or_else(|| "unknown".to_string(), String::from);
-                    (point!(x: lat, y: lon), country_code)
+                    // geo's Haversine expects x = longitude, y = latitude
+                    (point!(x: lon, y: lat), country_code)
                 }
                 Ok(None) => {
                     debug!("GeoIP lookup found no data for IP");
@@ -247,34 +239,36 @@ impl Handler {
             .iter()
             .filter(|record| record.record_type.as_ref() == effective_query_type)
             .filter_map(|record| {
-                if !record.geo_enabled {
-                    return Some(Self::generate_record(
-                        &request.name,
-                        &record.record_type,
-                        &record.value,
-                        record.ttl,
-                        Some(record.priority),
-                    ));
-                }
-
-                let peer = closest_peer?;
-
-                let value = match record.record_type.as_str() {
-                    "A" => &peer.ipv4,
-                    "AAAA" => match &peer.ipv6 {
-                        Some(ipv6) if !ipv6.is_empty() => ipv6,
-                        Some(_) | None => return None,
-                    },
-                    _ => &record.value,
+                let value = if record.geo_enabled {
+                    let peer = closest_peer?;
+                    match record.record_type.as_str() {
+                        "A" => peer.ipv4.as_ref(),
+                        "AAAA" => match &peer.ipv6 {
+                            Some(ipv6) if !ipv6.is_empty() => ipv6.as_ref(),
+                            Some(_) | None => return None,
+                        },
+                        _ => record.value.as_ref(),
+                    }
+                } else {
+                    record.value.as_ref()
                 };
 
-                Some(Self::generate_record(
+                let record_out = Self::generate_record(
                     &request.name,
                     &record.record_type,
                     value,
                     record.ttl,
                     Some(record.priority),
-                ))
+                );
+
+                if record_out.is_none() {
+                    warn!(
+                        "Skipping malformed {} record for '{}': value {:?}",
+                        record.record_type, lookup_name, value
+                    );
+                }
+
+                record_out
             })
             .collect();
 
@@ -291,6 +285,10 @@ impl Handler {
     ) {
         let meter = global::meter("dns");
 
+        // the records map is keyed without a trailing dot, but query names from
+        // the wire are fully-qualified (trailing dot) — normalise before lookup
+        let lookup_name = query_name.trim_end_matches('.');
+
         let attributes = vec![
             KeyValue::new("query_type", query_type.to_string()),
             KeyValue::new("response_code", response_code.to_string()),
@@ -298,7 +296,7 @@ impl Handler {
             KeyValue::new(
                 "geo_enabled",
                 self.records
-                    .get(query_name)
+                    .get(lookup_name)
                     .is_some_and(|records| records.iter().any(|r| r.geo_enabled))
                     .to_string(),
             ),
@@ -321,7 +319,7 @@ impl Handler {
 
         if self
             .records
-            .get(query_name)
+            .get(lookup_name)
             .is_some_and(|records| records.iter().any(|r| r.geo_enabled))
         {
             let peer_gauge = meter
@@ -346,19 +344,32 @@ impl RequestHandler for Handler {
         mut handler: R,
     ) -> ResponseInfo {
         let start_time = std::time::Instant::now();
-        let query_name = request
-            .queries()
-            .first()
-            .map(|q| q.name().to_string())
-            .unwrap_or_default();
-        let query_type = request
-            .queries()
-            .first()
-            .map(|q| q.query_type().to_string())
-            .unwrap_or_default();
         let client_ip = request.src().ip();
 
         let span = tracing::Span::current();
+
+        // A datagram with no question section (qdcount = 0) has no first query.
+        // Returning FORMERR here instead of unwrapping avoids aborting the whole
+        // daemon (panic = "abort") on a single malformed UDP packet.
+        let Some(query) = request.queries().first() else {
+            warn!("Received DNS request with no question section from {client_ip}");
+            let mut header = Header::response_from_request(request.header());
+            header.set_response_code(ResponseCode::FormErr);
+            let builder = MessageResponseBuilder::from_message_request(request);
+            let response = builder.build_no_records(header);
+            return match handler.send_response(response).await {
+                Ok(info) => info,
+                Err(e) => {
+                    error!("Failed to send FORMERR response: {e}");
+                    Self::create_failure_response()
+                }
+            };
+        };
+
+        let query_name = query.name().to_string();
+        let query_type = query.query_type().to_string();
+        let query_name_owned = query.name().clone();
+
         span.record("query_name", &query_name);
         span.record("query_type", &query_type);
 
@@ -366,7 +377,7 @@ impl RequestHandler for Handler {
             op_code: request.op_code(),
             message_type: request.message_type(),
             ip: client_ip,
-            name: request.queries().first().unwrap().name().clone(),
+            name: query_name_owned,
             query_type: query_type.clone(),
         };
 
@@ -463,11 +474,32 @@ pub(crate) async fn download_geolite(path: &Utf8PathBuf) -> Result<()> {
         .await
         .map_err(|e| miette::miette!("Failed to read response body: {e}"))?;
 
-    tokio::fs::write(path, bytes)
-        .await
-        .map_err(|e| miette::miette!("Failed to write GeoLite2 database to {path}: {e}"))?;
+    // Write to a temp file and validate it actually parses as a MaxMind DB
+    // before promoting it. This guards against truncated downloads or an error
+    // page being served in place of the database, and makes the swap atomic.
+    let temp_path = Utf8PathBuf::from(format!("{path}.tmp"));
 
-    info!("GeoLite2 database downloaded successfully");
+    tokio::fs::write(&temp_path, &bytes)
+        .await
+        .map_err(|e| miette::miette!("Failed to write GeoLite2 database to {temp_path}: {e}"))?;
+
+    let validate_path = temp_path.clone();
+    let valid = tokio::task::spawn_blocking(move || Reader::open_readfile(&validate_path).is_ok())
+        .await
+        .unwrap_or(false);
+
+    if !valid {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(miette::miette!(
+            "Downloaded GeoLite2 database failed validation (not a valid MaxMind DB)"
+        ));
+    }
+
+    tokio::fs::rename(&temp_path, path).await.map_err(|e| {
+        miette::miette!("Failed to install GeoLite2 database to {path}: {e}")
+    })?;
+
+    info!("GeoLite2 database downloaded and validated successfully");
     Ok(())
 }
 
@@ -494,7 +526,8 @@ pub async fn start(
         .iter()
         .filter(|p| !p.is_external && !unhealthy_nodes.contains(p.name.as_ref()))
         .map(|p| DnsPeer {
-            point: point!(x: p.latitude, y: p.longitude),
+            // geo's Haversine expects x = longitude, y = latitude
+            point: point!(x: p.longitude, y: p.latitude),
             ipv4: p.ipv4.clone(),
             ipv6: p.ipv6.clone(),
         })
@@ -620,10 +653,11 @@ pub async fn start(
         _ = shutdown_rx.recv() => {
             info!("DNS server received shutdown signal");
         }
-        _ = geolite_task => {
-            error!("Geolite task received shutdown signal");
-        }
     }
+
+    // the GeoLite refresh task is a background helper — abort it on shutdown
+    // rather than letting its completion tear the DNS server down
+    geolite_task.abort();
 
     Ok(())
 }

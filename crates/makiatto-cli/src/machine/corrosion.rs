@@ -1,7 +1,42 @@
 #![allow(dead_code)]
 use miette::{IntoDiagnostic, Result, miette};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::{config::Machine, ssh::SshSession};
+
+/// A SQL statement for the Corrosion `/v1/transactions` API.
+///
+/// Serialises to Corrosion's wire format: a bare string for [`Statement::Simple`]
+/// or `[sql, [params]]` for [`Statement::WithParams`]. Always use the
+/// parameterised form for non-constant values — the statement is gossiped to and
+/// executed on every node in the cluster.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum Statement {
+    Simple(String),
+    WithParams(String, Vec<Value>),
+}
+
+impl Statement {
+    /// Build a parameterised statement.
+    #[must_use]
+    pub fn with_params(sql: impl Into<String>, params: Vec<Value>) -> Self {
+        Self::WithParams(sql.into(), params)
+    }
+}
+
+impl From<String> for Statement {
+    fn from(sql: String) -> Self {
+        Self::Simple(sql)
+    }
+}
+
+impl From<&str> for Statement {
+    fn from(sql: &str) -> Self {
+        Self::Simple(sql.to_string())
+    }
+}
 
 /// Represents a peer from the database
 #[derive(Debug, Clone)]
@@ -25,18 +60,20 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
     let ipv6_value = machine
         .ipv6
         .as_ref()
-        .map_or_else(|| "NULL".to_string(), |s| format!("'{s}'"));
+        .map_or(Value::Null, |s| Value::String(s.to_string()));
 
-    let sql = format!(
-        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver, is_external) VALUES ('{}', {}, {}, '{}', {}, '{}', '{}', {}, 0)",
-        machine.name,
-        latitude,
-        longitude,
-        machine.ipv4,
-        ipv6_value,
-        machine.wg_public_key,
-        machine.wg_address,
-        u8::from(machine.is_nameserver)
+    let sql = Statement::with_params(
+        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver, is_external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
+        vec![
+            Value::from(machine.name.as_ref()),
+            Value::from(latitude),
+            Value::from(longitude),
+            Value::from(machine.ipv4.as_ref()),
+            ipv6_value,
+            Value::from(machine.wg_public_key.as_ref()),
+            Value::from(machine.wg_address.as_ref()),
+            Value::from(u8::from(machine.is_nameserver)),
+        ],
     );
 
     execute_transactions(ssh, &[sql])?;
@@ -49,7 +86,10 @@ pub fn insert_peer(ssh: &SshSession, machine: &Machine) -> Result<()> {
 /// # Errors
 /// Returns an error if the SSH command fails or if the database operation fails
 pub fn delete_peer(ssh: &SshSession, name: &str) -> Result<()> {
-    let sql = format!("DELETE FROM peers WHERE name = '{name}'");
+    let sql = Statement::with_params(
+        "DELETE FROM peers WHERE name = ?",
+        vec![Value::from(name)],
+    );
     execute_transactions(ssh, &[sql])?;
     Ok(())
 }
@@ -159,10 +199,24 @@ pub fn query_peers(ssh: &SshSession) -> Result<Vec<Peer>> {
 /// # Errors
 /// Returns an error if the SSH command fails, database query fails, or if the data format is invalid
 pub fn query_peer(ssh: &SshSession, name: &str) -> Result<Option<Peer>> {
+    // `name` is interpolated into a shell command below, so it must be a safe
+    // identifier. Node/peer names are validated as alphanumeric/_/- elsewhere;
+    // reject anything else here to avoid shell or SQL injection via, e.g., a
+    // malicious remote config.
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(miette!("Invalid peer name: {name:?}"));
+    }
+
     let sql = format!(
         "SELECT wg_public_key, wg_address, ipv4, ipv6, latitude, longitude FROM peers WHERE name = '{name}'",
     );
-    let cmd = format!("sqlite3 /var/makiatto/cluster.db \"{sql}\"");
+    // read as the makiatto user for consistency with the other DB reads (the
+    // cluster.db is owned by makiatto and not necessarily world-readable)
+    let cmd = format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db \"{sql}\"");
 
     let output = ssh
         .exec(&cmd)
@@ -205,17 +259,22 @@ pub fn query_peer(ssh: &SshSession, name: &str) -> Result<Option<Peer>> {
 ///
 /// # Errors
 /// Returns an error if the HTTP request fails or the API returns an error
-pub fn execute_transactions(ssh: &SshSession, sqls: &[String]) -> Result<()> {
-    if sqls.is_empty() {
+pub fn execute_transactions(ssh: &SshSession, statements: &[Statement]) -> Result<()> {
+    if statements.is_empty() {
         return Ok(());
     }
 
-    let json_payload = serde_json::to_string(sqls).into_diagnostic()?;
-    // need to escape backslashes and quotes for passing through SSH
-    let escaped_payload = json_payload.replace('\\', "\\\\").replace('"', "\\\"");
+    let json_payload = serde_json::to_string(statements).into_diagnostic()?;
 
+    // Pass the JSON to curl on stdin via a quoted heredoc. Because the heredoc
+    // delimiter is single-quoted ('PAYLOAD'), the remote shell performs NO
+    // expansion on the body — $(...), backticks and ${...} are all inert — so a
+    // hostile value in the payload cannot inject shell commands. `to_string`
+    // emits a single line (newlines inside values are escaped as \n), so the
+    // body can never collide with the delimiter line.
     let cmd = format!(
-        "curl -s -X POST -H 'Content-Type: application/json' -d \"{escaped_payload}\" http://127.0.0.1:8181/v1/transactions",
+        "curl -s -X POST -H 'Content-Type: application/json' --data-binary @- \
+         http://127.0.0.1:8181/v1/transactions <<'MAKIATTO_TXN_EOF'\n{json_payload}\nMAKIATTO_TXN_EOF",
     );
 
     let response = ssh

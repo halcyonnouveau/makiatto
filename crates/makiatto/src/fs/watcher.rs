@@ -4,6 +4,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use blake3::Hasher;
 use futures_util::StreamExt;
 use miette::Result;
+use serde_json::json;
 use notify_debouncer_full::{
     DebounceEventResult, new_debouncer,
     notify::{EventKind, RecursiveMode, event::CreateKind},
@@ -94,18 +95,22 @@ async fn handle_debounced_events(
     let mut delete_paths = Vec::new();
 
     for event in events {
+        let Some(path) = event.paths.first() else {
+            continue;
+        };
+
         match event.kind {
             EventKind::Create(CreateKind::File) => {
-                debug!("File created: {}", event.paths[0].display());
-                file_paths.push(event.paths[0].clone());
+                debug!("File created: {}", path.display());
+                file_paths.push(path.clone());
             }
             EventKind::Modify(_) => {
-                debug!("File modified: {}", event.paths[0].display());
-                file_paths.push(event.paths[0].clone());
+                debug!("File modified: {}", path.display());
+                file_paths.push(path.clone());
             }
             EventKind::Remove(_) => {
-                debug!("File removed: {}", event.paths[0].display());
-                delete_paths.push(event.paths[0].clone());
+                debug!("File removed: {}", path.display());
+                delete_paths.push(path.clone());
             }
             _ => {}
         }
@@ -314,11 +319,11 @@ pub async fn process_file_change(
 /// # Errors
 /// Returns an error if database operations fail
 pub async fn update_file_records(records: &[File], config: &Config) -> Result<()> {
+    let pool = corrosion::get_pool().await?;
     let mut sqls = Vec::new();
     let mut existing_hashes = Vec::new();
 
     for record in records {
-        let pool = corrosion::get_pool().await?;
         let domain_str = record.domain.as_ref();
         let path_str = record.path.as_ref();
         let content_hash = record.content_hash.as_ref();
@@ -332,18 +337,20 @@ pub async fn update_file_records(records: &[File], config: &Config) -> Result<()
         .await
         .map_err(|e| miette::miette!("Failed to check existing file record: {e}"))?;
 
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             "INSERT INTO files (domain, path, content_hash, size, modified_at)
-            VALUES ('{}', '{}', '{}', {}, {})
-            ON CONFLICT(domain, path) DO UPDATE SET content_hash='{}', size={}, modified_at={}",
-            record.domain,
-            record.path,
-            record.content_hash,
-            record.size,
-            record.modified_at,
-            record.content_hash,
-            record.size,
-            record.modified_at
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(domain, path) DO UPDATE SET content_hash = ?, size = ?, modified_at = ?",
+            vec![
+                json!(record.domain.as_ref()),
+                json!(record.path.as_ref()),
+                json!(record.content_hash.as_ref()),
+                json!(record.size),
+                json!(record.modified_at),
+                json!(record.content_hash.as_ref()),
+                json!(record.size),
+                json!(record.modified_at),
+            ],
         );
 
         sqls.push(sql);
@@ -383,10 +390,13 @@ async fn delete_file_records(records: &[(String, String)]) -> Result<()> {
         return Ok(());
     }
 
-    let sqls: Vec<String> = records
+    let sqls: Vec<corrosion::Statement> = records
         .iter()
         .map(|(domain, path)| {
-            format!("DELETE FROM files WHERE domain = '{domain}' AND path = '{path}'")
+            corrosion::Statement::with_params(
+                "DELETE FROM files WHERE domain = ? AND path = ?",
+                vec![json!(domain), json!(path)],
+            )
         })
         .collect();
 
@@ -445,8 +455,14 @@ async fn recreate_hardlinks_for_content(config: &Config, content_hash: &str) -> 
     }
 
     for (domain, path) in files {
-        let domain_dir = config.web.static_dir.as_std_path().join(&domain);
-        let file_path = domain_dir.join(path.trim_start_matches('/'));
+        let file_path =
+            match util::contained_path(config.web.static_dir.as_std_path(), &domain, &path) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!("Skipping unsafe file record {domain}{path}: {e}");
+                    continue;
+                }
+            };
 
         // Check if file exists and is properly hardlinked
         if file_path.exists() {
@@ -630,8 +646,7 @@ pub async fn recreate_domain_file(
     path: &str,
     content_hash: &str,
 ) -> Result<()> {
-    let domain_dir = config.web.static_dir.as_std_path().join(domain);
-    let file_path = domain_dir.join(path.trim_start_matches('/'));
+    let file_path = util::contained_path(config.web.static_dir.as_std_path(), domain, path)?;
     let content_path = config.fs.storage_dir.join(content_hash);
 
     if let Some(parent) = file_path.parent() {
@@ -674,10 +689,13 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
             return Ok(());
         }
 
-        // file exists but isn't the right hardlink - use atomic rename
+        // file exists but isn't the right hardlink - use atomic rename.
+        // place the temp file in the *target's* directory so the final rename is
+        // always within one filesystem (avoids EXDEV when storage and the site
+        // directory live on different filesystems)
         let temp_filename = format!(".tmp.{}", uuid::Uuid::new_v4());
 
-        let temp_path = source
+        let temp_path = target
             .parent()
             .unwrap_or(std::path::Path::new("/tmp"))
             .join(temp_filename);
@@ -759,8 +777,7 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
 /// # Errors
 /// Returns an error if the file cannot be deleted
 pub async fn delete_domain_file(config: &Config, domain: &str, path: &str) -> Result<()> {
-    let domain_dir = config.web.static_dir.as_std_path().join(domain);
-    let file_path = domain_dir.join(path.trim_start_matches('/'));
+    let file_path = util::contained_path(config.web.static_dir.as_std_path(), domain, path)?;
 
     if file_path.exists() {
         tokio::fs::remove_file(&file_path)
@@ -783,9 +800,18 @@ async fn store_content(storage_dir: &PathBuf, content: &[u8]) -> Result<String> 
         .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
 
     if !file_path.exists() {
-        fs::write(&file_path, content)
+        // write to a temp file then atomically rename, so a crash mid-write can
+        // never leave a truncated file under the content hash (which the
+        // exists() check would otherwise treat as valid forever)
+        let temp_path = storage_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
+        fs::write(&temp_path, content)
             .await
             .map_err(|e| miette::miette!("Failed to write file {hash}: {e}"))?;
+
+        if let Err(e) = fs::rename(&temp_path, &file_path).await {
+            let _ = fs::remove_file(&temp_path).await;
+            return Err(miette::miette!("Failed to store file {hash}: {e}"));
+        }
         debug!("Stored new file {hash} ({} bytes)", content.len());
     }
 
@@ -822,9 +848,17 @@ async fn store_content_streaming(
             .await
             .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
 
-        tokio::fs::copy(file_path, &storage_path)
+        // copy to a temp file then atomically rename to avoid leaving a partial
+        // file under the content hash if we crash mid-copy
+        let temp_path = storage_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
+        tokio::fs::copy(file_path, &temp_path)
             .await
             .map_err(|e| miette::miette!("Failed to copy large file to storage: {e}"))?;
+
+        if let Err(e) = tokio::fs::rename(&temp_path, &storage_path).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(miette::miette!("Failed to store large file {hash}: {e}"));
+        }
 
         debug!(
             "Stored large file {hash} ({} MB)",
@@ -889,31 +923,44 @@ async fn stream_download_and_verify(
         .await
         .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
 
+    // stream into a temp file; only promote to the content-hash path after the
+    // hash is verified, so a partial or corrupt download is never visible
+    let temp_path = storage_dir.join(format!(".tmp.{}", uuid::Uuid::new_v4()));
     let mut stream = response.bytes_stream();
     let mut hasher = Hasher::new();
-    let mut output_file = tokio::fs::File::create(&storage_path)
+    let mut output_file = tokio::fs::File::create(&temp_path)
         .await
         .map_err(|e| miette::miette!("Failed to create storage file: {e}"))?;
 
     while let Some(chunk_result) = stream.next().await {
-        let chunk =
-            chunk_result.map_err(|e| miette::miette!("Failed to read download chunk: {e}"))?;
+        let chunk = match chunk_result {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(miette::miette!("Failed to read download chunk: {e}"));
+            }
+        };
 
         hasher.update(&chunk);
-        output_file
-            .write_all(&chunk)
-            .await
-            .map_err(|e| miette::miette!("Failed to write download chunk: {e}"))?;
+        if let Err(e) = output_file.write_all(&chunk).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(miette::miette!("Failed to write download chunk: {e}"));
+        }
     }
 
     let actual_hash = format!("{}", hasher.finalize());
 
     if actual_hash != expected_hash {
         // clean up failed download
-        let _ = tokio::fs::remove_file(&storage_path).await;
+        let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(miette::miette!(
             "Hash mismatch: expected {expected_hash}, got {actual_hash}"
         ));
+    }
+
+    if let Err(e) = tokio::fs::rename(&temp_path, &storage_path).await {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(miette::miette!("Failed to store streamed file: {e}"));
     }
 
     debug!("Successfully streamed and verified file {expected_hash}");

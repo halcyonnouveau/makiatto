@@ -1,10 +1,11 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use miette::{Result, miette};
-use ssh2::Session;
+use ssh2::{CheckResult, HostKeyType, KnownHostFileKind, Session};
 
 use crate::ui;
 
@@ -24,8 +25,9 @@ impl SshSession {
     /// # Errors
     /// Returns an error if connection fails or authentication fails
     pub fn new(ssh_target: &str, port: Option<u16>, key_path: Option<&PathBuf>) -> Result<Self> {
-        let port = port.unwrap_or(22);
-        let (user, host) = parse_ssh_target(ssh_target)?;
+        let (user, host, parsed_port) = parse_ssh_target(ssh_target)?;
+        // explicit --port wins, otherwise use a port embedded in the target, else 22
+        let port = port.or(parsed_port).unwrap_or(22);
 
         let tcp = TcpStream::connect((host.as_str(), port))
             .map_err(|e| miette!("Failed to connect to {host}:{port}: {e}"))?;
@@ -37,6 +39,11 @@ impl SshSession {
         session
             .handshake()
             .map_err(|e| miette!("SSH handshake failed: {e}"))?;
+
+        // verify the server's host key against ~/.ssh/known_hosts BEFORE
+        // authenticating, so we never hand the sudo password / WG private key to
+        // a machine-in-the-middle
+        verify_host_key(&session, &host, port)?;
 
         if let Some(key_path) = key_path {
             if session
@@ -89,11 +96,11 @@ impl SshSession {
 
         ssh.password = ssh.test_sudo()?;
 
-        if cfg!(debug_assertions) {
-            ssh.is_container = ssh
-                .execute_command_raw("[ -f /run/.containerenv ] || [ -f /.dockerenv ]", None)
-                .is_ok();
-        }
+        // detect container environments in all build profiles, not just debug —
+        // provisioning needs this to choose the background/no-wireguard path
+        ssh.is_container = ssh
+            .execute_command_raw("[ -f /run/.containerenv ] || [ -f /.dockerenv ]", None)
+            .is_ok();
 
         Ok(ssh)
     }
@@ -121,12 +128,15 @@ impl SshSession {
     /// # Errors
     /// Returns an error if command execution fails
     pub fn exec_stream(&self, command: &str) -> Result<i32> {
-        let command = if let Some(password) = &self.password
-            && command.starts_with("sudo ")
+        // Feed the sudo password over the (encrypted) channel stdin via `sudo -S`
+        // rather than `echo '{pw}' |`, which would leak it into the remote
+        // process list. `-p ''` suppresses the prompt text.
+        let (command, sudo_password) = if let Some(password) = &self.password
+            && let Some(rest) = command.strip_prefix("sudo ")
         {
-            format!("echo '{password}' | sudo -S {command}")
+            (format!("sudo -S -p '' {rest}"), Some(password.clone()))
         } else {
-            command.to_string()
+            (command.to_string(), None)
         };
 
         let mut channel = self
@@ -142,12 +152,21 @@ impl SshSession {
             .exec(&command)
             .map_err(|e| miette!("Failed to execute command: {e}"))?;
 
-        // Set channel to non-blocking so we can interleave reads and writes
-        self.session.set_blocking(false);
+        if let Some(password) = sudo_password {
+            channel
+                .write_all(format!("{password}\n").as_bytes())
+                .map_err(|e| miette!("Failed to send sudo password: {e}"))?;
+            channel.flush().ok();
+        }
 
-        // Put local terminal into raw mode so keypresses are forwarded immediately
+        // Put local terminal into raw mode so keypresses are forwarded immediately.
+        // Do this BEFORE switching the channel to non-blocking, so that if raw
+        // mode fails we never leave the session stuck in non-blocking mode.
         let _raw_guard = RawModeGuard::enter()
             .map_err(|e| miette!("Failed to enable raw terminal mode: {e}"))?;
+
+        // Set channel to non-blocking so we can interleave reads and writes
+        self.session.set_blocking(false);
 
         let mut buf = [0u8; 4096];
         let mut stdin_buf = [0u8; 256];
@@ -311,6 +330,15 @@ impl SshSession {
     }
 
     fn execute_command_raw(&self, command: &str, timeout: Option<Duration>) -> Result<String> {
+        self.execute_command_raw_with_stdin(command, None, timeout)
+    }
+
+    fn execute_command_raw_with_stdin(
+        &self,
+        command: &str,
+        stdin: Option<&str>,
+        timeout: Option<Duration>,
+    ) -> Result<String> {
         let session = &self.session;
 
         if let Some(timeout) = timeout {
@@ -326,6 +354,15 @@ impl SshSession {
         channel
             .exec(command)
             .map_err(|e| miette!("Failed to execute command '{command}': {e}"))?;
+
+        if let Some(data) = stdin {
+            channel
+                .write_all(data.as_bytes())
+                .map_err(|e| miette!("Failed to write to command stdin: {e}"))?;
+            channel
+                .send_eof()
+                .map_err(|e| miette!("Failed to send EOF: {e}"))?;
+        }
 
         let mut output = String::new();
         channel
@@ -372,35 +409,144 @@ impl SshSession {
         password: &str,
         timeout: Option<Duration>,
     ) -> Result<String> {
-        let sudo_command = format!("echo '{password}' | sudo -S {command}");
-        self.execute_command_raw(&sudo_command, timeout)
+        // strip the caller's leading `sudo ` so we don't end up with `sudo sudo`,
+        // then provide our own `sudo -S` and feed the password over the encrypted
+        // channel stdin (never via the remote process arguments)
+        let inner = command.strip_prefix("sudo ").unwrap_or(command);
+        let sudo_command = format!("sudo -S -p '' {inner}");
+        self.execute_command_raw_with_stdin(&sudo_command, Some(&format!("{password}\n")), timeout)
     }
 }
 
-pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String)> {
-    let parts: Vec<&str> = target.split('@').collect();
-    if parts.len() != 2 {
-        return Err(miette!(
-            "Invalid SSH target format. Expected user@host:port"
-        ));
-    }
-
-    let user = parts[0].to_string();
+pub(crate) fn parse_ssh_target(target: &str) -> Result<(String, String, Option<u16>)> {
+    let (user, host_port) = target
+        .split_once('@')
+        .ok_or_else(|| miette!("Invalid SSH target format. Expected user@host[:port]"))?;
 
     if user.is_empty() {
         return Err(miette!("User cannot be empty"));
     }
 
-    let host_port = parts[1];
-
-    let host_parts: Vec<&str> = host_port.split(':').collect();
-    let host = host_parts[0].to_string();
+    let (host, port) = if let Some(rest) = host_port.strip_prefix('[') {
+        // bracketed IPv6 literal: [::1] or [::1]:2222
+        let (addr, after) = rest
+            .split_once(']')
+            .ok_or_else(|| miette!("Invalid IPv6 SSH target: missing ']'"))?;
+        let port = match after.strip_prefix(':') {
+            Some(p) => Some(p.parse::<u16>().map_err(|_| miette!("Invalid port: {p}"))?),
+            None if after.is_empty() => None,
+            None => return Err(miette!("Unexpected characters after IPv6 address: {after:?}")),
+        };
+        (addr.to_string(), port)
+    } else if let Some((h, p)) = host_port.rsplit_once(':')
+        && !h.contains(':')
+    {
+        // exactly one colon: host:port (a bare IPv6 has multiple colons and is
+        // handled by the else branch)
+        (
+            h.to_string(),
+            Some(p.parse::<u16>().map_err(|_| miette!("Invalid port: {p}"))?),
+        )
+    } else {
+        // hostname / IPv4 with no port, or a bare IPv6 literal
+        (host_port.to_string(), None)
+    };
 
     if host.is_empty() {
         return Err(miette!("Host cannot be empty"));
     }
 
-    Ok((user, host))
+    Ok((user.to_string(), host, port))
+}
+
+/// Verify the server's host key against `~/.ssh/known_hosts`, trusting it on
+/// first use (TOFU). A mismatch is treated as a potential machine-in-the-middle
+/// and aborts the connection before any credentials are sent.
+fn verify_host_key(session: &Session, host: &str, port: u16) -> Result<()> {
+    let Some(home) = dirs::home_dir() else {
+        return Err(miette!(
+            "Cannot determine home directory for host key verification"
+        ));
+    };
+    let kh_path = home.join(".ssh").join("known_hosts");
+
+    let mut known_hosts = session
+        .known_hosts()
+        .map_err(|e| miette!("Failed to initialise known_hosts: {e}"))?;
+
+    if kh_path.exists() {
+        known_hosts
+            .read_file(&kh_path, KnownHostFileKind::OpenSSH)
+            .map_err(|e| miette!("Failed to read {}: {e}", kh_path.display()))?;
+    }
+
+    let (key, key_type) = session
+        .host_key()
+        .ok_or_else(|| miette!("Server did not present a host key"))?;
+
+    match known_hosts.check_port(host, port, key) {
+        CheckResult::Match => Ok(()),
+        CheckResult::Mismatch => Err(miette!(
+            "SSH host key mismatch for {host}:{port} — possible machine-in-the-middle. \
+             If the host key legitimately changed, remove the stale entry from {}.",
+            kh_path.display()
+        )),
+        CheckResult::Failure => Err(miette!("Host key verification failed for {host}:{port}")),
+        CheckResult::NotFound => {
+            append_known_host(&kh_path, host, port, key, key_type)?;
+            ui::info(&format!(
+                "Trusting new host key for {host}:{port} (added to {})",
+                kh_path.display()
+            ));
+            Ok(())
+        }
+    }
+}
+
+/// Append a host key to `known_hosts` in OpenSSH format (used for trust-on-first-use).
+fn append_known_host(
+    path: &Path,
+    host: &str,
+    port: u16,
+    key: &[u8],
+    key_type: HostKeyType,
+) -> Result<()> {
+    let key_type_str = match key_type {
+        HostKeyType::Rsa => "ssh-rsa",
+        HostKeyType::Dss => "ssh-dss",
+        HostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256",
+        HostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384",
+        HostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521",
+        HostKeyType::Ed25519 => "ssh-ed25519",
+        HostKeyType::Unknown => {
+            return Err(miette!("Unknown host key type; refusing to record it"));
+        }
+    };
+
+    // OpenSSH represents non-default ports as [host]:port
+    let host_field = if port == 22 {
+        host.to_string()
+    } else {
+        format!("[{host}]:{port}")
+    };
+
+    let line = format!("{host_field} {key_type_str} {}\n", STANDARD.encode(key));
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| miette!("Failed to create {}: {e}", parent.display()))?;
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| miette!("Failed to open {}: {e}", path.display()))?;
+
+    file.write_all(line.as_bytes())
+        .map_err(|e| miette!("Failed to write to {}: {e}", path.display()))?;
+
+    Ok(())
 }
 
 /// RAII guard that puts the terminal into raw mode and restores it on drop.
@@ -462,7 +608,38 @@ mod tests {
     #[test]
     fn test_parse_ssh_target_without_port() {
         let result = parse_ssh_target("root@192.168.1.1").unwrap();
-        assert_eq!(result, ("root".to_string(), "192.168.1.1".to_string()));
+        assert_eq!(
+            result,
+            ("root".to_string(), "192.168.1.1".to_string(), None)
+        );
+    }
+
+    #[test]
+    fn test_parse_ssh_target_with_port() {
+        let result = parse_ssh_target("root@192.168.1.1:2222").unwrap();
+        assert_eq!(
+            result,
+            ("root".to_string(), "192.168.1.1".to_string(), Some(2222))
+        );
+    }
+
+    #[test]
+    fn test_parse_ssh_target_ipv6() {
+        let result = parse_ssh_target("root@[2001:db8::1]:2222").unwrap();
+        assert_eq!(
+            result,
+            ("root".to_string(), "2001:db8::1".to_string(), Some(2222))
+        );
+
+        let result = parse_ssh_target("root@[::1]").unwrap();
+        assert_eq!(result, ("root".to_string(), "::1".to_string(), None));
+
+        // bare IPv6 with no brackets and no port
+        let result = parse_ssh_target("root@2001:db8::1").unwrap();
+        assert_eq!(
+            result,
+            ("root".to_string(), "2001:db8::1".to_string(), None)
+        );
     }
 
     #[test]
@@ -470,5 +647,6 @@ mod tests {
         assert!(parse_ssh_target("invalid").is_err());
         assert!(parse_ssh_target("@host").is_err());
         assert!(parse_ssh_target("user@").is_err());
+        assert!(parse_ssh_target("user@host:notaport").is_err());
     }
 }

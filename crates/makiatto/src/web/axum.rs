@@ -9,10 +9,10 @@ use std::{
 use axum::{
     Router,
     body::Body,
-    extract::{Path as ExtractPath, Request, State},
+    extract::{DefaultBodyLimit, Path as ExtractPath, Request, State},
     http::{
         HeaderMap, HeaderValue, StatusCode, Uri,
-        header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH},
+        header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH},
     },
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -49,6 +49,15 @@ use crate::{
     },
 };
 
+/// Maximum request body size accepted by the server (protects against memory
+/// exhaustion from oversized uploads / WASM function request bodies).
+const MAX_REQUEST_BODY_BYTES: usize = 16 * 1024 * 1024; // 16 MiB
+
+/// Largest response body we will buffer in memory to compute a `CRC32` `ETag`.
+/// Larger responses are streamed straight through without an `ETag` rather than
+/// being held entirely in memory.
+const MAX_ETAG_BODY_BYTES: usize = 8 * 1024 * 1024; // 8 MiB
+
 #[derive(Clone)]
 pub(crate) struct WebState {
     pub(crate) config: Arc<Config>,
@@ -72,22 +81,31 @@ async fn handle_request(
     span.record("http.method", &method);
     span.record("http.target", &uri);
 
-    let (hostname, _port) = host
-        .split_once(':')
-        .map_or((host.as_str(), 80u16), |(hostname, port_str)| {
-            (hostname.as_str(), port_str.parse::<u16>().unwrap())
-        });
+    // parse the host without panicking on a malformed/IPv6/odd-port value
+    let hostname = crate::util::host_without_port(&host);
 
     // resolve domain alias if exists
     let resolved_domain = resolve_cname(&state.cname_map, hostname);
-    let domain_path = state.static_dir.join(&resolved_domain);
 
-    if !domain_path.exists() {
-        span.record("error", format!("Domain '{resolved_domain}' not found"));
-
+    // the resolved domain becomes a path segment under static_dir — reject any
+    // value that could escape the content root (e.g. `Host: ../../etc`)
+    if !crate::util::is_safe_domain(&resolved_domain) {
+        span.record("error", format!("Invalid host '{resolved_domain}'"));
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::from(format!("'{hostname:?}' not found")))
+            .body(Body::from("Not found"))
+            .unwrap();
+    }
+
+    let domain_path = state.static_dir.join(&resolved_domain);
+
+    if !path_exists(&domain_path).await {
+        span.record("error", format!("Domain '{resolved_domain}' not found"));
+
+        // do not reflect the attacker-controlled host back in the body
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Not found"))
             .unwrap();
     }
 
@@ -96,7 +114,7 @@ async fn handle_request(
     let final_request = {
         let requested_file = domain_path.join(uri_path.trim_start_matches('/'));
 
-        if requested_file.exists() && requested_file.is_file() {
+        if path_is_file(&requested_file).await {
             // original path exists, use as-is
             request
         } else {
@@ -106,7 +124,7 @@ async fn handle_request(
 
             for fallback_path in &fallback_paths {
                 let fallback_file = domain_path.join(fallback_path.trim_start_matches('/'));
-                if fallback_file.exists() && fallback_file.is_file() {
+                if path_is_file(&fallback_file).await {
                     debug!("Using fallback: {} -> {}", uri_path, fallback_path);
                     found_fallback = Some(fallback_path);
                     break;
@@ -209,25 +227,31 @@ async fn image_middleware(
 
     span.record("has_params", true);
 
-    let (hostname, _port) = host
-        .split_once(':')
-        .map_or((host.as_str(), 80u16), |(hostname, port_str)| {
-            (hostname, port_str.parse::<u16>().unwrap_or(80))
-        });
+    let hostname = crate::util::host_without_port(&host);
 
     let resolved_domain = resolve_cname(&state.cname_map, hostname);
+
+    if !crate::util::is_safe_domain(&resolved_domain) {
+        return next.run(request).await;
+    }
+
     let domain_path = state.static_dir.join(&resolved_domain);
 
-    if !domain_path.exists() {
+    if !path_exists(&domain_path).await {
         return next.run(request).await;
     }
 
     let uri_path = request.uri().path();
-    let file_path = domain_path.join(uri_path.trim_start_matches('/'));
-
     span.record("path", uri_path);
 
-    if !file_path.exists() || !file_path.is_file() {
+    // this middleware reads the file directly (bypassing ServeDir's traversal
+    // protection), so contain the path under the domain root ourselves
+    let Ok(file_path) = crate::util::contained_path(&state.static_dir, &resolved_domain, uri_path)
+    else {
+        return next.run(request).await;
+    };
+
+    if !path_is_file(&file_path).await {
         return next.run(request).await;
     }
 
@@ -363,6 +387,9 @@ pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
 ) -> Result<()> {
+    // honour the configured trust policy for forwarded host headers
+    crate::web::extract::host::set_trust_forwarded_host(config.web.trust_forwarded_host);
+
     let mut cname_cache = HashMap::new();
 
     // load initial domain aliases
@@ -457,6 +484,7 @@ pub async fn start(
         .layer(ConcurrencyLimitLayer::new(
             config.web.max_concurrent_requests,
         ))
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
         .with_state(state.clone());
 
     let http_addr: SocketAddr = config
@@ -568,6 +596,18 @@ pub async fn start(
     Ok(())
 }
 
+/// Async existence check (avoids blocking the runtime with `std::fs`).
+async fn path_exists(path: &Path) -> bool {
+    tokio::fs::try_exists(path).await.unwrap_or(false)
+}
+
+/// Async regular-file check (avoids blocking the runtime with `std::fs`).
+async fn path_is_file(path: &Path) -> bool {
+    tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|m| m.is_file())
+}
+
 fn get_cache_control(path: &str) -> HeaderValue {
     let extension = Path::new(path)
         .extension()
@@ -610,9 +650,25 @@ async fn caching_middleware(request: Request, next: Next) -> impl IntoResponse {
         return response;
     }
 
+    // Skip ETag computation for large or unknown-length bodies so we never
+    // buffer an arbitrarily large response in memory just to hash it. Such
+    // responses are streamed straight through (still with Cache-Control).
+    let too_large_to_buffer = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .is_none_or(|len| len > MAX_ETAG_BODY_BYTES as u64);
+
+    if too_large_to_buffer {
+        let (mut parts, body) = response.into_parts();
+        parts.headers.insert(CACHE_CONTROL, get_cache_control(&path));
+        return (parts, body).into_response();
+    }
+
     let (mut parts, body) = response.into_parts();
 
-    let Ok(body_bytes) = axum::body::to_bytes(body, usize::MAX).await else {
+    let Ok(body_bytes) = axum::body::to_bytes(body, MAX_ETAG_BODY_BYTES).await else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to read response body",

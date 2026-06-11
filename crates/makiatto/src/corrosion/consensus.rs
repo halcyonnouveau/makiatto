@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use miette::Result;
+use serde_json::json;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, interval};
 use tracing::{debug, error, info, warn};
@@ -11,6 +12,15 @@ use crate::config::Config;
 use crate::corrosion::{self, schema::ClusterLeadership};
 
 const DIRECTOR_ROLE: &str = "director";
+
+/// Wait this long after writing a leadership claim before re-reading it, giving
+/// a competing peer's claim time to gossip in so we don't act on a stale local win.
+const CONVERGENCE_DELAY_MS: u64 = 500;
+
+/// Tolerated clock skew (seconds) when judging whether another node's lease has
+/// expired. We only treat a remote lease as expired once it is stale by more than
+/// this margin, to avoid two nodes both stealing leadership across clock drift.
+const CLOCK_SKEW_MARGIN_SECS: i64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct DirectorElection {
@@ -99,8 +109,8 @@ impl DirectorElection {
                         Err(e) => error!("Failed to claim leadership: {e}"),
                     }
                 }
-            } else if leader.expires_at < current_time {
-                // leader expired, try to claim leadership
+            } else if leader.expires_at + CLOCK_SKEW_MARGIN_SECS < current_time {
+                // leader expired (beyond the clock-skew margin), try to claim leadership
                 info!(
                     "Current leader '{}' expired (expires_at: {}, current_time: {}), attempting to claim leadership",
                     leader.node_name, leader.expires_at, current_time
@@ -147,32 +157,39 @@ impl DirectorElection {
     ) -> Result<()> {
         let expires_at = current_time + lease_duration;
 
-        let sql = format!(
+        // The conflict guard also tie-breaks on node_name: when two nodes race to
+        // claim the same term, the row only updates if the incumbent's term/lease
+        // is stale OR our name sorts lower. This gives a deterministic winner once
+        // CR-SQLite gossip converges, rather than each node trusting its own
+        // optimistic local write.
+        let sql = corrosion::Statement::with_params(
             r"
             INSERT INTO cluster_leadership (role, node_name, term, last_heartbeat, expires_at)
-            VALUES ('{}', '{}', {}, {}, {})
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(role) DO UPDATE SET
-                node_name = '{}',
-                term = {},
-                last_heartbeat = {},
-                expires_at = {}
-            WHERE term < {} OR expires_at < {}
+                node_name = excluded.node_name,
+                term = excluded.term,
+                last_heartbeat = excluded.last_heartbeat,
+                expires_at = excluded.expires_at
+            WHERE cluster_leadership.term < excluded.term
+                OR cluster_leadership.expires_at < excluded.last_heartbeat
+                OR (cluster_leadership.term = excluded.term
+                    AND excluded.node_name < cluster_leadership.node_name)
             ",
-            DIRECTOR_ROLE,
-            self.node_name,
-            new_term,
-            current_time,
-            expires_at,
-            self.node_name,
-            new_term,
-            current_time,
-            expires_at,
-            new_term,
-            current_time,
+            vec![
+                json!(DIRECTOR_ROLE),
+                json!(self.node_name.as_ref()),
+                json!(new_term),
+                json!(current_time),
+                json!(expires_at),
+            ],
         );
 
         corrosion::execute_transactions(&[sql]).await?;
 
+        // Re-read after a short convergence delay so a peer's competing claim has
+        // a chance to gossip in before we act on a (possibly stale) local win.
+        tokio::time::sleep(Duration::from_millis(CONVERGENCE_DELAY_MS)).await;
         let leadership = self.get_current_leadership().await?;
 
         if let Some(leader) = leadership {
@@ -204,13 +221,19 @@ impl DirectorElection {
         let current_term = state.current_term;
         drop(state);
 
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             r"
             UPDATE cluster_leadership
-            SET last_heartbeat = {}, expires_at = {}
-            WHERE role = '{}' AND node_name = '{}' AND term = {}
+            SET last_heartbeat = ?, expires_at = ?
+            WHERE role = ? AND node_name = ? AND term = ?
             ",
-            current_time, expires_at, DIRECTOR_ROLE, self.node_name, current_term
+            vec![
+                json!(current_time),
+                json!(expires_at),
+                json!(DIRECTOR_ROLE),
+                json!(self.node_name.as_ref()),
+                json!(current_term),
+            ],
         );
 
         match corrosion::execute_transactions(&[sql]).await {
@@ -274,12 +297,16 @@ impl DirectorElection {
         let current_term = state.current_term;
         drop(state);
 
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             r"
             DELETE FROM cluster_leadership
-            WHERE role = '{}' AND node_name = '{}' AND term = {}
+            WHERE role = ? AND node_name = ? AND term = ?
             ",
-            DIRECTOR_ROLE, self.node_name, current_term
+            vec![
+                json!(DIRECTOR_ROLE),
+                json!(self.node_name.as_ref()),
+                json!(current_term),
+            ],
         );
 
         if corrosion::execute_transactions(&[sql]).await.is_ok() {

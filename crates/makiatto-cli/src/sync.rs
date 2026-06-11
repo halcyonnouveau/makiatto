@@ -1,12 +1,19 @@
-use std::{collections::HashSet, path::PathBuf, time::SystemTime};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+    time::SystemTime,
+};
 
 use argh::FromArgs;
 use miette::{Result, miette};
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
     config::{Config, DnsRecord, Domain, Machine, Profile},
     machine::corrosion,
+    machine::corrosion::Statement,
     ssh::SshSession,
     ui,
 };
@@ -145,6 +152,13 @@ fn sync_domain_files(
         return Err(miette!(format!("Failed to pause file watcher: {e}")));
     }
 
+    // ensure the watcher is resumed no matter how we leave this function — an
+    // early error during rsync/chown/scan must not leave it paused forever
+    let _resume_guard = WatcherResumeGuard {
+        ssh,
+        wg_address: &machine.wg_address,
+    };
+
     let spinner = ui::spinner("Running rsync...");
 
     let source = domain.path.to_string_lossy();
@@ -163,10 +177,14 @@ fn sync_domain_files(
         )
     };
 
+    // single-quote-escape the password so a quote in it can't break out of the
+    // remote `echo '...'`. The password is still handed to the remote sudo via
+    // rsync's --rsync-path, which is inherent to running rsync under sudo.
     let rsync_path = if let Some(password) = &ssh.password {
-        &format!("echo '{password}' | sudo -S rsync")
+        let escaped = password.replace('\'', r"'\''");
+        format!("echo '{escaped}' | sudo -S rsync")
     } else {
-        "sudo rsync"
+        "sudo rsync".to_string()
     };
 
     let mut rsync_cmd = std::process::Command::new("rsync");
@@ -177,7 +195,7 @@ fn sync_domain_files(
         .arg("-e")
         .arg(&ssh_args)
         .arg("--rsync-path")
-        .arg(rsync_path)
+        .arg(&rsync_path)
         .arg(format!("{}/", source.trim_end_matches('/')))
         .arg(&target);
 
@@ -202,29 +220,41 @@ fn sync_domain_files(
         machine.wg_address, domain.name
     ))?;
 
-    if let Err(e) = ssh.exec(&format!(
-        "curl -s -X POST http://{}:8282/watcher/resume",
-        machine.wg_address
-    )) {
-        return Err(miette!(format!("Failed to resume file watcher: {e}")));
-    }
-
+    // the watcher is resumed by `_resume_guard` when this function returns
     Ok(())
+}
+
+/// Resumes the remote file watcher on drop, so a paused watcher is never left
+/// behind if a sync step fails partway through.
+struct WatcherResumeGuard<'a> {
+    ssh: &'a SshSession,
+    wg_address: &'a str,
+}
+
+impl Drop for WatcherResumeGuard<'_> {
+    fn drop(&mut self) {
+        if let Err(e) = self.ssh.exec(&format!(
+            "curl -s -X POST http://{}:8282/watcher/resume",
+            self.wg_address
+        )) {
+            ui::warn(&format!("Failed to resume file watcher: {e}"));
+        }
+    }
 }
 
 fn sync_domain_records(ssh: &SshSession, domain: &Domain, machines: &[Machine]) -> Result<()> {
     ui::status("Updating DNS records...");
 
-    let domain_sql = format!(
-        "INSERT OR IGNORE INTO domains (name) VALUES ('{}')",
-        domain.name
+    let domain_sql = Statement::with_params(
+        "INSERT OR IGNORE INTO domains (name) VALUES (?)",
+        vec![json!(domain.name.as_ref())],
     );
     corrosion::execute_transactions(ssh, &[domain_sql])?;
 
     for alias in domain.aliases.iter() {
-        let alias_sql = format!(
-            "INSERT OR REPLACE INTO domain_aliases (alias, target) VALUES ('{}', '{}')",
-            alias, domain.name
+        let alias_sql = Statement::with_params(
+            "INSERT OR REPLACE INTO domain_aliases (alias, target) VALUES (?, ?)",
+            vec![json!(alias.as_ref()), json!(domain.name.as_ref())],
         );
         corrosion::execute_transactions(ssh, &[alias_sql])?;
     }
@@ -478,9 +508,9 @@ fn apply_dns_diff(
             "Removing DNS record: {} {} -> {}",
             key.name, key.record_type, data.value
         ));
-        let sql = format!(
-            "DELETE FROM dns_records WHERE domain = '{}' AND name = '{}' AND record_type = '{}'",
-            domain, key.name, key.record_type
+        let sql = Statement::with_params(
+            "DELETE FROM dns_records WHERE domain = ? AND name = ? AND record_type = ?",
+            vec![json!(domain), json!(key.name), json!(key.record_type)],
         );
         sqls.push(sql);
     }
@@ -491,17 +521,19 @@ fn apply_dns_diff(
             key.name, key.record_type, data.value
         ));
         let id = Uuid::now_v7().to_string();
-        let sql = format!(
+        let sql = Statement::with_params(
             "INSERT INTO dns_records (id, domain, name, record_type, value, ttl, priority, geo_enabled) \
-             VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, {})",
-            id,
-            domain,
-            key.name,
-            key.record_type,
-            data.value,
-            data.ttl,
-            data.priority,
-            i32::from(data.geo_enabled)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            vec![
+                json!(id),
+                json!(domain),
+                json!(key.name),
+                json!(key.record_type),
+                json!(data.value),
+                json!(data.ttl),
+                json!(data.priority),
+                json!(i32::from(data.geo_enabled)),
+            ],
         );
         sqls.push(sql);
     }
@@ -523,6 +555,35 @@ fn apply_dns_diff(
     Ok(())
 }
 
+/// Merge an optional `env_file` (KEY=VALUE lines) with the inline `env` map and
+/// serialise the result to a JSON object string. Inline `env` entries take
+/// precedence over file entries.
+fn resolve_env(env_file: Option<&PathBuf>, env: &HashMap<Arc<str>, Arc<str>>) -> Result<String> {
+    let mut merged: HashMap<String, String> = HashMap::new();
+
+    if let Some(path) = env_file {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| miette!("Failed to read env_file '{}': {e}", path.display()))?;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                let value = value.trim().trim_matches(['"', '\'']);
+                merged.insert(key.trim().to_string(), value.to_string());
+            }
+        }
+    }
+
+    for (key, value) in env {
+        merged.insert(key.to_string(), value.to_string());
+    }
+
+    serde_json::to_string(&merged).map_err(|e| miette!("Failed to serialise env: {e}"))
+}
+
 fn sync_domain_functions(ssh: &SshSession, domain: &Domain) -> Result<()> {
     if domain.functions.is_empty() {
         return Ok(());
@@ -530,9 +591,9 @@ fn sync_domain_functions(ssh: &SshSession, domain: &Domain) -> Result<()> {
 
     ui::status("Syncing WASM functions...");
 
-    let delete_sql = format!(
-        "DELETE FROM domain_functions WHERE domain = '{}'",
-        domain.name
+    let delete_sql = Statement::with_params(
+        "DELETE FROM domain_functions WHERE domain = ?",
+        vec![json!(domain.name.as_ref())],
     );
     corrosion::execute_transactions(ssh, &[delete_sql])?;
 
@@ -555,36 +616,28 @@ fn sync_domain_functions(ssh: &SshSession, domain: &Domain) -> Result<()> {
             "null".to_string()
         };
 
-        let env_json = serde_json::to_string(&function.env).unwrap_or_else(|_| "{}".to_string());
-
-        let timeout_ms = function
-            .timeout_ms
-            .map_or("NULL".to_string(), |t| t.to_string());
-        let max_memory_mb = function
-            .max_memory_mb
-            .map_or("NULL".to_string(), |m| m.to_string());
+        let env_json = resolve_env(function.env_file.as_ref(), &function.env)?;
 
         let updated_at = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        let sql = format!(
+        let sql = Statement::with_params(
             "INSERT INTO domain_functions (\
                 id, domain, path, methods, env, \
                 timeout_ms, max_memory_mb, updated_at\
-            ) VALUES (\
-                '{}', '{}', '{}', '{}', '{}', \
-                {}, {}, {}\
-            )",
-            id,
-            domain.name,
-            path_str,
-            methods_json,
-            env_json,
-            timeout_ms,
-            max_memory_mb,
-            updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            vec![
+                json!(id),
+                json!(domain.name.as_ref()),
+                json!(path_str),
+                json!(methods_json),
+                json!(env_json),
+                function.timeout_ms.map_or(json!(null), |t| json!(t)),
+                function.max_memory_mb.map_or(json!(null), |m| json!(m)),
+                json!(updated_at),
+            ],
         );
         sqls.push(sql);
 
@@ -603,9 +656,9 @@ fn sync_domain_transforms(ssh: &SshSession, domain: &Domain) -> Result<()> {
     ui::status("Syncing WASM transforms...");
 
     // Delete existing transforms for this domain
-    let delete_sql = format!(
-        "DELETE FROM domain_transforms WHERE domain = '{}'",
-        domain.name
+    let delete_sql = Statement::with_params(
+        "DELETE FROM domain_transforms WHERE domain = ?",
+        vec![json!(domain.name.as_ref())],
     );
     corrosion::execute_transactions(ssh, &[delete_sql])?;
 
@@ -614,43 +667,31 @@ fn sync_domain_transforms(ssh: &SshSession, domain: &Domain) -> Result<()> {
         let path_str = transform.path.display().to_string();
         let id = format!("{}:{}:{}", domain.name, path_str, idx);
 
-        let env_json = serde_json::to_string(&transform.env).unwrap_or_else(|_| "{}".to_string());
-
-        let timeout_ms = transform
-            .timeout_ms
-            .map_or("NULL".to_string(), |t| t.to_string());
-        let max_memory_mb = transform
-            .max_memory_mb
-            .map_or("NULL".to_string(), |m| m.to_string());
-        let max_file_size_kb = transform
-            .max_file_size_kb
-            .map_or("NULL".to_string(), |s| s.to_string());
+        let env_json = resolve_env(transform.env_file.as_ref(), &transform.env)?;
 
         let updated_at = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        let sql = format!(
+        let sql = Statement::with_params(
             "INSERT INTO domain_transforms (\
                 id, domain, path, files_pattern, env, \
                 timeout_ms, max_memory_mb, max_file_size_kb, \
                 execution_order, updated_at\
-            ) VALUES (\
-                '{}', '{}', '{}', '{}', '{}', \
-                {}, {}, {}, \
-                {}, {}\
-            )",
-            id,
-            domain.name,
-            path_str,
-            transform.files,
-            env_json,
-            timeout_ms,
-            max_memory_mb,
-            max_file_size_kb,
-            idx,
-            updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            vec![
+                json!(id),
+                json!(domain.name.as_ref()),
+                json!(path_str),
+                json!(transform.files.as_ref()),
+                json!(env_json),
+                transform.timeout_ms.map_or(json!(null), |t| json!(t)),
+                transform.max_memory_mb.map_or(json!(null), |m| json!(m)),
+                transform.max_file_size_kb.map_or(json!(null), |s| json!(s)),
+                json!(idx),
+                json!(updated_at),
+            ],
         );
         sqls.push(sql);
 

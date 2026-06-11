@@ -44,6 +44,11 @@ pub async fn start(
     config: Arc<Config>,
     mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
 ) -> Result<()> {
+    // Note on the control endpoints (/watcher/pause|resume, /scan): they are
+    // unauthenticated, so the server must only be bound to the trusted WireGuard
+    // mesh address (the default below) and never to a public interface. Mesh
+    // peers are already fully trusted (they share the replicated, cluster-wide
+    // database), so these endpoints add no privilege beyond that trust boundary.
     let app = Router::new()
         .nest_service("/files", ServeDir::new(config.fs.storage_dir.as_std_path()))
         .route("/scan/{domain}", post(handle_domain_scan))

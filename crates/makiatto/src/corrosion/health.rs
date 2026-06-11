@@ -258,19 +258,19 @@ impl HealthMonitor {
             .map_err(|e| miette::miette!("Failed to get current time: {e}"))?
             .as_secs() as i64;
 
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             r"
             INSERT INTO unhealthy_nodes (node_name, marked_unhealthy_at, failure_reason)
-            VALUES ('{}', {}, '{}')
+            VALUES (?, ?, ?)
             ON CONFLICT(node_name) DO UPDATE SET
-                marked_unhealthy_at = {},
-                failure_reason = '{}'
+                marked_unhealthy_at = excluded.marked_unhealthy_at,
+                failure_reason = excluded.failure_reason
             ",
-            node_name.replace('\'', "''"),
-            current_time,
-            failure_reason.replace('\'', "''"),
-            current_time,
-            failure_reason.replace('\'', "''"),
+            vec![
+                serde_json::json!(node_name),
+                serde_json::json!(current_time),
+                serde_json::json!(failure_reason),
+            ],
         );
 
         corrosion::execute_transactions(&[sql]).await?;
@@ -285,12 +285,12 @@ impl HealthMonitor {
 
     /// Mark a node as healthy
     async fn mark_node_healthy(&self, node_name: &str) -> Result<()> {
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             r"
             DELETE FROM unhealthy_nodes
-            WHERE node_name = '{}'
+            WHERE node_name = ?
             ",
-            node_name.replace('\'', "''"),
+            vec![serde_json::json!(node_name)],
         );
 
         corrosion::execute_transactions(&[sql]).await?;
