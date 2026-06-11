@@ -57,13 +57,16 @@ impl ImageProcessor {
     }
 
     /// Check if the request has image transformation parameters
+    ///
+    /// Matches on exact query-parameter keys rather than substrings, so an
+    /// unrelated parameter like `?new=1` (which contains `w=`) does not trigger
+    /// image processing.
     #[must_use]
     pub fn has_transform_params(query: &str) -> bool {
-        query.contains("w=")
-            || query.contains("h=")
-            || query.contains("fmt=")
-            || query.contains("q=")
-            || query.contains("fit=")
+        query.split('&').any(|pair| {
+            let key = pair.split('=').next().unwrap_or("");
+            matches!(key, "w" | "h" | "fmt" | "q" | "fit")
+        })
     }
 
     /// Process an image with the given parameters
@@ -90,12 +93,34 @@ impl ImageProcessor {
 
         debug!("Cache miss for image: {:?}", file_path);
 
+        // bound the source size before decoding to avoid decode-bomb / memory
+        // exhaustion from an unexpectedly large source file
+        let metadata = tokio::fs::metadata(file_path)
+            .await
+            .map_err(|e| ProcessError::IoError(e.to_string()))?;
+
+        if metadata.len() > self.config.max_source_bytes {
+            return Err(ProcessError::InvalidParams(format!(
+                "Source image is too large ({} bytes, max {})",
+                metadata.len(),
+                self.config.max_source_bytes
+            )));
+        }
+
         let image_data = tokio::fs::read(file_path)
             .await
             .map_err(|e| ProcessError::IoError(e.to_string()))?;
 
-        let processed = Self::transform_image(&image_data, &params)?;
+        // content type depends only on the requested params; compute it before
+        // moving params into the blocking task
         let content_type = Self::get_content_type(&params);
+
+        // imageflow is synchronous and CPU-heavy; run it on a blocking thread so
+        // it doesn't stall the async runtime
+        let processed =
+            tokio::task::spawn_blocking(move || Self::transform_image(&image_data, &params))
+                .await
+                .map_err(|e| ProcessError::ImageflowError(format!("Image task failed: {e}")))??;
 
         self.cache
             .insert(cache_key, Arc::new(processed.clone()))
@@ -301,3 +326,25 @@ impl std::fmt::Display for ProcessError {
 }
 
 impl std::error::Error for ProcessError {}
+
+#[cfg(test)]
+mod tests {
+    use super::ImageProcessor;
+
+    #[test]
+    fn detects_real_transform_params() {
+        assert!(ImageProcessor::has_transform_params("w=100"));
+        assert!(ImageProcessor::has_transform_params("h=100&fmt=webp"));
+        assert!(ImageProcessor::has_transform_params("fit=crop&q=80"));
+    }
+
+    #[test]
+    fn ignores_unrelated_params() {
+        // these contain "w=" / "h=" / "q=" as substrings but not as keys
+        assert!(!ImageProcessor::has_transform_params("new=1"));
+        assert!(!ImageProcessor::has_transform_params("show=true"));
+        assert!(!ImageProcessor::has_transform_params("query=foo"));
+        assert!(!ImageProcessor::has_transform_params(""));
+        assert!(!ImageProcessor::has_transform_params("foo=bar&baz=qux"));
+    }
+}

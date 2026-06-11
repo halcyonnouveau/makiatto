@@ -47,3 +47,17 @@ For traditional server-side applications (databases, WebSockets, long-running pr
 ## Can I mix different hosting providers?
 
 Yes! Since nodes communicate via WireGuard mesh over the public internet, you can mix any providers (AWS, DigitalOcean, Hetzner, Vultr, bare metal servers, etc.) as long as they have public IP addresses and allow WireGuard traffic.
+
+## `maki` fails with "SSH host key mismatch" — what do I do?
+
+`maki` verifies each node's SSH host key against your `~/.ssh/known_hosts` before authenticating, so the sudo password and WireGuard private key are never handed to an impersonated host. The first time you connect to a node its key is recorded automatically (trust on first use); after that, a changed key aborts the connection with a mismatch error.
+
+If you see this error, it usually means one of:
+
+- **The host key legitimately changed** — e.g. you rebuilt or reprovisioned the server, or its IP/port was reused for a different machine. Remove the stale entry and reconnect (which records the new key):
+  ```sh
+  ssh-keygen -R "[host]:port"   # use plain "host" if the node uses port 22
+  ```
+- **Something is intercepting the connection** — if you did *not* expect the key to change, treat it as a potential machine-in-the-middle and investigate before reconnecting.
+
+You can point `maki` at a different known_hosts file by setting the `MAKIATTO_KNOWN_HOSTS` environment variable.

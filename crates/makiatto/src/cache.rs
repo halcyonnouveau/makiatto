@@ -19,9 +19,6 @@ struct CacheData {
     subscriptions: HashMap<String, SubscriptionState>,
 
     #[serde(default)]
-    cache: HashMap<String, serde_json::Value>,
-
-    #[serde(default)]
     version: u32,
 }
 
@@ -87,21 +84,21 @@ impl CacheStore {
         let content = serde_json::to_string_pretty(&*data)
             .map_err(|e| miette::miette!("Failed to serialize cache data: {e}"))?;
 
-        // Write to temporary file first for atomicity
-        let temp_path = format!("{}.tmp", self.path);
+        // Write to a uniquely-named temp file first for atomicity. A unique name
+        // avoids two concurrent persists clobbering each other's temp file.
+        let temp_path = format!("{}.tmp.{}", self.path, uuid::Uuid::new_v4());
         tokio::fs::write(&temp_path, content)
             .await
             .map_err(|e| miette::miette!("Failed to write cache file to {temp_path}: {e}"))?;
 
         // Rename to final location (atomic on most filesystems)
-        tokio::fs::rename(&temp_path, &self.path)
-            .await
-            .map_err(|e| {
-                miette::miette!(
-                    "Failed to rename cache file from {temp_path} to {}: {e}",
-                    self.path
-                )
-            })?;
+        if let Err(e) = tokio::fs::rename(&temp_path, &self.path).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(miette::miette!(
+                "Failed to rename cache file from {temp_path} to {}: {e}",
+                self.path
+            ));
+        }
 
         debug!("Persisted cache to {}", self.path);
         Ok(())

@@ -9,7 +9,7 @@ async fn test_provision_first() -> Result<()> {
     let mut context = ContainerContext::new()?;
 
     let TestContainer {
-        container: _base_container,
+        container: base_container,
         ports: PortMap { ssh, .. },
         ..
     } = context.make_base().await?;
@@ -29,6 +29,21 @@ async fn test_provision_first() -> Result<()> {
 
     makiatto_cli::machine::init_machine(&request, &mut config)?;
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // provisioning must install a *constrained* sudoers rule for the daemon —
+    // only the `ip` subcommands it needs, never blanket chmod/chown/mkdir/etc.
+    let base = base_container.expect("No base container");
+    let (sudoers, _) = util::execute_command(&base, "cat /etc/sudoers.d/makiatto").await?;
+    assert!(
+        sudoers.contains("ip route add") && sudoers.contains("ip link set"),
+        "sudoers rule missing expected ip grants: {sudoers}"
+    );
+    for forbidden in ["chmod", "chown", "mkdir", "setcap", "systemctl"] {
+        assert!(
+            !sudoers.contains(forbidden),
+            "sudoers rule must not grant unconstrained {forbidden}: {sudoers}"
+        );
+    }
 
     Ok(())
 }

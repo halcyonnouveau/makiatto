@@ -140,9 +140,14 @@ pub fn add_external_peer(request: &AddExternalPeer, profile: &Profile) -> Result
     ui::field("Endpoint", &request.endpoint);
 
     // Insert into peers table with is_external = 1
-    let sql = format!(
-        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver, is_external) VALUES ('{}', 0.0, 0.0, '{}', NULL, '{}', '{}', 0, 1)",
-        request.name, request.endpoint, request.wg_pubkey, wg_address,
+    let sql = corrosion::Statement::with_params(
+        "INSERT INTO peers (name, latitude, longitude, ipv4, ipv6, wg_public_key, wg_address, is_nameserver, is_external) VALUES (?, 0.0, 0.0, ?, NULL, ?, ?, 0, 1)",
+        vec![
+            serde_json::json!(request.name),
+            serde_json::json!(request.endpoint),
+            serde_json::json!(request.wg_pubkey),
+            serde_json::json!(wg_address),
+        ],
     );
 
     corrosion::execute_transactions(&ssh, &[sql])?;

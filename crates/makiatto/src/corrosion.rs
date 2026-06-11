@@ -3,6 +3,8 @@ use std::sync::{Arc, OnceLock};
 use camino::Utf8Path;
 use miette::Result;
 use schema::{DnsRecord, Peer};
+use serde::Serialize;
+use serde_json::Value;
 use sqlx::SqlitePool;
 use tracing::{error, info};
 use tripwire;
@@ -64,7 +66,7 @@ pub async fn get_pool() -> Result<&'static SqlitePool> {
     ))
 }
 
-/// Get all peers from the database, excluding the current machine
+/// Get all peers from the database (including the current machine).
 ///
 /// # Errors
 /// Returns an error if the database query fails
@@ -173,16 +175,52 @@ pub async fn get_domains() -> Result<Vec<String>> {
     Ok(domains)
 }
 
+/// A SQL statement for the Corrosion `/v1/transactions` API.
+///
+/// Serialises to Corrosion's wire format: a bare string for [`Statement::Simple`],
+/// or `[sql, [params]]` for [`Statement::WithParams`]. Always prefer the
+/// parameterised form for any value that is not a compile-time constant — the
+/// statement is gossiped to and executed on every node in the cluster, so an
+/// unescaped quote is a cluster-wide SQL injection.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum Statement {
+    /// A literal SQL statement with no bound parameters.
+    Simple(String),
+    /// A parameterised statement: `(sql, params)` bound positionally to `?`.
+    WithParams(String, Vec<Value>),
+}
+
+impl Statement {
+    /// Build a parameterised statement.
+    #[must_use]
+    pub fn with_params(sql: impl Into<String>, params: Vec<Value>) -> Self {
+        Self::WithParams(sql.into(), params)
+    }
+}
+
+impl From<String> for Statement {
+    fn from(sql: String) -> Self {
+        Self::Simple(sql)
+    }
+}
+
+impl From<&str> for Statement {
+    fn from(sql: &str) -> Self {
+        Self::Simple(sql.to_string())
+    }
+}
+
 /// Execute SQL transactions via Corrosion API
 ///
 /// # Errors
 /// Returns an error if the HTTP request fails or the API returns an error
-pub async fn execute_transactions(sqls: &[String]) -> Result<()> {
-    if sqls.is_empty() {
+pub async fn execute_transactions(statements: &[Statement]) -> Result<()> {
+    if statements.is_empty() {
         return Ok(());
     }
 
-    let json_payload = serde_json::to_string(sqls)
+    let json_payload = serde_json::to_string(statements)
         .map_err(|e| miette::miette!("Failed to serialise SQL statements: {e}"))?;
 
     let client = reqwest::Client::new();
@@ -246,4 +284,45 @@ pub async fn run(config: Arc<Config>, tripwire: tripwire::Tripwire) -> Result<()
 
     info!("Corrosion agent stopped");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::Statement;
+
+    #[test]
+    fn simple_statement_serialises_as_bare_string() {
+        let stmt = Statement::from("DELETE FROM files");
+        assert_eq!(
+            serde_json::to_string(&stmt).unwrap(),
+            r#""DELETE FROM files""#
+        );
+    }
+
+    #[test]
+    fn parameterised_statement_serialises_as_sql_and_params() {
+        let stmt = Statement::with_params(
+            "DELETE FROM files WHERE domain = ? AND path = ?",
+            vec![json!("a'; DROP TABLE files;--"), json!("/index.html")],
+        );
+        // the dangerous value stays in the params array, never interpolated into SQL
+        assert_eq!(
+            serde_json::to_string(&stmt).unwrap(),
+            r#"["DELETE FROM files WHERE domain = ? AND path = ?",["a'; DROP TABLE files;--","/index.html"]]"#
+        );
+    }
+
+    #[test]
+    fn transaction_batch_serialises_as_array() {
+        let stmts = vec![
+            Statement::from("BEGIN"),
+            Statement::with_params("INSERT INTO t VALUES (?)", vec![json!(1)]),
+        ];
+        assert_eq!(
+            serde_json::to_string(&stmts).unwrap(),
+            r#"["BEGIN",["INSERT INTO t VALUES (?)",[1]]]"#
+        );
+    }
 }

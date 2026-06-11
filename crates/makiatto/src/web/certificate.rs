@@ -270,35 +270,47 @@ impl CertificateManager {
 
         let next_check = now + self.config.acme.check_interval as i64;
 
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             r"INSERT OR REPLACE INTO certificate_renewals
             (domain, last_check, renewal_status, next_check, retry_count, last_renewal)
-            VALUES ('{domain}', {now}, '{status}', {next_check},
-                COALESCE((SELECT retry_count FROM certificate_renewals WHERE domain = '{domain}'), 0),
-                CASE WHEN '{status}' = 'completed' THEN {now} ELSE
-                    (SELECT last_renewal FROM certificate_renewals WHERE domain = '{domain}')
+            VALUES (?, ?, ?, ?,
+                COALESCE((SELECT retry_count FROM certificate_renewals WHERE domain = ?), 0),
+                CASE WHEN ? = 'completed' THEN ? ELSE
+                    (SELECT last_renewal FROM certificate_renewals WHERE domain = ?)
                 END
             )",
+            vec![
+                serde_json::json!(domain),
+                serde_json::json!(now),
+                serde_json::json!(status),
+                serde_json::json!(next_check),
+                serde_json::json!(domain),
+                serde_json::json!(status),
+                serde_json::json!(now),
+                serde_json::json!(domain),
+            ],
         );
 
         corrosion::execute_transactions(&[sql]).await
     }
 
     async fn increment_retry_count(&self, domain: &str) -> Result<()> {
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             r"UPDATE certificate_renewals
             SET retry_count = retry_count + 1
-            WHERE domain = '{domain}'",
+            WHERE domain = ?",
+            vec![serde_json::json!(domain)],
         );
 
         corrosion::execute_transactions(&[sql]).await
     }
 
     async fn reset_retry_count(&self, domain: &str) -> Result<()> {
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             r"UPDATE certificate_renewals
             SET retry_count = 0
-            WHERE domain = '{domain}'",
+            WHERE domain = ?",
+            vec![serde_json::json!(domain)],
         );
 
         corrosion::execute_transactions(&[sql]).await

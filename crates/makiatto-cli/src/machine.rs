@@ -575,6 +575,9 @@ pub fn remove_machine(request: &RemoveMachine, profile: &mut Profile) -> Result<
 
     ui::action("Removing configuration files");
     let _ = ssh.exec("sudo rm -rf /etc/makiatto");
+    // also remove the standalone config, which holds the WireGuard private key
+    let _ = ssh.exec("sudo rm -f /etc/makiatto.toml");
+    let _ = ssh.exec("sudo rm -f /etc/sudoers.d/makiatto");
 
     ui::action("Removing makiatto user");
     let _ = ssh.exec("sudo userdel -r makiatto 2>/dev/null");

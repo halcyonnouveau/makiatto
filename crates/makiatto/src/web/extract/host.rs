@@ -3,6 +3,7 @@
 // See: https://github.com/tokio-rs/axum/issues/3442
 
 use std::convert::Infallible;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::RequestPartsExt;
 use axum::extract::{FromRequestParts, OptionalFromRequestParts};
@@ -13,6 +14,15 @@ use http::{
 };
 
 const X_FORWARDED_HOST_HEADER_KEY: &str = "X-Forwarded-Host";
+
+/// Whether to trust `Forwarded` / `X-Forwarded-Host` headers. Defaults to false
+/// (safe for an internet-facing edge); set from config at server startup.
+pub static TRUST_FORWARDED_HOST: AtomicBool = AtomicBool::new(false);
+
+/// Configure whether forwarded headers are trusted when resolving the host.
+pub fn set_trust_forwarded_host(trust: bool) {
+    TRUST_FORWARDED_HOST.store(trust, Ordering::Relaxed);
+}
 
 #[derive(Debug, Clone)]
 pub struct Host(pub String);
@@ -50,20 +60,29 @@ where
 {
     type Rejection = Infallible;
 
+    // The trait method is `async fn`, but resolving the host only reads request
+    // parts synchronously — there is nothing to await. Keep the async signature
+    // to match the trait shape rather than returning an `impl Future`.
+    #[allow(clippy::unused_async_trait_impl)]
     async fn from_request_parts(
         parts: &mut Parts,
         _state: &S,
     ) -> Result<Option<Self>, Self::Rejection> {
-        if let Some(host) = parse_forwarded(&parts.headers) {
-            return Ok(Some(Self(host.to_owned())));
-        }
+        // Only consult the spoofable forwarded headers when explicitly trusted
+        // (i.e. behind a known reverse proxy). On an internet-facing edge these
+        // are attacker-controlled and must not override the real Host.
+        if TRUST_FORWARDED_HOST.load(Ordering::Relaxed) {
+            if let Some(host) = parse_forwarded(&parts.headers) {
+                return Ok(Some(Self(host.to_owned())));
+            }
 
-        if let Some(host) = parts
-            .headers
-            .get(X_FORWARDED_HOST_HEADER_KEY)
-            .and_then(|host| host.to_str().ok())
-        {
-            return Ok(Some(Self(host.to_owned())));
+            if let Some(host) = parts
+                .headers
+                .get(X_FORWARDED_HOST_HEADER_KEY)
+                .and_then(|host| host.to_str().ok())
+            {
+                return Ok(Some(Self(host.to_owned())));
+            }
         }
 
         if let Some(host) = parts

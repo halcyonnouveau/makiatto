@@ -99,15 +99,27 @@ impl CertificateStore {
 
     /// Save a certificate to the database and update memory cache
     ///
+    /// Note: the private key is stored base64-encoded but **unencrypted** in the
+    /// replicated `certificates` table, so it is readable by any node in the
+    /// cluster and by anything with access to `cluster.db`. This is inherent to
+    /// the current replication design; protect the database file and the
+    /// `WireGuard` mesh accordingly.
+    ///
     /// # Errors
     /// Returns an error if the database transaction fails
     pub async fn save_certificate(&self, cert: Certificate) -> Result<()> {
         let cert_pem_b64 = BASE64_STANDARD.encode(cert.certificate_pem.as_bytes());
         let key_pem_b64 = BASE64_STANDARD.encode(cert.private_key_pem.as_bytes());
 
-        let sql = format!(
-            "INSERT OR REPLACE INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES ('{}', '{}', '{}', {}, '{}')",
-            cert.domain, cert_pem_b64, key_pem_b64, cert.expires_at, cert.issuer
+        let sql = corrosion::Statement::with_params(
+            "INSERT OR REPLACE INTO certificates (domain, certificate_pem, private_key_pem, expires_at, issuer) VALUES (?, ?, ?, ?, ?)",
+            vec![
+                serde_json::json!(cert.domain.as_ref()),
+                serde_json::json!(cert_pem_b64),
+                serde_json::json!(key_pem_b64),
+                serde_json::json!(cert.expires_at),
+                serde_json::json!(cert.issuer.as_ref()),
+            ],
         );
 
         // update memory cache
@@ -162,7 +174,13 @@ impl CertificateStore {
         let mut certified_keys = HashMap::new();
         let mut default_cert = None;
 
-        for (domain, cert) in certificates.iter() {
+        // iterate in a stable (sorted) order so the chosen default certificate is
+        // deterministic across restarts rather than depending on HashMap ordering
+        let mut domains: Vec<&String> = certificates.keys().collect();
+        domains.sort();
+
+        for domain in domains {
+            let cert = &certificates[domain];
             let cert_chain = load_certs_from_pem(&cert.certificate_pem)
                 .map_err(|e| miette::miette!("Failed to parse PEM for {domain}: {e}"))?;
 

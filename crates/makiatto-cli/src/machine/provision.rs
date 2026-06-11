@@ -75,13 +75,26 @@ fn create_makiatto_user(ssh: &SshSession) -> Result<()> {
     ui::action("Setting up passwordless sudo permissions");
     let sudoers_cmd = formatdoc! {r"
         sudo tee /etc/sudoers.d/makiatto > /dev/null << 'EOF'
-        makiatto ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/sbin/setcap, /usr/bin/mkdir, /usr/bin/chown, /usr/bin/chmod, /usr/bin/ip, /usr/sbin/ip
+        {rule}
         EOF
-    "};
+        sudo chmod 440 /etc/sudoers.d/makiatto
+    ",
+        rule = MAKIATTO_SUDOERS_RULE,
+    };
     ssh.exec(&sudoers_cmd)?;
 
     Ok(())
 }
+
+/// The NOPASSWD sudoers rule installed for the `makiatto` daemon user.
+///
+/// The daemon (running as `makiatto`) only ever needs to manage its `WireGuard`
+/// interface and routes at runtime. We constrain NOPASSWD to exactly those `ip`
+/// subcommands rather than granting blanket access to chmod/chown/mkdir/setcap/
+/// systemctl on any path (which would be equivalent to full root). Everything
+/// else (provisioning, upgrades, restarts) runs as the SSH user with its own
+/// interactive sudo.
+const MAKIATTO_SUDOERS_RULE: &str = "makiatto ALL=(ALL) NOPASSWD: /usr/sbin/ip link set * up, /usr/sbin/ip route add *, /usr/sbin/ip route del *, /usr/bin/ip link set * up, /usr/bin/ip route add *, /usr/bin/ip route del *";
 
 pub fn install_makiatto_binary(ssh: &SshSession, binary_path: Option<&PathBuf>) -> Result<()> {
     ui::status("Installing makiatto binary...");
@@ -358,6 +371,8 @@ fn create_daemon_config(
     };
     ssh.exec(&write_config_cmd)?;
     ssh.exec("sudo chown makiatto:makiatto /etc/makiatto.toml")?;
+    // the config holds the WireGuard private key, so it must not be world-readable
+    ssh.exec("sudo chmod 600 /etc/makiatto.toml")?;
 
     Ok(())
 }
@@ -504,11 +519,13 @@ fn retrieve_geolocation(ssh: &SshSession) -> Result<GeoData> {
     match ipv4_result {
         Ok(ipv4) => {
             let ipv4 = ipv4.trim();
-            if !ipv4.is_empty() && !ipv4.contains("error") && ipv4.contains('.') {
+            // validate it actually parses as an IPv4 address rather than just
+            // "looks like one", so a proxy error page can't end up stored as an IP
+            if ipv4.parse::<std::net::Ipv4Addr>().is_ok() {
                 ui::info(&format!("Fetched IPv4: {ipv4}"));
                 data.ipv4 = Arc::from(ipv4);
             } else {
-                return Err(miette::miette!("Could not fetch IPv4 address"));
+                return Err(miette::miette!("Could not fetch a valid IPv4 address"));
             }
         }
         Err(_) => {
@@ -523,7 +540,7 @@ fn retrieve_geolocation(ssh: &SshSession) -> Result<GeoData> {
     match ipv6_result {
         Ok(ipv6) => {
             let ipv6 = ipv6.trim();
-            if !ipv6.is_empty() && !ipv6.contains("error") && ipv6.contains(':') {
+            if ipv6.parse::<std::net::Ipv6Addr>().is_ok() {
                 ui::info(&format!("Fetched IPv6: {ipv6}"));
                 data.ipv6 = Some(Arc::from(ipv6));
             }
@@ -556,4 +573,27 @@ fn retrieve_geolocation(ssh: &SshSession) -> Result<GeoData> {
     }
 
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MAKIATTO_SUDOERS_RULE;
+
+    #[test]
+    fn sudoers_rule_is_constrained_to_ip() {
+        // must only grant the specific `ip` subcommands the daemon needs
+        assert!(MAKIATTO_SUDOERS_RULE.contains("NOPASSWD:"));
+        assert!(MAKIATTO_SUDOERS_RULE.contains("ip route add"));
+        assert!(MAKIATTO_SUDOERS_RULE.contains("ip route del"));
+        assert!(MAKIATTO_SUDOERS_RULE.contains("ip link set"));
+
+        // must NOT grant the previously over-broad blanket binaries (which with
+        // no argument constraints were equivalent to full root)
+        for forbidden in ["chmod", "chown", "mkdir", "setcap", "systemctl"] {
+            assert!(
+                !MAKIATTO_SUDOERS_RULE.contains(forbidden),
+                "sudoers rule must not grant unconstrained {forbidden}"
+            );
+        }
+    }
 }

@@ -15,6 +15,11 @@ use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::config::WasmConfig;
 
+/// Upper bound on the request/response body we will buffer in memory when
+/// running WASM functions and transforms. Prevents an oversized body from
+/// exhausting memory before any per-function size limit is applied.
+pub(crate) const MAX_WASM_BODY_BYTES: usize = 32 * 1024 * 1024; // 32 MiB
+
 pub mod http_bindings {
     wasmtime::component::bindgen!({
         world: "http",
@@ -152,7 +157,25 @@ fn is_private_or_reserved_ip(ip: IpAddr) -> bool {
                 // AWS/cloud metadata endpoints
                 || ipv4.octets() == [169, 254, 169, 254]
         }
-        IpAddr::V6(ipv6) => ipv6.is_loopback() || ipv6.is_unspecified() || ipv6.is_multicast(),
+        IpAddr::V6(ipv6) => {
+            // unwrap IPv4-mapped addresses (e.g. ::ffff:169.254.169.254) and run
+            // them through the IPv4 checks, otherwise the v4 ranges are bypassable
+            if let Some(v4) = ipv6.to_ipv4_mapped() {
+                return is_private_or_reserved_ip(IpAddr::V4(v4));
+            }
+
+            let segments = ipv6.segments();
+            // fc00::/7 unique-local and fe80::/10 link-local are not covered by
+            // the std loopback/unspecified/multicast checks
+            let is_unique_local = (segments[0] & 0xfe00) == 0xfc00;
+            let is_link_local = (segments[0] & 0xffc0) == 0xfe80;
+
+            ipv6.is_loopback()
+                || ipv6.is_unspecified()
+                || ipv6.is_multicast()
+                || is_unique_local
+                || is_link_local
+        }
     }
 }
 
@@ -199,5 +222,48 @@ pub(crate) fn create_store_data(
         wasi,
         table,
         limits,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_private_or_reserved_ip;
+
+    fn blocked(ip: &str) -> bool {
+        is_private_or_reserved_ip(ip.parse().unwrap())
+    }
+
+    #[test]
+    fn blocks_private_and_reserved_ipv4() {
+        assert!(blocked("127.0.0.1"));
+        assert!(blocked("10.0.0.1"));
+        assert!(blocked("192.168.1.1"));
+        assert!(blocked("169.254.169.254")); // cloud metadata
+        assert!(blocked("0.0.0.0"));
+    }
+
+    #[test]
+    fn allows_public_ipv4() {
+        assert!(!blocked("8.8.8.8"));
+        assert!(!blocked("1.1.1.1"));
+    }
+
+    #[test]
+    fn blocks_ipv6_bypasses() {
+        // the bypasses the review specifically called out
+        assert!(blocked("::ffff:169.254.169.254")); // v4-mapped cloud metadata
+        assert!(blocked("::ffff:127.0.0.1")); // v4-mapped loopback
+        assert!(blocked("::ffff:10.0.0.1")); // v4-mapped private
+        assert!(blocked("fc00::1")); // unique-local
+        assert!(blocked("fd12:3456::1")); // unique-local
+        assert!(blocked("fe80::1")); // link-local
+        assert!(blocked("::1")); // loopback
+        assert!(blocked("::")); // unspecified
+    }
+
+    #[test]
+    fn allows_public_ipv6() {
+        assert!(!blocked("2606:4700:4700::1111")); // cloudflare
+        assert!(!blocked("2001:4860:4860::8888")); // google
     }
 }

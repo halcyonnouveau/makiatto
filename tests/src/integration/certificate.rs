@@ -199,7 +199,7 @@ async fn test_certificate_replacement() -> Result<()> {
         &format!("SELECT COUNT(*) FROM certificates WHERE domain = '{domain}';"),
     )
     .await?;
-    assert!(output.trim() == "1");
+    assert_eq!(output.trim(), "1");
 
     // replace with new certificate (longer expiry)
     let new_expires_at = util::current_timestamp() + (90 * 86400); // 90 days

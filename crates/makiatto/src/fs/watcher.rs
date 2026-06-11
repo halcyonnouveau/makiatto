@@ -9,6 +9,7 @@ use notify_debouncer_full::{
     notify::{EventKind, RecursiveMode, event::CreateKind},
 };
 use rand::{RngExt, seq::SliceRandom};
+use serde_json::json;
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncWriteExt},
@@ -23,6 +24,19 @@ use crate::{
 };
 
 const STREAMING_THRESHOLD: u64 = 100 * 1024 * 1024; // 100MB
+
+/// Filename prefix used for the daemon's own temporary files (atomic
+/// hardlink/copy staging). These live briefly inside the watched `static_dir`,
+/// so the watcher must ignore them — otherwise it would react to its own writes
+/// and churn (or delete) the very files it just created.
+const TEMP_FILE_PREFIX: &str = ".makiatto-tmp.";
+
+/// Returns true if `path` is one of the daemon's internal temp files.
+pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with(TEMP_FILE_PREFIX))
+}
 
 /// File watcher service that monitors `static_dir` for changes
 ///
@@ -94,18 +108,28 @@ async fn handle_debounced_events(
     let mut delete_paths = Vec::new();
 
     for event in events {
+        let Some(path) = event.paths.first() else {
+            continue;
+        };
+
+        // ignore our own staging temp files; reacting to them would make the
+        // watcher chase its own hardlink/copy writes and churn real files
+        if is_temp_file(path) {
+            continue;
+        }
+
         match event.kind {
             EventKind::Create(CreateKind::File) => {
-                debug!("File created: {}", event.paths[0].display());
-                file_paths.push(event.paths[0].clone());
+                debug!("File created: {}", path.display());
+                file_paths.push(path.clone());
             }
             EventKind::Modify(_) => {
-                debug!("File modified: {}", event.paths[0].display());
-                file_paths.push(event.paths[0].clone());
+                debug!("File modified: {}", path.display());
+                file_paths.push(path.clone());
             }
             EventKind::Remove(_) => {
-                debug!("File removed: {}", event.paths[0].display());
-                delete_paths.push(event.paths[0].clone());
+                debug!("File removed: {}", path.display());
+                delete_paths.push(path.clone());
             }
             _ => {}
         }
@@ -217,6 +241,11 @@ pub async fn process_file_change(
     static_dir: &std::path::Path,
     storage_dir: &std::path::Path,
 ) -> Result<Option<File>> {
+    // never track our own staging temp files
+    if is_temp_file(file_path) {
+        return Ok(None);
+    }
+
     if !file_path.is_file() {
         return Ok(None);
     }
@@ -314,11 +343,11 @@ pub async fn process_file_change(
 /// # Errors
 /// Returns an error if database operations fail
 pub async fn update_file_records(records: &[File], config: &Config) -> Result<()> {
+    let pool = corrosion::get_pool().await?;
     let mut sqls = Vec::new();
     let mut existing_hashes = Vec::new();
 
     for record in records {
-        let pool = corrosion::get_pool().await?;
         let domain_str = record.domain.as_ref();
         let path_str = record.path.as_ref();
         let content_hash = record.content_hash.as_ref();
@@ -332,18 +361,20 @@ pub async fn update_file_records(records: &[File], config: &Config) -> Result<()
         .await
         .map_err(|e| miette::miette!("Failed to check existing file record: {e}"))?;
 
-        let sql = format!(
+        let sql = corrosion::Statement::with_params(
             "INSERT INTO files (domain, path, content_hash, size, modified_at)
-            VALUES ('{}', '{}', '{}', {}, {})
-            ON CONFLICT(domain, path) DO UPDATE SET content_hash='{}', size={}, modified_at={}",
-            record.domain,
-            record.path,
-            record.content_hash,
-            record.size,
-            record.modified_at,
-            record.content_hash,
-            record.size,
-            record.modified_at
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(domain, path) DO UPDATE SET content_hash = ?, size = ?, modified_at = ?",
+            vec![
+                json!(record.domain.as_ref()),
+                json!(record.path.as_ref()),
+                json!(record.content_hash.as_ref()),
+                json!(record.size),
+                json!(record.modified_at),
+                json!(record.content_hash.as_ref()),
+                json!(record.size),
+                json!(record.modified_at),
+            ],
         );
 
         sqls.push(sql);
@@ -383,10 +414,13 @@ async fn delete_file_records(records: &[(String, String)]) -> Result<()> {
         return Ok(());
     }
 
-    let sqls: Vec<String> = records
+    let sqls: Vec<corrosion::Statement> = records
         .iter()
         .map(|(domain, path)| {
-            format!("DELETE FROM files WHERE domain = '{domain}' AND path = '{path}'")
+            corrosion::Statement::with_params(
+                "DELETE FROM files WHERE domain = ? AND path = ?",
+                vec![json!(domain), json!(path)],
+            )
         })
         .collect();
 
@@ -445,8 +479,14 @@ async fn recreate_hardlinks_for_content(config: &Config, content_hash: &str) -> 
     }
 
     for (domain, path) in files {
-        let domain_dir = config.web.static_dir.as_std_path().join(&domain);
-        let file_path = domain_dir.join(path.trim_start_matches('/'));
+        let file_path =
+            match util::contained_path(config.web.static_dir.as_std_path(), &domain, &path) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!("Skipping unsafe file record {domain}{path}: {e}");
+                    continue;
+                }
+            };
 
         // Check if file exists and is properly hardlinked
         if file_path.exists() {
@@ -630,8 +670,7 @@ pub async fn recreate_domain_file(
     path: &str,
     content_hash: &str,
 ) -> Result<()> {
-    let domain_dir = config.web.static_dir.as_std_path().join(domain);
-    let file_path = domain_dir.join(path.trim_start_matches('/'));
+    let file_path = util::contained_path(config.web.static_dir.as_std_path(), domain, path)?;
     let content_path = config.fs.storage_dir.join(content_hash);
 
     if let Some(parent) = file_path.parent() {
@@ -662,6 +701,30 @@ fn should_fallback_to_copy(err: &std::io::Error) -> bool {
     }
 }
 
+/// Check if an IO error is a cross-device (EXDEV) failure.
+fn is_cross_device(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::CrossesDevices || err.raw_os_error() == Some(18)
+}
+
+/// Copy `source` directly over `target`, overwriting it in place.
+///
+/// Used as the cross-filesystem fallback when an atomic hardlink+rename isn't
+/// possible. This overwrites the existing target's contents (rather than
+/// swapping it via rename), which keeps the change confined to a single
+/// in-place modification the file watcher can safely ignore as a no-op.
+async fn copy_over(source: &std::path::Path, target: &std::path::Path) -> Result<()> {
+    tokio::fs::copy(source, target)
+        .await
+        .map(|_| ())
+        .map_err(|e| {
+            miette::miette!(
+                "Failed to copy {} over {}: {e}",
+                source.display(),
+                target.display()
+            )
+        })
+}
+
 /// Create hardlink with fallback to copy for cross-filesystem scenarios
 async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> Result<()> {
     // Check if target already exists and is the same hardlink
@@ -674,8 +737,15 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
             return Ok(());
         }
 
-        // file exists but isn't the right hardlink - use atomic rename
-        let temp_filename = format!(".tmp.{}", uuid::Uuid::new_v4());
+        // File exists but isn't the right hardlink — replace it atomically.
+        //
+        // Stage the temp hardlink in the SOURCE's (content storage) directory,
+        // which is NOT under the watched static_dir. Renaming from outside the
+        // watched tree produces a single MOVED_TO event for the target and never
+        // a spurious "removed" event. (Staging inside the watched tree made the
+        // file watcher observe the rename as a delete+create and tear down the
+        // file it had just linked.)
+        let temp_filename = format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4());
 
         let temp_path = source
             .parent()
@@ -692,6 +762,14 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
                     );
                     Ok(())
                 }
+                Err(ref e) if is_cross_device(e) => {
+                    // storage and the site directory are on different
+                    // filesystems, so the temp hardlink can't be renamed across
+                    // the boundary. Drop it and copy the content directly over
+                    // the target instead (in place, preserving the inode).
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    copy_over(source, target).await
+                }
                 Err(e) => {
                     let _ = tokio::fs::remove_file(&temp_path).await;
                     Err(miette::miette!("Failed to rename temp hardlink: {e}"))
@@ -705,17 +783,7 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
                     source.display(),
                     target.display()
                 );
-                tokio::fs::copy(source, &temp_path)
-                    .await
-                    .map_err(|e| miette::miette!("Failed to copy file for fallback: {e}"))?;
-
-                match tokio::fs::rename(&temp_path, target).await {
-                    Ok(()) => Ok(()),
-                    Err(e) => {
-                        let _ = tokio::fs::remove_file(&temp_path).await;
-                        Err(miette::miette!("Failed to rename temp file: {e}"))
-                    }
-                }
+                copy_over(source, target).await
             }
             Err(e) => Err(miette::miette!(
                 "Failed to create temp hardlink {}: {e}",
@@ -759,8 +827,7 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
 /// # Errors
 /// Returns an error if the file cannot be deleted
 pub async fn delete_domain_file(config: &Config, domain: &str, path: &str) -> Result<()> {
-    let domain_dir = config.web.static_dir.as_std_path().join(domain);
-    let file_path = domain_dir.join(path.trim_start_matches('/'));
+    let file_path = util::contained_path(config.web.static_dir.as_std_path(), domain, path)?;
 
     if file_path.exists() {
         tokio::fs::remove_file(&file_path)
@@ -783,9 +850,18 @@ async fn store_content(storage_dir: &PathBuf, content: &[u8]) -> Result<String> 
         .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
 
     if !file_path.exists() {
-        fs::write(&file_path, content)
+        // write to a temp file then atomically rename, so a crash mid-write can
+        // never leave a truncated file under the content hash (which the
+        // exists() check would otherwise treat as valid forever)
+        let temp_path = storage_dir.join(format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4()));
+        fs::write(&temp_path, content)
             .await
             .map_err(|e| miette::miette!("Failed to write file {hash}: {e}"))?;
+
+        if let Err(e) = fs::rename(&temp_path, &file_path).await {
+            let _ = fs::remove_file(&temp_path).await;
+            return Err(miette::miette!("Failed to store file {hash}: {e}"));
+        }
         debug!("Stored new file {hash} ({} bytes)", content.len());
     }
 
@@ -822,9 +898,17 @@ async fn store_content_streaming(
             .await
             .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
 
-        tokio::fs::copy(file_path, &storage_path)
+        // copy to a temp file then atomically rename to avoid leaving a partial
+        // file under the content hash if we crash mid-copy
+        let temp_path = storage_dir.join(format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4()));
+        tokio::fs::copy(file_path, &temp_path)
             .await
             .map_err(|e| miette::miette!("Failed to copy large file to storage: {e}"))?;
+
+        if let Err(e) = tokio::fs::rename(&temp_path, &storage_path).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(miette::miette!("Failed to store large file {hash}: {e}"));
+        }
 
         debug!(
             "Stored large file {hash} ({} MB)",
@@ -889,33 +973,83 @@ async fn stream_download_and_verify(
         .await
         .map_err(|e| miette::miette!("Failed to create storage directory: {e}"))?;
 
+    // stream into a temp file; only promote to the content-hash path after the
+    // hash is verified, so a partial or corrupt download is never visible
+    let temp_path = storage_dir.join(format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4()));
     let mut stream = response.bytes_stream();
     let mut hasher = Hasher::new();
-    let mut output_file = tokio::fs::File::create(&storage_path)
+    let mut output_file = tokio::fs::File::create(&temp_path)
         .await
         .map_err(|e| miette::miette!("Failed to create storage file: {e}"))?;
 
     while let Some(chunk_result) = stream.next().await {
-        let chunk =
-            chunk_result.map_err(|e| miette::miette!("Failed to read download chunk: {e}"))?;
+        let chunk = match chunk_result {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(miette::miette!("Failed to read download chunk: {e}"));
+            }
+        };
 
         hasher.update(&chunk);
-        output_file
-            .write_all(&chunk)
-            .await
-            .map_err(|e| miette::miette!("Failed to write download chunk: {e}"))?;
+        if let Err(e) = output_file.write_all(&chunk).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(miette::miette!("Failed to write download chunk: {e}"));
+        }
     }
 
     let actual_hash = format!("{}", hasher.finalize());
 
     if actual_hash != expected_hash {
         // clean up failed download
-        let _ = tokio::fs::remove_file(&storage_path).await;
+        let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(miette::miette!(
             "Hash mismatch: expected {expected_hash}, got {actual_hash}"
         ));
     }
 
+    if let Err(e) = tokio::fs::rename(&temp_path, &storage_path).await {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(miette::miette!("Failed to store streamed file: {e}"));
+    }
+
     debug!("Successfully streamed and verified file {expected_hash}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Error;
+    use std::path::Path;
+
+    use super::{TEMP_FILE_PREFIX, is_cross_device, is_temp_file, should_fallback_to_copy};
+
+    #[test]
+    fn temp_files_are_recognised_and_ignored() {
+        assert!(is_temp_file(Path::new(&format!(
+            "/sites/localhost/api/{TEMP_FILE_PREFIX}abc-123"
+        ))));
+        // real content files must NOT be treated as temp files
+        assert!(!is_temp_file(Path::new("/sites/localhost/api/hello.wasm")));
+        assert!(!is_temp_file(Path::new("/sites/localhost/index.html")));
+        // a similar-but-not-matching name is not a temp file
+        assert!(!is_temp_file(Path::new("/sites/localhost/.makiatto-tmp")));
+    }
+
+    #[test]
+    fn cross_device_is_detected_from_exdev() {
+        // EXDEV (18) is the cross-filesystem error the copy fallback handles
+        assert!(is_cross_device(&Error::from_raw_os_error(18)));
+        assert!(!is_cross_device(&Error::from_raw_os_error(1))); // EPERM
+        assert!(!is_cross_device(&Error::from_raw_os_error(13))); // EACCES
+    }
+
+    #[test]
+    fn copy_fallback_covers_perm_and_xdev() {
+        assert!(should_fallback_to_copy(&Error::from_raw_os_error(1))); // EPERM
+        assert!(should_fallback_to_copy(&Error::from_raw_os_error(13))); // EACCES
+        assert!(should_fallback_to_copy(&Error::from_raw_os_error(18))); // EXDEV
+        // a generic IO error should not trigger the copy fallback
+        assert!(!should_fallback_to_copy(&Error::from_raw_os_error(2))); // ENOENT
+    }
 }

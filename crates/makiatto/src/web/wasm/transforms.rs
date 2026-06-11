@@ -120,10 +120,12 @@ pub(crate) async fn wasm_transform_middleware(
         return next.run(request).await;
     };
 
-    let hostname = host
-        .split_once(':')
-        .map_or(host.as_str(), |(hostname, _)| hostname);
+    let hostname = crate::util::host_without_port(&host);
     let resolved_domain = crate::web::axum::resolve_cname(&state.cname_map, hostname);
+
+    if !crate::util::is_safe_domain(&resolved_domain) {
+        return next.run(request).await;
+    }
 
     let request_path = request.uri().path().to_string();
 
@@ -194,10 +196,10 @@ pub(crate) async fn wasm_transform_middleware(
 
     let (mut parts, body) = response.into_parts();
 
-    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
+    let body_bytes = match axum::body::to_bytes(body, super::MAX_WASM_BODY_BYTES).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            tracing::error!("Failed to read response body: {e}");
+            tracing::error!("Failed to read response body for transform: {e}");
             return (parts, Body::empty()).into_response();
         }
     };
@@ -214,7 +216,13 @@ pub(crate) async fn wasm_transform_middleware(
     let domain_dir = state.static_dir.join(&resolved_domain);
 
     for transform in matching_transforms {
-        let wasm_path = domain_dir.join(&transform.path);
+        // the transform path comes from the replicated DB; contain it
+        let Ok(wasm_path) =
+            crate::util::contained_path(&state.static_dir, &resolved_domain, &transform.path)
+        else {
+            tracing::error!("Rejected unsafe wasm transform path: {:?}", transform.path);
+            continue;
+        };
 
         let transform_with_path = DomainTransform {
             path: wasm_path.to_string_lossy().to_string(),

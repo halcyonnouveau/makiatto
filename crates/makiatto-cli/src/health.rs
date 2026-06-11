@@ -223,7 +223,39 @@ async fn check_node_health(
     expected_hashes: &HashSet<String>,
     key_path: Option<&PathBuf>,
 ) -> NodeHealth {
-    let ssh = SshSession::new(&machine.ssh_target, machine.port, key_path).unwrap();
+    let ssh = match SshSession::new(&machine.ssh_target, machine.port, key_path) {
+        Ok(ssh) => ssh,
+        Err(e) => {
+            // Surface the node as unreachable rather than panicking the task: a
+            // swallowed panic here would shrink the result set and let the
+            // remaining nodes look like a healthy consensus.
+            return NodeHealth {
+                name: machine.name.clone(),
+                consensus: ConsensusStatus {
+                    healthy: false,
+                    leader: None,
+                    term: None,
+                    error: Some(format!("SSH connection failed: {e}")),
+                },
+                system: SystemStatus {
+                    healthy: false,
+                    memory_percent: None,
+                    disk_percent: None,
+                    load_average: None,
+                    error: Some("unreachable".to_string()),
+                },
+                dns: None,
+                web: vec![],
+                file_sync: FileSyncStatus {
+                    expected: 0,
+                    present: 0,
+                    missing: vec![],
+                    error: Some("unreachable".to_string()),
+                },
+                version: None,
+            };
+        }
+    };
 
     let consensus = check_consensus(&ssh).await;
     let system = check_system_health(&ssh).await;
@@ -275,7 +307,8 @@ async fn check_consensus(ssh: &SshSession) -> ConsensusStatus {
 
     match tokio::task::spawn_blocking(move || {
         let query = "SELECT node_name, role, term FROM cluster_leadership LIMIT 1";
-        let cmd = format!("sqlite3 /var/makiatto/cluster.db -separator '|' \"{query}\"");
+        let cmd =
+            format!("sudo -u makiatto sqlite3 /var/makiatto/cluster.db -separator '|' \"{query}\"");
 
         let output = ssh.exec(&cmd)?;
         let line = output.lines().next().unwrap_or("");

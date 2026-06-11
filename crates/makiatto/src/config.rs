@@ -117,6 +117,13 @@ pub struct WebConfig {
     /// Request timeout in seconds (default: 60)
     #[serde(default = "default_request_timeout_secs")]
     pub request_timeout_secs: u64,
+
+    /// Trust `Forwarded` / `X-Forwarded-Host` headers when resolving the request
+    /// host. Only enable this behind a trusted reverse proxy — on an
+    /// internet-facing edge these headers are client-spoofable and would let an
+    /// attacker choose which site is served (default: false).
+    #[serde(default = "default_false")]
+    pub trust_forwarded_host: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -140,6 +147,11 @@ pub struct ImageConfig {
     /// Allowed output formats
     #[serde(default = "default_allowed_formats")]
     pub allowed_formats: Vec<String>,
+
+    /// Maximum source image size in bytes that will be decoded (guards against
+    /// decode-bomb / memory-exhaustion via a huge source file)
+    #[serde(default = "default_max_source_bytes")]
+    pub max_source_bytes: u64,
 }
 
 impl Default for ImageConfig {
@@ -150,8 +162,13 @@ impl Default for ImageConfig {
             max_width: default_max_dimension(),
             max_height: default_max_dimension(),
             allowed_formats: default_allowed_formats(),
+            max_source_bytes: default_max_source_bytes(),
         }
     }
+}
+
+fn default_max_source_bytes() -> u64 {
+    50 * 1024 * 1024 // 50 MiB
 }
 
 fn default_max_concurrent_requests() -> usize {

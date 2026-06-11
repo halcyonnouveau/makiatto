@@ -70,7 +70,7 @@ pub async fn execute_function(
     let query = parts.uri.query().map(std::string::ToString::to_string);
     let headers = convert_headers(&parts.headers);
 
-    let body_bytes = axum::body::to_bytes(body, usize::MAX)
+    let body_bytes = axum::body::to_bytes(body, super::MAX_WASM_BODY_BYTES)
         .await
         .map_err(|e| miette!("Failed to read request body: {e}"))?;
     let body_vec = if body_bytes.is_empty() {
@@ -152,13 +152,13 @@ pub(crate) async fn wasm_function_middleware(
         return next.run(request).await;
     };
 
-    let (hostname, _port) = host
-        .split_once(':')
-        .map_or((host.as_str(), 80u16), |(hostname, port_str)| {
-            (hostname, port_str.parse::<u16>().unwrap_or(80))
-        });
+    let hostname = crate::util::host_without_port(&host);
 
     let resolved_domain = crate::web::axum::resolve_cname(&state.cname_map, hostname);
+
+    if !crate::util::is_safe_domain(&resolved_domain) {
+        return next.run(request).await;
+    }
 
     let request_path = request.uri().path();
     let method = request.method().clone();
@@ -211,7 +211,12 @@ pub(crate) async fn wasm_function_middleware(
     };
 
     let domain_dir = state.static_dir.join(&resolved_domain);
-    let wasm_path = domain_dir.join(&row.path);
+    // the wasm path comes from the replicated DB; contain it under the domain dir
+    let Ok(wasm_path) = crate::util::contained_path(&state.static_dir, &resolved_domain, &row.path)
+    else {
+        tracing::error!("Rejected unsafe wasm function path: {:?}", row.path);
+        return next.run(request).await;
+    };
 
     match std::panic::AssertUnwindSafe(execute_function(
         wasm_runtime,

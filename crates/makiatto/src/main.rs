@@ -49,6 +49,9 @@ struct Args {
     only: Option<String>,
 }
 
+/// Max time to wait for services to wind down after a shutdown is requested.
+const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[allow(clippy::struct_excessive_bools)]
 struct ServiceFlags {
     wireguard: bool,
@@ -312,35 +315,78 @@ async fn main() -> Result<()> {
     let mut sigterm = signal(SignalKind::terminate())
         .map_err(|e| miette::miette!("Failed to setup SIGTERM handler: {e}"))?;
 
+    if handles.is_empty() {
+        tokio::select! {
+            _ = sigterm.recv() => info!("Received SIGTERM, shutting down..."),
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|e| miette::miette!("Failed to listen for ctrl+c: {e}"))?;
+                info!("Received SIGINT, shutting down...");
+            }
+        }
+        drop(tripwire_worker);
+        return Ok(());
+    }
+
+    // Supervise services with `select_all` so that the FIRST task to exit (clean,
+    // error, or panic) is noticed immediately, rather than waiting for every task
+    // like `join_all` would.
+    let mut services = futures::future::select_all(handles);
+
     tokio::select! {
         _ = sigterm.recv() => {
             info!("Received SIGTERM, shutting down...");
-            drop(tripwire_worker);
         }
         result = tokio::signal::ctrl_c() => {
             match result {
-                Ok(()) => {
-                    info!("Received SIGINT, shutting down...");
-                    drop(tripwire_worker);
-                }
+                Ok(()) => info!("Received SIGINT, shutting down..."),
                 Err(e) => return Err(miette::miette!("Failed to listen for ctrl+c: {e}")),
             }
         }
-        result = futures::future::join_all(handles) => {
-            for (i, res) in result.into_iter().enumerate() {
-                match res {
-                    Ok(Ok(service)) => info!("Service '{service}' stopped cleanly"),
-                    Ok(Err(e)) => {
-                        tracing::error!("Service failed: {e}");
-                        return Err(miette::miette!(e));
-                    }
-                    Err(e) => {
-                        tracing::error!("Service task panicked: {e}");
-                        return Err(miette::miette!("Service task {i} panicked: {e}"));
-                    }
+        (result, idx, rest) = &mut services => {
+            // a service exited on its own — record the outcome, then bring the
+            // rest down gracefully before returning
+            let outcome = match result {
+                Ok(Ok(service)) => {
+                    info!("Service '{service}' stopped cleanly");
+                    Ok(())
                 }
+                Ok(Err(e)) => {
+                    error!("Service failed: {e}");
+                    Err(miette::miette!(e))
+                }
+                Err(e) => {
+                    error!("Service task panicked: {e}");
+                    Err(miette::miette!("Service task {idx} panicked: {e}"))
+                }
+            };
+
+            drop(tripwire_worker);
+            if tokio::time::timeout(SHUTDOWN_TIMEOUT, futures::future::join_all(rest))
+                .await
+                .is_err()
+            {
+                error!("Timed out waiting for remaining services to stop");
+            }
+            return outcome;
+        }
+    }
+
+    // a signal was received: trip the shutdown and wait for services to finish so
+    // cleanup (e.g. wireguard::cleanup_interface) can run, bounded by a timeout
+    drop(tripwire_worker);
+
+    match tokio::time::timeout(SHUTDOWN_TIMEOUT, services).await {
+        Ok((_result, _idx, rest)) => {
+            if tokio::time::timeout(SHUTDOWN_TIMEOUT, futures::future::join_all(rest))
+                .await
+                .is_err()
+            {
+                error!("Timed out waiting for remaining services to stop");
             }
             info!("All services stopped");
+        }
+        Err(_) => {
+            error!("Timed out waiting for services to stop cleanly");
         }
     }
 

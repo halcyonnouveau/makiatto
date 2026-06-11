@@ -20,7 +20,11 @@ use crate::{
     wireguard::{WireguardManager, resolve_endpoint},
 };
 
-const MAX_BACKOFF_SECS: u64 = 86400; // 1 day
+const MAX_BACKOFF_SECS: u64 = 300; // 5 minutes
+
+/// If a subscription stayed up at least this long before ending, treat it as a
+/// healthy run and reset the reconnect backoff.
+const HEALTHY_RUN_SECS: u64 = 60;
 
 pub struct SubscriptionWatcher {
     config: Arc<Config>,
@@ -234,48 +238,32 @@ impl SubscriptionWatcher {
             }
         });
 
+        let watcher_handles = vec![
+            peers_handle,
+            dns_handle,
+            certificates_handle,
+            domains_handle,
+            domain_aliases_handle,
+            files_handle,
+            unhealthy_nodes_handle,
+            cache_persist_handle,
+        ];
+
         tokio::select! {
             () = &mut tripwire => {
                 info!("Subscription watcher shutting down");
+                // each task also holds the tripwire and exits on its own
             }
-            res = peers_handle => {
-                if let Err(e) = res {
-                    error!("Peers watcher task failed: {e}");
+            (res, idx, rest) = futures::future::select_all(watcher_handles) => {
+                // a subscription task ended unexpectedly. Don't silently detach
+                // the others (which would leave subscriptions partially working);
+                // abort them so the whole unit stops and the supervisor notices.
+                match res {
+                    Ok(()) => warn!("Subscription watcher task {idx} exited unexpectedly"),
+                    Err(e) => error!("Subscription watcher task {idx} failed: {e}"),
                 }
-            }
-            res = dns_handle => {
-                if let Err(e) = res {
-                    error!("DNS records watcher task failed: {e}");
-                }
-            }
-            res = certificates_handle => {
-                if let Err(e) = res {
-                    error!("Certificates watcher task failed: {e}");
-                }
-            }
-            res = domains_handle => {
-                if let Err(e) = res {
-                    error!("Domains watcher task failed: {e}");
-                }
-            }
-            res = domain_aliases_handle => {
-                if let Err(e) = res {
-                    error!("Domain aliases watcher task failed: {e}");
-                }
-            }
-            res = files_handle => {
-                if let Err(e) = res {
-                    error!("Files watcher task failed: {e}");
-                }
-            }
-            res = unhealthy_nodes_handle => {
-                if let Err(e) = res {
-                    error!("Unhealthy nodes watcher task failed: {e}");
-                }
-            }
-            res = cache_persist_handle => {
-                if let Err(e) = res {
-                    error!("Cache persistence task failed: {e}");
+                for handle in rest {
+                    handle.abort();
                 }
             }
         }
@@ -295,6 +283,8 @@ impl SubscriptionWatcher {
         let mut backoff_secs = 1u64;
 
         loop {
+            let run_start = std::time::Instant::now();
+
             tokio::select! {
                 () = &mut tripwire => {
                     info!("{table_name} watcher shutting down");
@@ -304,8 +294,14 @@ impl SubscriptionWatcher {
                     if let Err(e) = result {
                         warn!("{table_name} subscription failed: {e}, retrying in {backoff_secs} seconds");
                     } else {
-                        backoff_secs = 1;
                         warn!("{table_name} subscription ended, retrying...");
+                    }
+
+                    // a subscription that stayed up for a while was healthy, so
+                    // reset the backoff rather than letting transient drops ramp
+                    // it up indefinitely
+                    if run_start.elapsed() >= Duration::from_secs(HEALTHY_RUN_SECS) {
+                        backoff_secs = 1;
                     }
 
                     sleep(Duration::from_secs(backoff_secs)).await;

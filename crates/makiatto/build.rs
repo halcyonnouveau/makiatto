@@ -21,7 +21,12 @@ fn main() {
     println!("cargo:rustc-env=DATABASE_URL=sqlite:{}", db_path.display());
     let _ = std::fs::remove_file(&db_path);
 
+    println!("cargo:rerun-if-changed=build.rs");
+
     let schemas_dir = Path::new("schemas");
+    // rerun if schema files are added or removed
+    println!("cargo:rerun-if-changed={}", schemas_dir.display());
+
     let mut schema_files = std::fs::read_dir(schemas_dir)
         .expect("Failed to read schemas directory")
         .collect::<Result<Vec<_>, _>>()
@@ -31,11 +36,13 @@ fn main() {
 
     let mut combined_sql = String::new();
     for entry in schema_files {
-        if let Some(ext) = entry.path().extension()
+        let path = entry.path();
+        if let Some(ext) = path.extension()
             && ext == "sql"
         {
-            let content =
-                std::fs::read_to_string(entry.path()).expect("Failed to read schema file");
+            // rerun if any individual schema file's contents change
+            println!("cargo:rerun-if-changed={}", path.display());
+            let content = std::fs::read_to_string(&path).expect("Failed to read schema file");
             combined_sql.push_str(&content);
             combined_sql.push('\n');
         }

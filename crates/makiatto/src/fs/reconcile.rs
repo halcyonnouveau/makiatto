@@ -35,7 +35,12 @@ use crate::{
 /// Returns an error if reconciliation fails
 pub async fn run_once(config: Arc<Config>) -> Result<()> {
     info!("Running startup filesystem reconciliation");
-    system::reconcile_all(&config).await?;
+    // Do not delete on-disk files during startup: a freshly started node's
+    // database may still be catching up via gossip, so disk can legitimately
+    // hold files that have no local row yet. Deleting them here would be data
+    // loss. Startup only fetches genuinely missing files; the periodic
+    // reconciliation handles orphan/content cleanup once replication settles.
+    system::reconcile_all(&config, false).await?;
     info!("Startup reconciliation completed");
     Ok(())
 }
@@ -63,7 +68,7 @@ pub async fn start(config: Arc<Config>, mut shutdown_rx: mpsc::Receiver<()>) -> 
             }
             _ = interval.tick() => {
                 info!("Starting filesystem reconciliation check");
-                if let Err(e) = system::reconcile_all(&config).await {
+                if let Err(e) = system::reconcile_all(&config, true).await {
                     error!("Filesystem reconciliation failed: {e}");
                 } else {
                     info!("Filesystem reconciliation completed successfully");
@@ -80,17 +85,27 @@ mod system {
     use super::*;
 
     /// Comprehensive system-wide reconciliation for all domains
-    pub async fn reconcile_all(config: &Config) -> Result<()> {
+    ///
+    /// When `allow_deletions` is false, only missing files are fetched and no
+    /// on-disk files or content are removed. This is used at startup, before
+    /// replication has necessarily settled, to avoid deleting valid data.
+    pub async fn reconcile_all(config: &Config, allow_deletions: bool) -> Result<()> {
         let mut issues_found = 0;
 
         // 1. check all DB records have corresponding files
         issues_found += reconcile_missing_files(config).await?;
 
-        // 2. check all domain files have DB records - remove those that don't
-        issues_found += reconcile_orphaned_files(config).await?;
+        if allow_deletions {
+            // 2. check all domain files have DB records - remove those that don't
+            issues_found += reconcile_orphaned_files(config).await?;
 
-        // 3. clean up unreferenced content files
-        issues_found += cleanup_orphaned_content(config).await?;
+            // 3. clean up unreferenced content files
+            issues_found += cleanup_orphaned_content(config).await?;
+        } else {
+            debug!(
+                "Skipping orphan and content cleanup (deletions disabled until replication settles)"
+            );
+        }
 
         if issues_found > 0 {
             warn!("Reconciliation found and fixed {issues_found} issues");
@@ -414,8 +429,9 @@ pub mod domain {
                     db_domain, db_path
                 );
 
-                let delete_sql = format!(
-                    "DELETE FROM files WHERE domain = '{db_domain}' AND path = '{db_path}'"
+                let delete_sql = corrosion::Statement::with_params(
+                    "DELETE FROM files WHERE domain = ? AND path = ?",
+                    vec![serde_json::json!(db_domain), serde_json::json!(db_path)],
                 );
                 delete_sqls.push(delete_sql);
                 deleted_count += 1;
@@ -451,6 +467,10 @@ async fn scan_directory_recursive(dir: &std::path::Path) -> Result<Vec<std::path
     if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
+            // skip the daemon's own staging temp files
+            if crate::fs::watcher::is_temp_file(&path) {
+                continue;
+            }
             if entry.file_type().await.is_ok_and(|t| t.is_file()) {
                 files.push(path);
             } else if entry.file_type().await.is_ok_and(|t| t.is_dir())
