@@ -74,7 +74,7 @@ jobs:
           cp -r crates/makiatto/wit makiatto-wit/
           tar -czf makiatto-wit.tar.gz makiatto-wit
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: makiatto-wit.tar.gz
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
