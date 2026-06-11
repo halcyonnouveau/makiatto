@@ -701,6 +701,30 @@ fn should_fallback_to_copy(err: &std::io::Error) -> bool {
     }
 }
 
+/// Check if an IO error is a cross-device (EXDEV) failure.
+fn is_cross_device(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::CrossesDevices || err.raw_os_error() == Some(18)
+}
+
+/// Copy `source` directly over `target`, overwriting it in place.
+///
+/// Used as the cross-filesystem fallback when an atomic hardlink+rename isn't
+/// possible. This overwrites the existing target's contents (rather than
+/// swapping it via rename), which keeps the change confined to a single
+/// in-place modification the file watcher can safely ignore as a no-op.
+async fn copy_over(source: &std::path::Path, target: &std::path::Path) -> Result<()> {
+    tokio::fs::copy(source, target)
+        .await
+        .map(|_| ())
+        .map_err(|e| {
+            miette::miette!(
+                "Failed to copy {} over {}: {e}",
+                source.display(),
+                target.display()
+            )
+        })
+}
+
 /// Create hardlink with fallback to copy for cross-filesystem scenarios
 async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> Result<()> {
     // Check if target already exists and is the same hardlink
@@ -713,13 +737,17 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
             return Ok(());
         }
 
-        // file exists but isn't the right hardlink - use atomic rename.
-        // place the temp file in the *target's* directory so the final rename is
-        // always within one filesystem (avoids EXDEV when storage and the site
-        // directory live on different filesystems)
+        // File exists but isn't the right hardlink — replace it atomically.
+        //
+        // Stage the temp hardlink in the SOURCE's (content storage) directory,
+        // which is NOT under the watched static_dir. Renaming from outside the
+        // watched tree produces a single MOVED_TO event for the target and never
+        // a spurious "removed" event. (Staging inside the watched tree made the
+        // file watcher observe the rename as a delete+create and tear down the
+        // file it had just linked.)
         let temp_filename = format!("{TEMP_FILE_PREFIX}{}", uuid::Uuid::new_v4());
 
-        let temp_path = target
+        let temp_path = source
             .parent()
             .unwrap_or(std::path::Path::new("/tmp"))
             .join(temp_filename);
@@ -734,6 +762,14 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
                     );
                     Ok(())
                 }
+                Err(ref e) if is_cross_device(e) => {
+                    // storage and the site directory are on different
+                    // filesystems, so the temp hardlink can't be renamed across
+                    // the boundary. Drop it and copy the content directly over
+                    // the target instead (in place, preserving the inode).
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    copy_over(source, target).await
+                }
                 Err(e) => {
                     let _ = tokio::fs::remove_file(&temp_path).await;
                     Err(miette::miette!("Failed to rename temp hardlink: {e}"))
@@ -747,17 +783,7 @@ async fn create_hardlink(source: &std::path::Path, target: &std::path::Path) -> 
                     source.display(),
                     target.display()
                 );
-                tokio::fs::copy(source, &temp_path)
-                    .await
-                    .map_err(|e| miette::miette!("Failed to copy file for fallback: {e}"))?;
-
-                match tokio::fs::rename(&temp_path, target).await {
-                    Ok(()) => Ok(()),
-                    Err(e) => {
-                        let _ = tokio::fs::remove_file(&temp_path).await;
-                        Err(miette::miette!("Failed to rename temp file: {e}"))
-                    }
-                }
+                copy_over(source, target).await
             }
             Err(e) => Err(miette::miette!(
                 "Failed to create temp hardlink {}: {e}",
