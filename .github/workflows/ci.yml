@@ -112,7 +112,7 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - name: Run release-plz
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@v0.5.129
         with:
           command: release-pr
         env:
@@ -143,7 +143,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - name: Run release-plz
         id: release
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@v0.5.129
         with:
           command: release
         env:
