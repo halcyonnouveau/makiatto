@@ -59,7 +59,7 @@ hickory-server = { version = "0.26", features = [
     "tls-aws-lc-rs",
     "quic-aws-lc-rs",
 ] }
-maxminddb = "0.27"
+maxminddb = "0.28"
 
 # Web
 axum = "0.8"
@@ -77,16 +77,16 @@ tower-http = { version = "0.6", features = ["fs", "compression-full", "timeout"]
 # O11y
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-opentelemetry = "0.32"
-opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
-opentelemetry-appender-tracing = "0.31"
-opentelemetry_sdk = { version = "0.31", features = [
+tracing-opentelemetry = "0.33"
+opentelemetry = { version = "0.32", features = ["metrics", "logs"] }
+opentelemetry-appender-tracing = "0.32"
+opentelemetry_sdk = { version = "0.32", features = [
     "rt-tokio",
     "metrics",
     "logs",
     "spec_unstable_metrics_views",
 ] }
-opentelemetry-otlp = { version = "0.31", features = [
+opentelemetry-otlp = { version = "0.32", features = [
     "metrics",
     "logs",
     "grpc-tonic",
@@ -95,7 +95,7 @@ opentelemetry-otlp = { version = "0.31", features = [
 # Utilities
 camino = "1.2"
 dashmap = "6.1"
-defguard_wireguard_rs = "0.9"
+defguard_wireguard_rs = "0.10"
 flate2 = "1.0"
 geo = "0.33"
 globset = "0.4"
@@ -126,7 +126,7 @@ imageflow_types = { git = "https://github.com/imazen/imageflow" }
 moka = { version = "0.12", features = ["future"] }
 
 # Testing
-ctor = "0.10"
+ctor = "1"
 testcontainers = "0.27"
 tokio-test = "0.4"
 
