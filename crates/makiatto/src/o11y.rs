@@ -4,14 +4,14 @@ use std::time::Duration;
 use miette::Result;
 use opentelemetry::{
     global,
-    trace::{SamplingDecision, SamplingResult, TraceContextExt, TracerProvider},
+    trace::{TraceContextExt, TracerProvider},
 };
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{
     Resource,
     logs::SdkLoggerProvider,
     metrics::{Aggregation, Instrument, PeriodicReader, SdkMeterProvider, Stream, Temporality},
-    trace::{Sampler, SdkTracerProvider},
+    trace::{Sampler, SamplingDecision, SamplingResult, SdkTracerProvider},
 };
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
