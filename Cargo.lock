@@ -2175,7 +2175,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2307,7 +2307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3610,17 +3610,17 @@ dependencies = [
  "base64 0.22.1",
  "blake2-rfc",
  "chrono",
- "digest 0.11.3",
+ "digest 0.10.7",
  "fnv",
  "lazy_static",
  "libc",
- "rand 0.10.1",
+ "rand 0.8.6",
  "regex-lite",
  "rgb",
  "serde",
  "serde_derive",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.10.9",
  "smallvec",
  "time",
  "twox-hash",
@@ -4812,7 +4812,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6212,7 +6212,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6290,7 +6290,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6311,7 +6311,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6454,7 +6454,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6806,7 +6806,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6961,7 +6961,7 @@ dependencies = [
 [[package]]
 name = "sqlx"
 version = "0.9.0"
-source = "git+https://github.com/launchbadge/sqlx#f8afe99dc92b903d04b4a87bd6cbfcb13b5e615c"
+source = "git+https://github.com/launchbadge/sqlx#3da582ad1dca5054ec8eda1c87b3b16ca079f47a"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -6973,7 +6973,7 @@ dependencies = [
 [[package]]
 name = "sqlx-core"
 version = "0.9.0"
-source = "git+https://github.com/launchbadge/sqlx#f8afe99dc92b903d04b4a87bd6cbfcb13b5e615c"
+source = "git+https://github.com/launchbadge/sqlx#3da582ad1dca5054ec8eda1c87b3b16ca079f47a"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -7006,7 +7006,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros"
 version = "0.9.0"
-source = "git+https://github.com/launchbadge/sqlx#f8afe99dc92b903d04b4a87bd6cbfcb13b5e615c"
+source = "git+https://github.com/launchbadge/sqlx#3da582ad1dca5054ec8eda1c87b3b16ca079f47a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7018,7 +7018,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros-core"
 version = "0.9.0"
-source = "git+https://github.com/launchbadge/sqlx#f8afe99dc92b903d04b4a87bd6cbfcb13b5e615c"
+source = "git+https://github.com/launchbadge/sqlx#3da582ad1dca5054ec8eda1c87b3b16ca079f47a"
 dependencies = [
  "cfg-if",
  "dotenvy",
@@ -7043,7 +7043,7 @@ dependencies = [
 [[package]]
 name = "sqlx-mysql"
 version = "0.9.0"
-source = "git+https://github.com/launchbadge/sqlx#f8afe99dc92b903d04b4a87bd6cbfcb13b5e615c"
+source = "git+https://github.com/launchbadge/sqlx#3da582ad1dca5054ec8eda1c87b3b16ca079f47a"
 dependencies = [
  "bitflags 2.13.0",
  "byteorder",
@@ -7068,7 +7068,7 @@ dependencies = [
 [[package]]
 name = "sqlx-postgres"
 version = "0.9.0"
-source = "git+https://github.com/launchbadge/sqlx#f8afe99dc92b903d04b4a87bd6cbfcb13b5e615c"
+source = "git+https://github.com/launchbadge/sqlx#3da582ad1dca5054ec8eda1c87b3b16ca079f47a"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -7102,7 +7102,7 @@ dependencies = [
 [[package]]
 name = "sqlx-sqlite"
 version = "0.9.0"
-source = "git+https://github.com/launchbadge/sqlx#f8afe99dc92b903d04b4a87bd6cbfcb13b5e615c"
+source = "git+https://github.com/launchbadge/sqlx#3da582ad1dca5054ec8eda1c87b3b16ca079f47a"
 dependencies = [
  "atoi",
  "flume",
@@ -7150,7 +7150,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7362,7 +7362,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7381,7 +7381,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8989,7 +8989,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
