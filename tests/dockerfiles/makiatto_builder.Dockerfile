@@ -7,7 +7,6 @@ RUN apt update && apt install -y \
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY benches ./benches
 COPY tests ./tests
 
 # Use lld linker for faster linking
