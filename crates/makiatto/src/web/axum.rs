@@ -18,7 +18,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use futures_util::pin_mut;
+use futures::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use miette::Result;

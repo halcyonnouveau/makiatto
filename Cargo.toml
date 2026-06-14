@@ -22,7 +22,6 @@ indicatif = "0.18"
 
 # Async runtime
 futures = "0.3"
-futures-util = "0.3"
 tokio = { version = "1.50", features = ["full"] }
 tokio-util = "0.7"
 
@@ -63,7 +62,6 @@ maxminddb = "0.28"
 
 # Web
 axum = "0.8"
-axum-extra = "0.12"
 hyper = "1.8"
 hyper-util = "0.1"
 http = "1.3"

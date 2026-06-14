@@ -9,7 +9,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use futures_util::FutureExt;
+use futures::FutureExt;
 use miette::{Result, miette};
 use opentelemetry::trace::TraceContextExt;
 use tracing_opentelemetry::OpenTelemetrySpanExt;

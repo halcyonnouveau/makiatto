@@ -2,7 +2,7 @@ use std::os::unix::fs::MetadataExt;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use blake3::Hasher;
-use futures_util::StreamExt;
+use futures::StreamExt;
 use miette::Result;
 use notify_debouncer_full::{
     DebounceEventResult, new_debouncer,

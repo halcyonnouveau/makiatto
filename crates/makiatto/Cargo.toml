@@ -22,7 +22,6 @@ tripwire = { workspace = true }
 
 argh = { workspace = true }
 axum = { workspace = true }
-axum-extra = { workspace = true }
 base64 = { workspace = true }
 blake3 = { workspace = true }
 crc32fast = { workspace = true }
@@ -30,7 +29,6 @@ dashmap = { workspace = true }
 defguard_wireguard_rs = { workspace = true }
 camino = { workspace = true }
 futures = { workspace = true }
-futures-util = { workspace = true }
 geo = { workspace = true }
 globset = { workspace = true }
 hickory-proto = { workspace = true }

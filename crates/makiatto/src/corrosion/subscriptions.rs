@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use corro_types::{api::QueryEvent, pubsub::ChangeType};
-use futures_util::StreamExt;
+use futures::StreamExt;
 use miette::Result;
 use tokio::time::{Duration, sleep};
 use tokio_util::{
