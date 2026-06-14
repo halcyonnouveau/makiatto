@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/halcyonnouveau/makiatto/compare/v0.6.0...v0.6.1) - 2026-06-12
+
+### Added
+
+- *(cli)* add `machine system-update` command for updating system packages
+- feat; add file sync to health check
+
+### Fixed
+
+- *(security)* harden untrusted-input boundaries across daemon and CLI ([#171](https://github.com/halcyonnouveau/makiatto/pull/171))
+
 ## [0.6.0](https://github.com/halcyonnouveau/makiatto/compare/v0.5.4...v0.6.0) - 2026-03-05
 
 ### Fixed
