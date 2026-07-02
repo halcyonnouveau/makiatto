@@ -49,7 +49,7 @@ sqlx = { version = "0.9", features = [
 
 # WASM Runtime
 wasmtime = "45"
-wasmtime-wasi = "45"
+wasmtime-wasi = "46"
 
 # DNS
 hickory-proto = "0.26"
