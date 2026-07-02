@@ -48,7 +48,7 @@ sqlx = { version = "0.9", features = [
 ] }
 
 # WASM Runtime
-wasmtime = "45"
+wasmtime = "46"
 wasmtime-wasi = "45"
 
 # DNS
