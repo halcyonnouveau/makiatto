@@ -39,7 +39,7 @@ toml = "1.0"
 base64 = "0.22"
 blake3 = "1.8"
 crc32fast = "1.5"
-x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
+x25519-dalek = { version = "3.0", features = ["getrandom", "static_secrets"] }
 
 # Database
 sqlx = { version = "0.9", features = [
