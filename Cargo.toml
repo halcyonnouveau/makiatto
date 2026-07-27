@@ -58,7 +58,7 @@ hickory-server = { version = "0.26", features = [
     "tls-aws-lc-rs",
     "quic-aws-lc-rs",
 ] }
-maxminddb = "0.28"
+maxminddb = "0.30"
 
 # Web
 axum = "0.8"
