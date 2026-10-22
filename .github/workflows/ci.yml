@@ -28,11 +28,11 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2.81.4
+        uses: taiki-e/install-action@v2.87.30
         with:
           tool: cargo-nextest
       - name: Run tests
@@ -42,11 +42,11 @@ jobs:
     name: Integration/e2e tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2.81.4
+        uses: taiki-e/install-action@v2.87.30
         with:
           tool: cargo-nextest
       - name: Build makiatto-builder image
@@ -69,7 +69,7 @@ jobs:
     name: Check for common code mistakes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
@@ -81,7 +81,7 @@ jobs:
     name: Check code format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
@@ -100,7 +100,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install Rust toolchain
@@ -112,7 +112,7 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - name: Run release-plz
-        uses: release-plz/action@v0.5.129
+        uses: release-plz/action@v0.5.144
         with:
           command: release-pr
         env:
@@ -128,7 +128,7 @@ jobs:
       releases_created: ${{ steps.release.outputs.releases_created }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: rust-lang/crates-io-auth-action@v1
@@ -143,7 +143,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - name: Run release-plz
         id: release
-        uses: release-plz/action@v0.5.129
+        uses: release-plz/action@v0.5.144
         with:
           command: release
         env:
