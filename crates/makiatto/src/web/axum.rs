@@ -155,52 +155,44 @@ async fn handle_request(
     let _enter = file_span.enter();
 
     let serve_dir = ServeDir::new(&domain_path);
-    match serve_dir.oneshot(final_request).await {
-        Ok(mut response) => {
-            let status = response.status();
-            let duration = start_time.elapsed();
-            span.record("http.status_code", status.as_u16());
+    // `ServeDir`'s error type is `Infallible`, so this cannot fail.
+    let mut response = serve_dir
+        .oneshot(final_request)
+        .await
+        .unwrap_or_else(|never| match never {});
 
-            let trace_id = span.context().span().span_context().trace_id().to_string();
-            response.headers_mut().insert(
-                "traceparent",
-                HeaderValue::from_str(&format!("00-{trace_id}-00")).unwrap(),
-            );
+    let status = response.status();
+    let duration = start_time.elapsed();
+    span.record("http.status_code", status.as_u16());
 
-            if status.is_client_error() || status.is_server_error() {
-                span.record("error", format!("HTTP {}", status.as_u16()));
-                error!("HTTP error: {method} {uri} -> {status} (trace_id={trace_id})");
+    let trace_id = span.context().span().span_context().trace_id().to_string();
+    response.headers_mut().insert(
+        "traceparent",
+        HeaderValue::from_str(&format!("00-{trace_id}-00")).unwrap(),
+    );
 
-                return Response::builder()
-                    .status(status)
-                    .header("traceparent", format!("00-{trace_id}-00"))
-                    .body(Body::from(format!("Request failed (trace_id={trace_id})")))
-                    .unwrap();
-            }
+    if status.is_client_error() || status.is_server_error() {
+        span.record("error", format!("HTTP {}", status.as_u16()));
+        error!("HTTP error: {method} {uri} -> {status} (trace_id={trace_id})");
 
-            debug!("HTTP {method} {uri} -> {status} (trace_id={trace_id})");
-
-            if duration > Duration::from_secs(1) {
-                span.record("slow", duration.as_millis());
-                warn!(
-                    "Slow HTTP request: {method} {uri} took {}ms",
-                    duration.as_millis()
-                );
-            }
-
-            response.map(Body::new)
-        }
-
-        Err(e) => {
-            span.record("error", e.to_string());
-            error!("Failed to serve file: {e}");
-
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("Error serving file"))
-                .unwrap()
-        }
+        return Response::builder()
+            .status(status)
+            .header("traceparent", format!("00-{trace_id}-00"))
+            .body(Body::from(format!("Request failed (trace_id={trace_id})")))
+            .unwrap();
     }
+
+    debug!("HTTP {method} {uri} -> {status} (trace_id={trace_id})");
+
+    if duration > Duration::from_secs(1) {
+        span.record("slow", duration.as_millis());
+        warn!(
+            "Slow HTTP request: {method} {uri} took {}ms",
+            duration.as_millis()
+        );
+    }
+
+    response.map(Body::new)
 }
 
 #[instrument(

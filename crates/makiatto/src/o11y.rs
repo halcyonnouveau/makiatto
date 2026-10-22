@@ -52,8 +52,7 @@ impl opentelemetry_sdk::trace::ShouldSample for SmartSampler {
                     decision: SamplingDecision::RecordAndSample,
                     attributes: Vec::new(),
                     trace_state: parent_context
-                        .map(|ctx| ctx.span().span_context().trace_state().clone())
-                        .unwrap_or_default(),
+                        .map_or_default(|ctx| ctx.span().span_context().trace_state().clone()),
                 };
             }
         }
