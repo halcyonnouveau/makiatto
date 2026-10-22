@@ -17,7 +17,7 @@ categories = ["command-line-utilities", "network-programming"]
 argh = "0.1"
 console = "0.16"
 dialoguer = "0.12"
-dirs = "6"
+dirs = "7"
 indicatif = "0.18"
 
 # Async runtime
@@ -36,10 +36,10 @@ serde_urlencoded = "0.7"
 toml = "1.0"
 
 # Cryptography
-base64 = "0.22"
+base64 = "0.23"
 blake3 = "1.8"
 crc32fast = "1.5"
-x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
+x25519-dalek = { version = "3.0", features = ["getrandom", "static_secrets"] }
 
 # Database
 sqlx = { version = "0.9", features = [
@@ -48,8 +48,8 @@ sqlx = { version = "0.9", features = [
 ] }
 
 # WASM Runtime
-wasmtime = "45"
-wasmtime-wasi = "45"
+wasmtime = "50"
+wasmtime-wasi = "50"
 
 # DNS
 hickory-proto = "0.26"
@@ -58,7 +58,7 @@ hickory-server = { version = "0.26", features = [
     "tls-aws-lc-rs",
     "quic-aws-lc-rs",
 ] }
-maxminddb = "0.28"
+maxminddb = "0.32"
 
 # Web
 axum = "0.8"
@@ -70,21 +70,21 @@ rustls = "0.23"
 rustls-pemfile = "2.2"
 tokio-rustls = "0.26"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "compression-full", "timeout"] }
+tower-http = { version = "0.7", features = ["fs", "compression-full", "timeout"] }
 
 # O11y
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-opentelemetry = "0.33"
-opentelemetry = { version = "0.32", features = ["metrics", "logs"] }
-opentelemetry-appender-tracing = "0.32"
-opentelemetry_sdk = { version = "0.32", features = [
+tracing-opentelemetry = "0.34"
+opentelemetry = { version = "0.33", features = ["metrics", "logs"] }
+opentelemetry-appender-tracing = "0.33"
+opentelemetry_sdk = { version = "0.33", features = [
     "rt-tokio",
     "metrics",
     "logs",
     "spec_unstable_metrics_views",
 ] }
-opentelemetry-otlp = { version = "0.32", features = [
+opentelemetry-otlp = { version = "0.33", features = [
     "metrics",
     "logs",
     "grpc-tonic",
@@ -93,7 +93,7 @@ opentelemetry-otlp = { version = "0.32", features = [
 # Utilities
 camino = "1.2"
 dashmap = "6.1"
-defguard_wireguard_rs = "0.10"
+defguard_wireguard_rs = "0.12"
 flate2 = "1.0"
 geo = "0.33"
 globset = "0.4"
@@ -101,10 +101,10 @@ indoc = "2.0"
 jiff = "0.2"
 notify-debouncer-full = "0.7"
 rand = "0.10"
-reqwest = { version = "0.12", features = [
+reqwest = { version = "0.13", features = [
     "json",
     "stream",
-    "rustls-tls",
+    "rustls",
     "http2",
 ], default-features = false }
 libc = "0.2"
@@ -125,7 +125,7 @@ moka = { version = "0.12", features = ["future"] }
 
 # Testing
 ctor = "1"
-testcontainers = "0.27"
+testcontainers = "0.28"
 tokio-test = "0.4"
 
 [patch.crates-io]

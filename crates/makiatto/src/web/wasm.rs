@@ -207,9 +207,7 @@ pub(crate) fn create_store_data(
 
     // Preopen domain directory for file system access (sandboxed to domain, read-only)
     if let Some(dir) = domain_dir {
-        let dir_perms = wasmtime_wasi::DirPerms::READ;
-        let file_perms = wasmtime_wasi::FilePerms::READ;
-        let _ = builder.preopened_dir(dir, "/", dir_perms, file_perms);
+        let _ = builder.preopened_dir(dir, "/", wasmtime_wasi::FsPerms::ReadOnly);
     }
 
     let wasi = builder.build();
