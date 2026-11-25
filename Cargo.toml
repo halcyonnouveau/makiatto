@@ -98,7 +98,7 @@ flate2 = "1.0"
 geo = "0.33"
 globset = "0.4"
 indoc = "2.0"
-jiff = "0.2"
+jiff = "1.0"
 notify-debouncer-full = "0.7"
 rand = "0.10"
 reqwest = { version = "0.13", features = [
